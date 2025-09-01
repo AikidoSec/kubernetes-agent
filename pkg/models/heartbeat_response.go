@@ -8,9 +8,9 @@ import (
 )
 
 type HeartbeatResponse struct {
-	Cluster            Cluster `json:"cluster"`
-	Token              string  `json:"token"`
-	MonitoredResources []schema.GroupVersionKind
+	Cluster            Cluster                   `json:"cluster"`
+	Token              string                    `json:"token"`
+	MonitoredResources []schema.GroupVersionKind `json:"monitoredResources"`
 }
 
 func (h *HeartbeatResponse) FromJSON(r io.Reader) error {

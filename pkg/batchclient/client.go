@@ -238,7 +238,7 @@ func (c *BatchClient) send(events []any, attempt int) {
 	} else {
 		_, err := buf.Write(raw)
 		if err != nil {
-			c.logger.Error(err, "error compressing events")
+			c.logger.Error(err, "error writing events to buffer")
 			return
 		}
 	}
@@ -273,10 +273,7 @@ func (c *BatchClient) send(events []any, attempt int) {
 		// If the request failed, we'll retry sending the same batch after a delay until we succeed
 		time.Sleep(delay)
 		c.send(events, attempt)
-		return
 	}
-
-	return
 }
 
 func (c *BatchClient) SetAPIToken(token string) {

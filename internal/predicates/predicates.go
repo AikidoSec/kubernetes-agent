@@ -32,7 +32,7 @@ func GetPredicatesForGVK(gvk string, excludedNamespaces []string) predicate.Pred
 	switch gvk {
 	case "/v1, Kind=Pod":
 		return NewPodPredicate(excludedNamespaces)
-	case "/v1, ServiceAccount":
+	case "/v1, Kind=ServiceAccount":
 		return NewServiceAccountPredicate(excludedNamespaces)
 	case "/v1, Kind=Service", "networking.k8s.io/v1, Kind=Ingress":
 		return NewServicePredicate(excludedNamespaces)

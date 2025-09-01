@@ -190,7 +190,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			PendingMu:    sync.Mutex{},
 			Pending:      make(map[string]struct{}),
 		}).SetupWithManager(runtimeManager, excludedNamespaces); err != nil {
-			return fmt.Errorf("error creating watche (%s): %w", v.String(), err)
+			return fmt.Errorf("error creating watcher (%s): %w", v.String(), err)
 		}
 	}
 
@@ -216,7 +216,9 @@ func (s *Service) LoadAgentVersionFromContext(ctx context.Context) error {
 
 	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
 	if !ok {
-		s.logger.ReportError(ctx, err, "agent version label not found on deployment", "deployment", s.agentName, "namespace", s.agentNamespace)
+		s.logger.ReportError(ctx, fmt.Errorf("invalid app.kubernetes.io/version label"),
+			"agent version label not found on deployment", "managerError",
+			"deployment", s.agentName, "namespace", s.agentNamespace)
 		return fmt.Errorf("agent version label not found on deployment")
 	}
 	s.agentVersion = agentVersion
