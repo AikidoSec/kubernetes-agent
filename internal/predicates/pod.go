@@ -1,0 +1,77 @@
+package predicates
+
+import (
+	"log"
+
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+)
+
+func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			// Pods that were not part of the initial snapshot that was received when the informer was created are
+			// excluded because they are in a transient state and may not have all fields populated yet.
+			if !e.IsInInitialList {
+				return false
+			}
+
+			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if IsObjectFromExcludedNamespace(e.ObjectNew, excludedNamespaces) {
+				return false
+			}
+
+			oldPod, err := podFromUnstructured(e.ObjectOld)
+			if err != nil {
+				log.Println("error converting old object to Pod:", err)
+				return false
+			}
+
+			newPod, err := podFromUnstructured(e.ObjectNew)
+			if err != nil {
+				log.Println("error converting new object to Pod:", err)
+				return false
+			}
+
+			if !IsPodInReadyState(newPod) {
+				return false
+			}
+
+			// If the Pod status changed to 'Running' from 'Pending', trigger reconciliation
+			// In this case the spec did not change but the Pod is now ready and we want to capture that event
+			if newPod.Status.Phase == v1.PodRunning && oldPod.Status.Phase == v1.PodPending {
+				return true
+			}
+
+			return IsSpecModified(e)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+		},
+	}
+}
+
+func IsPodInReadyState(pod v1.Pod) bool {
+	return pod.Status.Phase == v1.PodRunning || pod.Status.Phase == v1.PodSucceeded
+}
+
+func podFromUnstructured(obj client.Object) (v1.Pod, error) {
+	unstructuredObj, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return v1.Pod{}, nil
+	}
+
+	var pod v1.Pod
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), &pod)
+	if err != nil {
+		return v1.Pod{}, err
+	}
+
+	return pod, nil
+}
