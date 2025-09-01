@@ -261,6 +261,11 @@ func (c *BatchClient) send(events []any, attempt int) {
 		c.logger.Error(err, "error executing request", "endpoint", c.endpoint)
 		return
 	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			c.logger.Error(err, "error closing response body", "endpoint", c.endpoint)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		c.logger.Error(nil, "error executing request", "endpoint", c.endpoint, "statusCode", resp.StatusCode)
