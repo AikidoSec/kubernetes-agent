@@ -111,21 +111,6 @@ func (c *BatchClient) SendContext(ctx context.Context, e any) error {
 	}
 }
 
-func (c *BatchClient) TrySend(e any) bool {
-	c.mu.Lock()
-	closed := c.closed
-	c.mu.Unlock()
-	if closed {
-		return false
-	}
-	select {
-	case c.eventsCh <- e:
-		return true
-	default:
-		return false
-	}
-}
-
 func (c *BatchClient) Close(ctx context.Context) error {
 	c.mu.Lock()
 	if c.closed {
@@ -271,7 +256,7 @@ func (c *BatchClient) send(events []any, attempt int) {
 		c.logger.Error(nil, "error executing request", "endpoint", c.endpoint, "statusCode", resp.StatusCode)
 
 		// Exponential backoff with jitter
-		d := rand.IntN(max(5, attempt)) * 5
+		d := rand.IntN(min(5, attempt)) * 5
 		delay := time.Duration(d) * time.Second
 		attempt++
 

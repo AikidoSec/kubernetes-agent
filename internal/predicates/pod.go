@@ -39,7 +39,9 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 				return false
 			}
 
-			if !IsPodInReadyState(newPod) {
+			// Check if the Pod is in ready state or if the pod has failed
+			// We need to check failed pods as well because they can still execute partially before failing
+			if newPod.Status.Phase == v1.PodRunning || newPod.Status.Phase == v1.PodSucceeded || newPod.Status.Phase == v1.PodFailed {
 				return false
 			}
 
@@ -55,10 +57,6 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
 		},
 	}
-}
-
-func IsPodInReadyState(pod v1.Pod) bool {
-	return pod.Status.Phase == v1.PodRunning || pod.Status.Phase == v1.PodSucceeded
 }
 
 func podFromUnstructured(obj client.Object) (v1.Pod, error) {

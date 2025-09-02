@@ -57,3 +57,9 @@ func (s *Service) SetAPIToken(token string) {
 func (s *Service) GetLogger() logr.Logger {
 	return s.logger
 }
+
+func (s *Service) Close(ctx context.Context) {
+	if err := s.OutputClient.Close(ctx); err != nil {
+		s.logger.Error(err, "error closing output client")
+	}
+}

@@ -39,8 +39,10 @@ func init() {
 // nolint:gocyclo
 func main() {
 	var probeAddr, configFile string
+	var heartbeatIntervalSeconds int
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&configFile, "config", "/etc/kubernetes-agent/config.yaml", "The path to the configuration file.")
+	flag.IntVar(&heartbeatIntervalSeconds, "heartbeat-interval", 30, "The interval in seconds between heartbeats.")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -57,7 +59,7 @@ func main() {
 		ns = defaultNamespace
 	}
 
-	agentName, exists := os.LookupEnv("AGENT_NAME")
+	podName, exists := os.LookupEnv("POD_NAME")
 	if !exists {
 		setupLog.Error(fmt.Errorf("missing agent name from env"), "unable to get agent name from env")
 		os.Exit(1)
@@ -70,7 +72,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	heartbeatService := heartbeat.NewService(cfg.APIEndpoint, cfg.APIToken, time.Second*2)
+	heartbeatService := heartbeat.NewService(cfg.APIEndpoint, cfg.APIToken, time.Second*time.Duration(heartbeatIntervalSeconds))
 	errorsClient, err := batchclient.NewBatchClient(setupLog, batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/errors",
 		MaxBatch:              1000,
@@ -85,11 +87,12 @@ func main() {
 		os.Exit(1)
 	}
 	loggerService := logger.NewService(setupLog, errorsClient)
+	defer loggerService.Close(ctx)
 
-	agentService, err := manager.NewService(manager.Options{
+	agentService, err := manager.NewService(ctx, manager.Options{
 		Logger:           loggerService,
 		AgentNamespace:   ns,
-		PodName:          agentName,
+		PodName:          podName,
 		APIToken:         cfg.APIToken,
 		HeartbeatService: heartbeatService,
 	})
@@ -126,5 +129,5 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
-	agentService.StopHeartbeat()
+	agentService.Close(ctx)
 }

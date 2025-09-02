@@ -45,20 +45,23 @@ type Service struct {
 	assetsOutputClient  *batchclient.BatchClient
 }
 
-func NewService(o Options) (*Service, error) {
+func NewService(ctx context.Context, o Options) (*Service, error) {
 	ctrlConfig, err := ctrlconfig.GetConfig()
 	if err != nil {
+		o.Logger.ReportError(ctx, err, "error getting kubeconfig", "managerError")
 		return nil, fmt.Errorf("error getting kubeconfig: %w", err)
 	}
 
 	clientSet, err := kubernetes.NewForConfig(ctrlConfig)
 	if err != nil {
+		o.Logger.ReportError(ctx, err, "error getting kubernetes clientSet", "managerError")
 		return nil, fmt.Errorf("error creating kubernetes client: %w", err)
 	}
 
 	// Extract the agent name from the Pod name by removing the last two components (replicaset name and random suffix)
 	agentNameComponents := strings.Split(o.PodName, "-")
 	if len(agentNameComponents) < 2 {
+		o.Logger.ReportError(ctx, fmt.Errorf("invalid agent name: %s", o.PodName), "invalid agent name", "managerError")
 		return nil, fmt.Errorf("invalid agent name: %s", o.PodName)
 	}
 	deploymentName := strings.Join(agentNameComponents[:len(agentNameComponents)-2], "-")
@@ -106,25 +109,36 @@ func (s *Service) StopHeartbeat() {
 	s.heartbeatChan <- struct{}{}
 }
 
+func (s *Service) Close(ctx context.Context) {
+	s.StopHeartbeat()
+
+	if err := s.assetsOutputClient.Close(ctx); err != nil {
+		s.logger.ReportError(ctx, err, "error closing assets output client", "managerError")
+	}
+}
+
 // SendHeartbeat sends a heartbeat to the management server and processes the response
 func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
 	resp, err := s.heartbeatService.SendHeartbeat(ctx, s.agentVersion)
 	if err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error sending heartbeat request")
+		s.logger.ReportError(ctx, err, "error sending heartbeat", "managerError")
 		return models.HeartbeatResponse{}, err
 	}
 
 	// If the token has changed, update it in the service, output clients and in the agent Kubernetes secret
 	if s.apiToken != resp.Token && resp.Token != "" {
 		s.logger.LogInfo("API token updated from heartbeat response")
-		s.UpdateAPIToken(ctx, resp.Token)
+		if err := s.UpdateAPIToken(ctx, resp.Token); err != nil {
+			s.logger.ReportError(ctx, err, "error updating agent API token", "managerError")
+			return resp, err
+		}
 	}
 
 	// If the agent version has changed, update the deployment with the new image version which will also trigger a restart
-	if s.agentVersion != resp.Cluster.AgentVersion {
-		s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.agentVersion, "new version", resp.Cluster.AgentVersion)
-		if err := s.UpdateAgentVersion(ctx, resp.Cluster.AgentVersion); err != nil {
-			s.logger.ReportError(ctx, err, "managerError", "error updating agent version")
+	if s.agentVersion != resp.Cluster.DesiredAgentVersion {
+		s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.agentVersion, "new version", resp.Cluster.DesiredAgentVersion)
+		if err := s.UpdateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
+			s.logger.ReportError(ctx, err, "error updating agent version", "managerError")
 			return resp, err
 		}
 	}
@@ -133,7 +147,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	if !slices.Equal(s.excludedNamespaces, resp.Cluster.ExcludedNamespaces) {
 		s.logger.LogInfo("excluded namespaces changed, restarting agent")
 		if err := s.RestartAgent(ctx); err != nil {
-			s.logger.ReportError(ctx, err, "managerError", "error restarting agent after excluded namespaces change")
+			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
 	}
@@ -144,14 +158,14 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager) error {
 	// Load the agent version from the deployment labels
 	if err := s.LoadAgentVersionFromContext(ctx); err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error loading agent version from context")
+		s.logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
 		return fmt.Errorf("error loading agent version from context: %w", err)
 	}
 
 	// Send the initial heartbeat to get the monitored resources and agent configuration
 	hb, err := s.heartbeatService.SendHeartbeat(ctx, s.agentVersion)
 	if err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error sending initial heartbeat")
+		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
 		return fmt.Errorf("error sending initial heartbeat: %w", err)
 	}
 	s.excludedNamespaces = hb.Cluster.ExcludedNamespaces
@@ -166,7 +180,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		HeartbeatService:      s.heartbeatService,
 	})
 	if err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error creating assets batch client")
+		s.logger.ReportError(ctx, err, "error creating assets batch client", "managerError")
 		return fmt.Errorf("error creating assets batch client: %w", err)
 	}
 	s.assetsOutputClient = assetsClient
@@ -190,6 +204,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			PendingMu:    sync.Mutex{},
 			Pending:      make(map[string]struct{}),
 		}).SetupWithManager(runtimeManager, excludedNamespaces); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new watcher", "managerError")
 			return fmt.Errorf("error creating watcher (%s): %w", v.String(), err)
 		}
 	}
@@ -210,15 +225,11 @@ func (s *Service) LoadAgentVersionFromContext(ctx context.Context) error {
 
 	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.agentNamespace).Get(ctx, s.agentName, v1.GetOptions{})
 	if err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error getting agent deployment")
 		return fmt.Errorf("error getting agent deployment: %w", err)
 	}
 
 	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
 	if !ok {
-		s.logger.ReportError(ctx, fmt.Errorf("invalid app.kubernetes.io/version label"),
-			"agent version label not found on deployment", "managerError",
-			"deployment", s.agentName, "namespace", s.agentNamespace)
 		return fmt.Errorf("agent version label not found on deployment")
 	}
 	s.agentVersion = agentVersion
@@ -235,7 +246,6 @@ func (s *Service) RestartAgent(ctx context.Context) error {
 
 	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.agentNamespace).Get(ctx, s.agentName, v1.GetOptions{})
 	if err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error getting agent deployment")
 		return fmt.Errorf("error getting agent deployment: %w", err)
 	}
 
@@ -259,7 +269,6 @@ func (s *Service) UpdateAgentVersion(ctx context.Context, newVersion string) err
 
 	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.agentNamespace).Get(ctx, s.agentName, v1.GetOptions{})
 	if err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error getting agent deployment")
 		return fmt.Errorf("error getting agent deployment: %w", err)
 	}
 
@@ -278,44 +287,51 @@ func (s *Service) UpdateAgentVersion(ctx context.Context, newVersion string) err
 		return fmt.Errorf("update deployment: %w", err)
 	}
 
+	// We're setting the agent version to prevent multiple updates of the deployment if the heartbeat interval is
+	// shorter than the time it takes for the deployment to roll out
 	s.agentVersion = newVersion
 	return nil
 }
 
 // UpdateAPIToken updates the API token in the service, output clients and in the agent Kubernetes secret
-func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) {
+func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
+	if err := s.updateAgentSecret(ctx, newToken); err != nil {
+		return fmt.Errorf("error updating agent secret: %w", err)
+	}
 	s.apiToken = newToken
 
 	// Set the token for the output clients
 	s.assetsOutputClient.SetAPIToken(s.apiToken)
 	s.logger.SetAPIToken(s.apiToken)
 
-	// Update the token in the agent secret
+	// Set the heartbeat service token
+	s.heartbeatService.SetAPIToken(s.apiToken)
+
+	return nil
+}
+
+// updateAgentSecret identifies the agent secret in Kubernetes using the agent name and namespace and updates the API token
+func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error {
 	secret, err := s.kubernetesClientSet.CoreV1().Secrets(s.agentNamespace).Get(ctx, s.agentName, v1.GetOptions{})
 	if err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error getting agent secret to update API token")
-		return
+		return fmt.Errorf("error getting agent secret to update API token: %w", err)
 	}
 
 	var cfg models.Config
 	if err := yaml.Unmarshal(secret.Data["config.yaml"], &cfg); err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error unmarshalling agent config from secret")
-		return
+		return fmt.Errorf("error unmarshalling agent config from secret: %w", err)
 	}
 	cfg.APIToken = newToken
 
 	newCfgData, err := yaml.Marshal(cfg)
 	if err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error marshalling updated agent config")
-		return
+		return fmt.Errorf("error marshalling updated agent config: %w", err)
 	}
 	secret.Data["config.yaml"] = newCfgData
 
 	if _, err := s.kubernetesClientSet.CoreV1().Secrets(s.agentNamespace).Update(ctx, secret, v1.UpdateOptions{}); err != nil {
-		s.logger.ReportError(ctx, err, "managerError", "error updating agent secret with new API token")
-		return
+		return fmt.Errorf("error updating agent secret with new API token: %w", err)
 	}
 
-	// Set the heartbeat service token
-	s.heartbeatService.SetAPIToken(s.apiToken)
+	return nil
 }

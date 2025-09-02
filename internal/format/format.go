@@ -15,7 +15,7 @@ func formatSecret(obj *unstructured.Unstructured) *unstructured.Unstructured {
 	// Create a deep copy of the original object to avoid modifying it directly
 	formattedObj := obj.DeepCopy()
 
-	// Redact all data from the secret
+	// Remove all data from the secret
 	data, ok := formattedObj.Object["data"].(map[string]interface{})
 	if !ok {
 		formattedObj.Object["data"] = map[string]interface{}{}
