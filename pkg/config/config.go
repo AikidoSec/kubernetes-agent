@@ -23,5 +23,10 @@ func ParseConfigFromFile(path string) (models.Config, error) {
 		return models.Config{}, fmt.Errorf("invalid config file %s: %w", path, err)
 	}
 
+	// Remove the trailing slash if present
+	if config.APIEndpoint[len(config.APIEndpoint)-1] == '/' {
+		config.APIEndpoint = config.APIEndpoint[:len(config.APIEndpoint)-1]
+	}
+
 	return config, nil
 }

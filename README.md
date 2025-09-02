@@ -23,7 +23,7 @@ You can run the agent locally against your current Kubernetes context (`~/.kube/
 Before running the agent, set the following:
 
 ```bash
-export AGENT_NAME="kubernetes-agent-rs001-001"
+export POD_NAME="kubernetes-agent-rs001-001"
 export AGENT_NAMESPACE="aikido"
 export ENVIRONMENT="local"
 ```
@@ -33,8 +33,8 @@ export ENVIRONMENT="local"
 The agent expects a config file (YAML) containing authentication and backend information:
 
 ```yaml
-apiToken: "<your-api-token>"
-apiEndpoint: "https://backend.example.com/api/events"
+apiToken: '<your-api-token>'
+apiEndpoint: 'http://localhost:8082'
 ```
 
 Save this file as config.yaml (the name needs to match the `config` parameter send to the program).
@@ -79,7 +79,7 @@ This command will create a new namespace called `aikido` if it doesn’t already
 ```bash
 helm install kubernetes-agent ./kubernetes-agent -n aikido \
   --set image.repository=kubernetes-agent:$imageTag \
-  --set config.apiEndpoint=$endpoint \
-  --set config.apiToken=$token \
+  --set config.apiEndpoint=$apiEndpoint \
+  --set config.apiToken=$apiToken \
   --create-namespace
 ```

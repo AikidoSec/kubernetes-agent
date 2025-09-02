@@ -9,10 +9,10 @@ type Config struct {
 
 func (c *Config) Validate() error {
 	if c.APIToken == "" {
-		return fmt.Errorf("api_token is required")
+		return fmt.Errorf("apiToken is required")
 	}
 	if c.APIEndpoint == "" {
-		return fmt.Errorf("api_endpoint is required")
+		return fmt.Errorf("apiEndpoint is required")
 	}
 	return nil
 }

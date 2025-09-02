@@ -60,7 +60,7 @@ func (s *Service) sendHeartbeatRequest(ctx context.Context, agentVersion string)
 	payloadBody := strings.NewReader(string(payloadBytes))
 
 	client := &http.Client{}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/heartbeat", s.APIEndpoint), payloadBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/api/heartbeat", s.APIEndpoint), payloadBody)
 
 	if err != nil {
 		return models.HeartbeatResponse{}, fmt.Errorf("error creating request: %w", err)

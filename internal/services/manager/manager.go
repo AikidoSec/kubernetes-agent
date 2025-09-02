@@ -15,7 +15,7 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"gopkg.in/yaml.v3"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -171,7 +171,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.excludedNamespaces = hb.Cluster.ExcludedNamespaces
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
-		Endpoint:              cfg.APIEndpoint + "/assets",
+		Endpoint:              cfg.APIEndpoint + "/api/assets",
 		MaxBatch:              1000,
 		FlushEvery:            time.Second * 10,
 		MaxConcurrentRequests: 10,

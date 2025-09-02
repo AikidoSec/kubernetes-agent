@@ -74,7 +74,7 @@ func main() {
 
 	heartbeatService := heartbeat.NewService(cfg.APIEndpoint, cfg.APIToken, time.Second*time.Duration(heartbeatIntervalSeconds))
 	errorsClient, err := batchclient.NewBatchClient(setupLog, batchclient.ClientOptions{
-		Endpoint:              cfg.APIEndpoint + "/errors",
+		Endpoint:              cfg.APIEndpoint + "/api/errors",
 		MaxBatch:              1000,
 		FlushEvery:            time.Second * 10,
 		MaxConcurrentRequests: 10,
