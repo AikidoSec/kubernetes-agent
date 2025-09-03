@@ -67,7 +67,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	obj.SetName(req.Name)
 	obj.SetNamespace(req.Namespace)
 
-	objectID := string(obj.GetUID())
+	objectID := req.NamespacedName.String()
 
 	// set event type
 	var eventType models.EventType
@@ -97,7 +97,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	}
 
 	payload := models.AssetPayload{
-		ObjectUID: string(obj.GetUID()),
+		ObjectUID: objectID,
 		Metadata:  string(metadata),
 		EventType: eventType,
 		EventTime: eventTime,
