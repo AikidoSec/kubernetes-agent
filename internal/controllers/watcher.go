@@ -67,7 +67,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	obj.SetName(req.Name)
 	obj.SetNamespace(req.Namespace)
 
-	objectID := r.Watched.GroupVersionKind.String() + "/" + req.String()
+	objectID := r.Watched.String() + "/" + req.String()
 
 	// set event type
 	var eventType models.EventType
