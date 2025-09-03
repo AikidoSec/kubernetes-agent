@@ -40,14 +40,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.DEV_AWS_ROLE_ARN }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and Push Docker Image
         run: |
-          IMAGE_NAME=docker.io/${{ secrets.DOCKER_USERNAME }}/kubernetes-agent
-          docker build -t $IMAGE_NAME:${VERSION} .
-          docker push $IMAGE_NAME:${VERSION}
+          docker build -t ${{ vars.DEV_ACCOUNT_ID }}.dkr.ecr.eu-west-1.amazonaws.com/kubernetes-agent:${VERSION} .
+          
+      - name: Push image
+        run: docker push ${{ vars.DEV_ACCOUNT_ID }}.dkr.ecr.eu-west-1.amazonaws.com/kubernetes-agent:${VERSION}

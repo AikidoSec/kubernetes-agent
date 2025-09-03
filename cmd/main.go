@@ -61,7 +61,7 @@ func main() {
 
 	podName, exists := os.LookupEnv("POD_NAME")
 	if !exists {
-		setupLog.Error(fmt.Errorf("missing agent name from env"), "unable to get agent name from env")
+		setupLog.Error(fmt.Errorf("missing pod name from env"), "unable to get pod name from env")
 		os.Exit(1)
 	}
 
