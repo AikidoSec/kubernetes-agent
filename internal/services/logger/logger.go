@@ -3,19 +3,19 @@ package logger
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
-	"github.com/go-logr/logr"
 )
 
 type Service struct {
-	logger       logr.Logger
+	logger       *slog.Logger
 	OutputClient *batchclient.BatchClient
 }
 
-func NewService(logger logr.Logger, outputClient *batchclient.BatchClient) *Service {
+func NewService(logger *slog.Logger, outputClient *batchclient.BatchClient) *Service {
 	return &Service{
 		logger:       logger,
 		OutputClient: outputClient,
@@ -27,14 +27,14 @@ func (s *Service) ReportError(ctx context.Context, err error, message string, er
 		return
 	}
 
-	s.logger.Error(err, message, args...)
+	s.logger.Error(fmt.Sprintf("%s: %s", message, err.Error()), args...)
 
 	if err := s.OutputClient.SendContext(ctx, models.AgentError{
 		Error:     fmt.Sprintf("%s: %s", message, err.Error()),
 		ErrorType: errorType,
 		SeenAt:    time.Now().UTC(),
 	}); err != nil {
-		s.logger.Error(err, "error sending error report to API")
+		s.logger.Error(fmt.Sprintf("error sending agent errors: %s", err.Error()), args...)
 	}
 }
 
@@ -43,7 +43,7 @@ func (s *Service) LogError(err error, message string, args ...any) {
 		return
 	}
 
-	s.logger.Error(err, message, args...)
+	s.logger.Error(fmt.Sprintf("%s: %s", message, err.Error()), args...)
 }
 
 func (s *Service) LogInfo(message string, args ...any) {
@@ -54,12 +54,12 @@ func (s *Service) SetAPIToken(token string) {
 	s.OutputClient.SetAPIToken(token)
 }
 
-func (s *Service) GetLogger() logr.Logger {
+func (s *Service) GetLogger() *slog.Logger {
 	return s.logger
 }
 
 func (s *Service) Close(ctx context.Context) {
 	if err := s.OutputClient.Close(ctx); err != nil {
-		s.logger.Error(err, "error closing output client")
+		s.logger.Error("error closing output client", slog.String("error", err.Error()))
 	}
 }

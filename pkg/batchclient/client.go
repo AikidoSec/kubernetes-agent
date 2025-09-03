@@ -6,13 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"sync"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
-	"github.com/go-logr/logr"
 )
 
 type ClientOptions struct {
@@ -26,7 +26,7 @@ type ClientOptions struct {
 }
 
 type BatchClient struct {
-	logger logr.Logger
+	logger *slog.Logger
 	// target HTTP endpoint
 	endpoint string
 	// maximum events per batch
@@ -52,7 +52,7 @@ type BatchClient struct {
 	batch []any
 }
 
-func NewBatchClient(logger logr.Logger, o ClientOptions) (*BatchClient, error) {
+func NewBatchClient(logger *slog.Logger, o ClientOptions) (*BatchClient, error) {
 	if o.Endpoint == "" {
 		return nil, fmt.Errorf("endpoint value is required")
 	}
@@ -184,7 +184,7 @@ func (c *BatchClient) flush() {
 			break
 		}
 
-		time.Sleep(c.heartbeatService.GetSendInterval())
+		time.Sleep(c.heartbeatService.GetSendInterval() * time.Second)
 	}
 
 	go func() {
@@ -205,7 +205,7 @@ func (c *BatchClient) send(events []any, attempt int) {
 	// Marshal JSON
 	raw, err := json.Marshal(events)
 	if err != nil {
-		c.logger.Error(err, "error marshaling events")
+		c.logger.Error("error marshaling events", "error", err)
 		return
 	}
 
@@ -213,17 +213,17 @@ func (c *BatchClient) send(events []any, attempt int) {
 	if c.compressionEnabled {
 		gz := gzip.NewWriter(&buf)
 		if _, err := gz.Write(raw); err != nil {
-			c.logger.Error(err, "error compressing events")
+			c.logger.Error("error compressing events", "error", err)
 			return
 		}
 		if err := gz.Close(); err != nil {
-			c.logger.Error(err, "error closing gzip writer")
+			c.logger.Error("error closing gzip writer", "error", err)
 			return
 		}
 	} else {
 		_, err := buf.Write(raw)
 		if err != nil {
-			c.logger.Error(err, "error writing events to buffer")
+			c.logger.Error("error compressing events", "error", err)
 			return
 		}
 	}
@@ -231,7 +231,7 @@ func (c *BatchClient) send(events []any, attempt int) {
 	r := bytes.NewReader(buf.Bytes())
 	req, err := http.NewRequest(http.MethodPost, c.endpoint, r)
 	if err != nil {
-		c.logger.Error(err, "error creating request", "endpoint", c.endpoint)
+		c.logger.Error("error creating request", "error", err)
 		return
 	}
 	req.Header.Add("Content-Type", "application/json")
@@ -243,17 +243,19 @@ func (c *BatchClient) send(events []any, attempt int) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.logger.Error(err, "error executing request", "endpoint", c.endpoint)
+		c.logger.Error("error sending request", "error", err)
 		return
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			c.logger.Error(err, "error closing response body", "endpoint", c.endpoint)
+			c.logger.Error("error closing response body", "error", err)
 		}
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		c.logger.Error(nil, "error executing request", "endpoint", c.endpoint, "statusCode", resp.StatusCode)
+		if attempt == 1 {
+			c.logger.Error("error sending request", "attempt", attempt, "error", resp.Status)
+		}
 
 		// Exponential backoff with jitter
 		d := rand.IntN(min(5, attempt)) * 5
