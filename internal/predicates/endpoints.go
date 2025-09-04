@@ -18,11 +18,13 @@ func NewEndpointsPredicates(excludedNamespaces []string) predicate.Predicate {
 				return false
 			}
 
+			//nolint:staticcheck
 			oldObj, ok := e.ObjectOld.(*v1.Endpoints)
 			if !ok {
 				return false
 			}
 
+			//nolint:staticcheck
 			newObj, ok := e.ObjectNew.(*v1.Endpoints)
 			if !ok {
 				return false
