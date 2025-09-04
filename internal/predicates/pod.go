@@ -41,12 +41,12 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 
 			// Check if the Pod is in ready state or if the pod has failed
 			// We need to check failed pods as well because they can still execute partially before failing
-			if newPod.Status.Phase == v1.PodRunning || newPod.Status.Phase == v1.PodSucceeded || newPod.Status.Phase == v1.PodFailed {
+			if newPod.Status.Phase != v1.PodRunning && newPod.Status.Phase != v1.PodSucceeded && newPod.Status.Phase != v1.PodFailed {
 				return false
 			}
 
 			// If the Pod status changed to 'Running' from 'Pending', trigger reconciliation
-			// In this case the spec did not change but the Pod is now ready and we want to capture that event
+			// In this case the spec did not change but the Pod is now ready, and we want to capture that event
 			if newPod.Status.Phase == v1.PodRunning && oldPod.Status.Phase == v1.PodPending {
 				return true
 			}

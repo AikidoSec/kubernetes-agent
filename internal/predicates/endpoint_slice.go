@@ -28,16 +28,16 @@ func NewEndpointSlicePredicates(excludedNamespaces []string) predicate.Predicate
 				return false
 			}
 
-			if reflect.DeepEqual(oldObj.Endpoints, newObj.Endpoints) {
-				return false
+			// Trigger reconcile if the endpoints changed
+			if !reflect.DeepEqual(oldObj.Endpoints, newObj.Endpoints) {
+				return true
 			}
-
-			if reflect.DeepEqual(oldObj.Ports, newObj.Ports) {
-				return false
+			// Trigger reconcile if the ports changed
+			if !reflect.DeepEqual(oldObj.Ports, newObj.Ports) {
+				return true
 			}
-
-			// Trigger reconcile only if endpoints or ports changed
-			return true
+			
+			return false
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
