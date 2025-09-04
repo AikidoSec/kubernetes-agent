@@ -38,6 +38,8 @@ func GetPredicatesForGVK(gvk string, excludedNamespaces []string) predicate.Pred
 		return NewServicePredicate(excludedNamespaces)
 	case "/v1, Kind=Endpoints":
 		return NewEndpointsPredicates(excludedNamespaces)
+	case "discovery.k8s.io/v1, Kind=EndpointSlice":
+		return NewEndpointSlicePredicates(excludedNamespaces)
 	default:
 		return NewGenericPredicate(excludedNamespaces)
 	}
