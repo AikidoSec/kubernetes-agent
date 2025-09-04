@@ -1,0 +1,38 @@
+package predicates
+
+import (
+	"reflect"
+
+	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+)
+
+func NewEndpointsPredicates(excludedNamespaces []string) predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if IsObjectFromExcludedNamespace(e.ObjectNew, excludedNamespaces) {
+				return false
+			}
+
+			oldObj, ok := e.ObjectOld.(*v1.Endpoints)
+			if !ok {
+				return false
+			}
+
+			newObj, ok := e.ObjectNew.(*v1.Endpoints)
+			if !ok {
+				return false
+			}
+
+			// Compare subsets (addresses/ports)
+			return !reflect.DeepEqual(oldObj.Subsets, newObj.Subsets)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+		},
+	}
+}

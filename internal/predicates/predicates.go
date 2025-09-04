@@ -36,6 +36,8 @@ func GetPredicatesForGVK(gvk string, excludedNamespaces []string) predicate.Pred
 		return NewServiceAccountPredicate(excludedNamespaces)
 	case "/v1, Kind=Service", "networking.k8s.io/v1, Kind=Ingress":
 		return NewServicePredicate(excludedNamespaces)
+	case "/v1, Kind=Endpoints":
+		return NewEndpointsPredicates(excludedNamespaces)
 	default:
 		return NewGenericPredicate(excludedNamespaces)
 	}
