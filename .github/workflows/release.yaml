@@ -36,6 +36,9 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     needs: release
     if: needs.release.outputs.version != '' # Only run for new releases
     env:
