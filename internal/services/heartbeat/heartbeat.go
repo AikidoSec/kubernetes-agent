@@ -27,8 +27,8 @@ func NewService(apiEndpoint, apiToken string, sendInterval time.Duration) *Servi
 	}
 }
 
-func (s *Service) SendHeartbeat(ctx context.Context, agentVersion string) (models.HeartbeatResponse, error) {
-	heartbeatResponse, err := s.sendHeartbeatRequest(ctx, agentVersion)
+func (s *Service) SendHeartbeat(ctx context.Context, heartbeatPayload models.HeartbeatPayload) (models.HeartbeatResponse, error) {
+	heartbeatResponse, err := s.sendHeartbeatRequest(ctx, heartbeatPayload)
 	if err != nil {
 		s.isServerActive = false
 		return models.HeartbeatResponse{}, fmt.Errorf("error sending heartbeat: %w", err)
@@ -50,9 +50,7 @@ func (s *Service) GetSendInterval() time.Duration {
 	return s.sendInterval
 }
 
-func (s *Service) sendHeartbeatRequest(ctx context.Context, agentVersion string) (models.HeartbeatResponse, error) {
-	heartbeatPayload := models.HeartbeatPayload{AgentVersion: agentVersion}
-
+func (s *Service) sendHeartbeatRequest(ctx context.Context, heartbeatPayload models.HeartbeatPayload) (models.HeartbeatResponse, error) {
 	payloadBytes, err := json.Marshal(&heartbeatPayload)
 	if err != nil {
 		return models.HeartbeatResponse{}, fmt.Errorf("error marshalling heartbeat payload: %w", err)

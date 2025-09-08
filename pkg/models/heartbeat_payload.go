@@ -6,7 +6,9 @@ import (
 )
 
 type HeartbeatPayload struct {
-	AgentVersion string `json:"agent_version"`
+	AgentVersion       string `json:"agent_version"`
+	IsInitialHeartbeat bool   `json:"is_initial_heartbeat"`
+	ClusterIdentifier  string `json:"cluster_identifier"`
 }
 
 func (p *HeartbeatPayload) FromJSON(r io.Reader) error {
