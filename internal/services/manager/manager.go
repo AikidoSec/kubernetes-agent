@@ -408,8 +408,12 @@ func (s *Service) GetClusterIdentifier(ctx context.Context) (string, error) {
 
 // GetGKEClusterIdentifier checks if the Kubernetes cluster is GKE and returns the cluster uid if true.
 func (s *Service) GetGKEClusterIdentifier(ctx context.Context) (string, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET",
+	req, err := http.NewRequestWithContext(ctx, "GET",
 		"http://metadata.google.internal/computeMetadata/v1/instance/attributes/cluster-uid", nil)
+	if err != nil {
+		return "", fmt.Errorf("error creating GKE metadata request: %w", err)
+	}
+	
 	req.Header.Add("Metadata-Flavor", "Google")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
