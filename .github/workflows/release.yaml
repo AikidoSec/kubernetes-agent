@@ -8,10 +8,8 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: write
-      pull-requests: write
+    outputs:
+      version: ${{ steps.version-set.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -28,8 +26,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set Version Output
+        id: version-set
         if: steps.semantic.outputs.version != ''
-        run: echo "version=${{ steps.semantic.outputs.version }}" >> $GITHUB_ENV
+        run: echo "version=${{ steps.semantic.outputs.version }}" >> "$GITHUB_OUTPUT"
 
   docker:
     runs-on: ubuntu-latest
