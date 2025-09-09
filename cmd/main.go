@@ -17,11 +17,13 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const defaultNamespace = "aikido-security"
@@ -42,6 +44,9 @@ func main() {
 	flag.StringVar(&configFile, "config", "/etc/kubernetes-agent/config.yaml", "The path to the configuration file.")
 	flag.IntVar(&heartbeatIntervalSeconds, "heartbeat-interval", 30, "The interval in seconds between heartbeats.")
 	flag.Parse()
+
+	// Silence controller-runtime logs
+	ctrl.SetLogger(logr.New(log.NullLogSink{}))
 
 	ctx := context.Background()
 	l := slog.New(slog.NewJSONHandler(os.Stdout, nil))
