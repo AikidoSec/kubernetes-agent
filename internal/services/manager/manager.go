@@ -190,7 +190,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
 		MaxBatch:              1000,
-		FlushEvery:            time.Second * 10,
+		FlushEvery:            time.Minute * 1,
 		MaxConcurrentRequests: 10,
 		CompressionEnabled:    true,
 		Token:                 cfg.APIToken,
@@ -413,7 +413,7 @@ func (s *Service) GetGKEClusterIdentifier(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error creating GKE metadata request: %w", err)
 	}
-	
+
 	req.Header.Add("Metadata-Flavor", "Google")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
