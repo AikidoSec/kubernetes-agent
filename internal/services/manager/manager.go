@@ -3,6 +3,8 @@ package manager
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -17,9 +19,12 @@ import (
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
+
+var noHostErrorMessage = "no such host"
 
 const defaultAgentVersion = "0.1.0"
 
@@ -119,7 +124,10 @@ func (s *Service) Close(ctx context.Context) {
 
 // SendHeartbeat sends a heartbeat to the management server and processes the response
 func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
-	resp, err := s.heartbeatService.SendHeartbeat(ctx, s.agentVersion)
+	resp, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
+		AgentVersion:       s.agentVersion,
+		IsInitialHeartbeat: false,
+	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending heartbeat", "managerError")
 		return models.HeartbeatResponse{}, err
@@ -162,8 +170,17 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		return fmt.Errorf("error loading agent version from context: %w", err)
 	}
 
+	clusterIdentifier, err := s.GetClusterIdentifier(ctx)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error getting cluster identifier", "managerError")
+	}
+
 	// Send the initial heartbeat to get the monitored resources and agent configuration
-	hb, err := s.heartbeatService.SendHeartbeat(ctx, s.agentVersion)
+	hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
+		AgentVersion:       s.agentVersion,
+		IsInitialHeartbeat: true,
+		ClusterIdentifier:  clusterIdentifier,
+	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
 		return fmt.Errorf("error sending initial heartbeat: %w", err)
@@ -334,4 +351,131 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 	}
 
 	return nil
+}
+
+// GetClusterIdentifier extracts the unique identifier for the Kubernetes cluster
+func (s *Service) GetClusterIdentifier(ctx context.Context) (string, error) {
+	// Check if the cluster is GKE
+	identifier, err := s.GetGKEClusterIdentifier(ctx)
+	if err != nil {
+		return "", fmt.Errorf("error getting GKE cluster identifier: %w", err)
+	}
+
+	if identifier != "" {
+		return identifier, nil
+	}
+
+	// Check if the cluster is AKS
+	identifier, err = s.GetAKSClusterIdentifier(ctx)
+	if err != nil {
+		return "", fmt.Errorf("error getting AKS cluster identifier: %w", err)
+	}
+
+	if identifier != "" {
+		return identifier, nil
+	}
+
+	// Otherwise, get the kube-proxy ConfigMap
+	configMap, err := s.kubernetesClientSet.CoreV1().ConfigMaps("kube-system").Get(ctx, "kube-proxy", v1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("error getting kube-proxy configmap: %w", err)
+	}
+
+	// Extract the kubeconfig content if exists
+	for _, v := range configMap.Data {
+		// Try to load the kubeconfig content
+		config, err := clientcmd.Load([]byte(v))
+		if err != nil {
+			continue
+		}
+
+		// Get the current context
+		contextName := config.CurrentContext
+		ctx, ok := config.Contexts[contextName]
+		if !ok {
+			continue
+		}
+
+		// Get the cluster information
+		cluster, ok := config.Clusters[ctx.Cluster]
+		if ok {
+			return cluster.Server, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not get unique cluster identifier")
+}
+
+// GetGKEClusterIdentifier checks if the Kubernetes cluster is GKE and returns the cluster uid if true.
+func (s *Service) GetGKEClusterIdentifier(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		"http://metadata.google.internal/computeMetadata/v1/instance/attributes/cluster-uid", nil)
+	if err != nil {
+		return "", fmt.Errorf("error creating GKE metadata request: %w", err)
+	}
+	
+	req.Header.Add("Metadata-Flavor", "Google")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		if strings.Contains(err.Error(), noHostErrorMessage) {
+			// Not a GKE cluster
+			return "", nil
+		}
+
+		return "", fmt.Errorf("error getting cluster uid: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			s.logger.ReportError(ctx, err, "error closing GKE metadata response body", "managerError")
+		}
+	}()
+
+	if resp.StatusCode == http.StatusNotFound {
+		// Not a GKE cluster
+		return "", nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code from GKE metadata server: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading GKE metadata response body: %w", err)
+	}
+
+	clusterUID := string(body)
+	return clusterUID, nil
+}
+
+// GetAKSClusterIdentifier checks if the Kubernetes cluster is AKS and returns the DNS name if true.
+func (s *Service) GetAKSClusterIdentifier(ctx context.Context) (string, error) {
+	// Get the kube-proxy pods in the kube-system namespace
+	pods, err := s.kubernetesClientSet.CoreV1().Pods("kube-system").List(ctx, v1.ListOptions{
+		LabelSelector: "component=kube-proxy,kubernetes.azure.com/managedby=aks",
+	})
+	if err != nil {
+		return "", fmt.Errorf("error getting kube-proxy pods: %w", err)
+	}
+
+	// Iterate through all kube-proxy pods
+	for _, pod := range pods.Items {
+		// Check each environment variable in each container
+		for _, container := range pod.Spec.Containers {
+			for _, env := range container.Env {
+				if env.Name != "KUBERNETES_SERVICE_HOST" {
+					continue
+				}
+
+				// Check if the AKS DNS name is present
+				if len(env.Value) == 0 {
+					continue
+				}
+
+				return env.Value, nil
+			}
+		}
+	}
+
+	return "", nil
 }
