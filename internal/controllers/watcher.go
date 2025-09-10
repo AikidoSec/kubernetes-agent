@@ -60,7 +60,7 @@ func (r *Watcher) clearPending(key string) {
 
 func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	eventTime := time.Now().UTC()
-	requeuAfter := defaultRequeueAfter
+	requeueAfter := defaultRequeueAfter
 
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(r.Watched.GroupVersionKind)
@@ -74,7 +74,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	switch err := r.Get(ctx, req.NamespacedName, obj); {
 	case errors.IsNotFound(err):
 		eventType = models.DeletedEventType
-		requeuAfter = 0 // no need to requeue deleted objects
+		requeueAfter = 0 // no need to requeue deleted objects
 		r.clearPending(objectID)
 	case err != nil:
 		r.Logger.ReportError(ctx, err, "error getting object", "watcherError", "name", req.Name, "namespace", req.Namespace)
@@ -87,7 +87,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 
 	// If the object is already pending for processing, skip re-queuing it
 	if v := r.markPendingOnce(objectID); !v {
-		requeuAfter = 0
+		requeueAfter = 0
 	}
 
 	metadata, err := obj.MarshalJSON()
@@ -108,7 +108,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		return ctrl.Result{}, fmt.Errorf("could not send payload to output client: %w", err)
 	}
 
-	return ctrl.Result{RequeueAfter: requeuAfter}, nil
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
