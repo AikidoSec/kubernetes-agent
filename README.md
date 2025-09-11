@@ -72,7 +72,6 @@ docker buildx build --platform linux/amd64 -t kubernetes-agent:$imageTag .
 ```
 
 ### 3) Install the chart with your API settings
-
 Use Helm to install the [chart](https://github.com/AikidoSec/helm-charts), passing your API endpoint and token at install time.
 This command will create a new namespace called `aikido` if it doesn’t already exist and install the agent components.
 
