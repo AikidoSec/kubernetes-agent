@@ -16,6 +16,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
+
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -26,7 +27,7 @@ import (
 
 var noHostErrorMessage = "no such host"
 
-const defaultAgentVersion = "0.1.0"
+const defaultAgentVersion = "1.0.0"
 
 type Options struct {
 	AgentNamespace     string
