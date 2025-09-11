@@ -64,7 +64,6 @@ eval $(minikube docker-env)
 After this, all docker commands run against the Docker daemon inside the Minikube VM.
 
 ### 2) Build the agent image for the cluster
-
 Build (and tag) the container image used by the Helm release. The --platform flag ensures compatibility with the Minikube node’s architecture.
 
 ```bash
