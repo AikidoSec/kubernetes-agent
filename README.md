@@ -54,7 +54,6 @@ Deploy the agent to a local **Minikube** cluster using a locally built image and
 > Prerequisites: Minikube is installed and running (`minikube start`), Docker is installed.
 
 ### 1) Point Docker to Minikube’s Docker daemon
-
 This ensures the image you build is placed **inside** Minikube’s Docker registry, so the cluster can pull it without pushing to a remote registry.
 
 ```bash
