@@ -52,7 +52,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ vars.DEV_AWS_ROLE_ARN }}
+          role-to-assume: ${{ env.DEV_AWS_ROLE_ARN }}
 
       - name: Login to Amazon ECR Public
         run: |
@@ -70,7 +70,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ vars.PROD_AWS_ROLE_ARN }}
+          role-to-assume: ${{ env.PROD_AWS_ROLE_ARN }}
 
       - name: Login to ECR (Production)
         uses: aws-actions/amazon-ecr-login@v2
