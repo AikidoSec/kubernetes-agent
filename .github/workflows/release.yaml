@@ -40,7 +40,7 @@ jobs:
     needs: release
     if: needs.release.outputs.version != '' # Only run for new releases
     env:
-      AWS_REGION: eu-west-1
+      AWS_REGION: ${{ vars.AWS_REGION }}
       DEV_AWS_ROLE_ARN: ${{ vars.DEV_AWS_ROLE_ARN }}
       PROD_AWS_ROLE_ARN: ${{ vars.PROD_AWS_ROLE_ARN }}
       DEV_ECR_REPO: ${{ vars.DEV_ECR_REPO }}
@@ -64,7 +64,7 @@ jobs:
 
       - name: Pull images from staging
         run: |
-          docker pull ${{ vars.DEV_ECR_REPO }}:${{ github.sha }}
+          docker pull ${{ env.DEV_ECR_REPO }}:${{ github.sha }}
 
       - name: Configure AWS credentials (Production)
         uses: aws-actions/configure-aws-credentials@v4
@@ -77,6 +77,6 @@ jobs:
 
       - name: Promote images to production
         run: |
-          docker tag ${{ vars.DEV_ECR_REPO }}:${{ github.sha }} \
-                     ${{ vars.PROD_ECR_REPO }}:v${{ needs.release.outputs.version }}
-          docker push ${{ vars.PROD_ECR_REPO }}:v${{ needs.release.outputs.version }}
+          docker tag ${{ env.DEV_ECR_REPO }}:${{ github.sha }} \
+                     ${{ env.PROD_ECR_REPO }}:v${{ needs.release.outputs.version }}
+          docker push ${{ env.PROD_ECR_REPO }}:v${{ needs.release.outputs.version }}
