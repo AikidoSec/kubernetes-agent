@@ -38,7 +38,6 @@ jobs:
       id-token: write
       contents: read
     needs: release
-    if: needs.release.outputs.version != '' # Only run for new releases
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       DEV_AWS_ROLE_ARN: ${{ vars.DEV_AWS_ROLE_ARN }}
