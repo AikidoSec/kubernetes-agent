@@ -3,6 +3,7 @@
 The **Kubernetes Agent** runs inside your cluster and listens for Kubernetes resource events.  
 It uses the controller-runtime library to create controllers that watch for changes in resources (e.g., Pods, Deployments, Jobs).  
 Whenever an event occurs, the agent forwards the details to our backend service for further processing and analysis.
+
 ---
 
 ## Features
