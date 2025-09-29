@@ -78,5 +78,5 @@ jobs:
       - name: Promote images to production
         run: |
           docker tag ${{ vars.DEV_ECR_REPO }}:{{ github.sha }} \
-                     ${{ vars.PROD_ECR_REPO }}:${{ steps.mainsha.outputs.image_tag }}
-          docker push ${{ vars.PROD_ECR_REPO }}:${{ steps.mainsha.outputs.image_tag }}
+                     ${{ vars.PROD_ECR_REPO }}:${{ needs.release.outputs.version }}
+          docker push ${{ vars.PROD_ECR_REPO }}:${{ needs.release.outputs.version }}
