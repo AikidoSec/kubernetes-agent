@@ -53,7 +53,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ env.DEV_AWS_ROLE_ARN }}
 
-      - name: Login to Amazon ECR Public
+      - name: Login to Amazon ECR Public Staging
         run: |
           aws ecr-public get-login-password --region us-east-1 \
             | docker login --username AWS --password-stdin public.ecr.aws
@@ -71,8 +71,10 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ env.PROD_AWS_ROLE_ARN }}
 
-      - name: Login to ECR (Production)
-        uses: aws-actions/amazon-ecr-login@v2
+      - name: Login to Amazon ECR Public Production
+        run: |
+          aws ecr-public get-login-password --region us-east-1 \
+            | docker login --username AWS --password-stdin public.ecr.aws
 
       - name: Promote images to production
         run: |
