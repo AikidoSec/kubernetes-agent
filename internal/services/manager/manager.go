@@ -346,6 +346,7 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 		return fmt.Errorf("error marshalling updated agent config: %w", err)
 	}
 	secret.Data["config.yaml"] = newCfgData
+	secret.Annotations["helm.sh/resource-policy"] = "keep"
 
 	if _, err := s.kubernetesClientSet.CoreV1().Secrets(s.agentNamespace).Update(ctx, secret, v1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("error updating agent secret with new API token: %w", err)
