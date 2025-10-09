@@ -3,11 +3,20 @@ package format
 import "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 func FormatObject(obj *unstructured.Unstructured) *unstructured.Unstructured {
+	dropUnnecessaryFields(obj)
+
 	switch obj.GroupVersionKind().String() {
 	case "/v1, Kind=Secret":
 		return formatSecret(obj)
 	default:
 		return obj
+	}
+}
+
+func dropUnnecessaryFields(obj *unstructured.Unstructured) {
+	annotations := obj.GetAnnotations()
+	if annotations != nil {
+		delete(annotations, "kubectl.kubernetes.io/last-applied-configuration")
 	}
 }
 
