@@ -18,6 +18,7 @@ func dropUnnecessaryFields(obj *unstructured.Unstructured) {
 	if annotations != nil {
 		delete(annotations, "kubectl.kubernetes.io/last-applied-configuration")
 	}
+	obj.SetManagedFields(nil)
 }
 
 func formatSecret(obj *unstructured.Unstructured) *unstructured.Unstructured {
