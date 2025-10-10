@@ -16,6 +16,8 @@ import (
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
+	"github.com/google/uuid"
+	"go.uber.org/multierr"
 
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -357,10 +359,11 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 
 // GetClusterIdentifier extracts the unique identifier for the Kubernetes cluster
 func (s *Service) GetClusterIdentifier(ctx context.Context) (string, error) {
+	var errs error
 	// Check if the cluster is GKE
 	identifier, err := s.GetGKEClusterIdentifier(ctx)
 	if err != nil {
-		return "", fmt.Errorf("error getting GKE cluster identifier: %w", err)
+		errs = multierr.Append(errs, err)
 	}
 
 	if identifier != "" {
@@ -370,42 +373,35 @@ func (s *Service) GetClusterIdentifier(ctx context.Context) (string, error) {
 	// Check if the cluster is AKS
 	identifier, err = s.GetAKSClusterIdentifier(ctx)
 	if err != nil {
-		return "", fmt.Errorf("error getting AKS cluster identifier: %w", err)
+		errs = multierr.Append(errs, err)
 	}
 
 	if identifier != "" {
 		return identifier, nil
 	}
 
-	// Otherwise, get the kube-proxy ConfigMap
-	configMap, err := s.kubernetesClientSet.CoreV1().ConfigMaps("kube-system").Get(ctx, "kube-proxy", v1.GetOptions{})
+	// Try to get the identifier from the kube-proxy configmap
+	identifier, err = s.GetClusterIdentifierFromProxy(ctx)
 	if err != nil {
-		return "", fmt.Errorf("error getting kube-proxy configmap: %w", err)
+		errs = multierr.Append(errs, err)
 	}
 
-	// Extract the kubeconfig content if exists
-	for _, v := range configMap.Data {
-		// Try to load the kubeconfig content
-		config, err := clientcmd.Load([]byte(v))
-		if err != nil {
-			continue
-		}
-
-		// Get the current context
-		contextName := config.CurrentContext
-		ctx, ok := config.Contexts[contextName]
-		if !ok {
-			continue
-		}
-
-		// Get the cluster information
-		cluster, ok := config.Clusters[ctx.Cluster]
-		if ok {
-			return cluster.Server, nil
-		}
+	if identifier != "" {
+		return identifier, nil
 	}
 
-	return "", fmt.Errorf("could not get unique cluster identifier")
+	// Try to get the `kube-system` namespace UID
+	identifier, err = s.GetKubeSystemNamespaceUID(ctx)
+	if err != nil {
+		errs = multierr.Append(errs, err)
+	}
+
+	if identifier != "" {
+		return identifier, nil
+	}
+
+	// If all methods fail, return a random UUID to ensure the cluster can still be uniquely identified.
+	return uuid.New().String(), multierr.Append(errs, fmt.Errorf("could not get unique cluster identifier"))
 }
 
 // GetGKEClusterIdentifier checks if the Kubernetes cluster is GKE and returns the cluster uid if true.
@@ -480,4 +476,46 @@ func (s *Service) GetAKSClusterIdentifier(ctx context.Context) (string, error) {
 	}
 
 	return "", nil
+}
+
+// GetClusterIdentifierFromProxy extracts the unique identifier for the Kubernetes cluster from the kube-proxy ConfigMap
+func (s *Service) GetClusterIdentifierFromProxy(ctx context.Context) (string, error) {
+	configMap, err := s.kubernetesClientSet.CoreV1().ConfigMaps("kube-system").Get(ctx, "kube-proxy", v1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("error getting kube-proxy configmap: %w", err)
+	}
+
+	// Extract the kubeconfig content if exists
+	for _, v := range configMap.Data {
+		// Try to load the kubeconfig content
+		config, err := clientcmd.Load([]byte(v))
+		if err != nil {
+			continue
+		}
+
+		// Get the current context
+		contextName := config.CurrentContext
+		ctx, ok := config.Contexts[contextName]
+		if !ok {
+			continue
+		}
+
+		// Get the cluster information
+		cluster, ok := config.Clusters[ctx.Cluster]
+		if ok {
+			return cluster.Server, nil
+		}
+	}
+
+	return "", nil
+}
+
+func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error) {
+	// Get the kube-proxy pods in the kube-system namespace
+	ns, err := s.kubernetesClientSet.CoreV1().Namespaces().Get(ctx, "kube-system", v1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("error getting `kube-system` namespace: %w", err)
+	}
+
+	return string(ns.ObjectMeta.UID), nil
 }
