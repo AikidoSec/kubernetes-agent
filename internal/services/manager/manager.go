@@ -511,11 +511,11 @@ func (s *Service) GetClusterIdentifierFromProxy(ctx context.Context) (string, er
 }
 
 func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error) {
-	// Get the kube-proxy pods in the kube-system namespace
+	// Get the `kube-system` namespace
 	ns, err := s.kubernetesClientSet.CoreV1().Namespaces().Get(ctx, "kube-system", v1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("error getting `kube-system` namespace: %w", err)
 	}
 
-	return string(ns.ObjectMeta.UID), nil
+	return string(ns.UID), nil
 }
