@@ -14,6 +14,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/internal/tdr"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
@@ -51,6 +52,7 @@ type Service struct {
 	heartbeatService    *heartbeat.Service
 	logger              *logger.Service
 	assetsOutputClient  *batchclient.BatchClient
+	tdrProxy            *tdr.Proxy
 }
 
 func NewService(ctx context.Context, o Options) (*Service, error) {
@@ -326,6 +328,9 @@ func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
 
 	// Set the heartbeat service token
 	s.heartbeatService.SetAPIToken(s.apiToken)
+	if s.tdrProxy != nil {
+		s.tdrProxy.SetAPIToken(s.apiToken)
+	}
 
 	return nil
 }
@@ -518,4 +523,9 @@ func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error)
 	}
 
 	return string(ns.UID), nil
+}
+
+// RegisterTdrProxy serves as dependency injection (if TDR is enabled) to the manager
+func (s *Service) RegisterTdrProxy(proxy *tdr.Proxy) {
+	s.tdrProxy = proxy
 }

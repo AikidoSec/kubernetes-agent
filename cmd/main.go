@@ -10,6 +10,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
+	"aikidoSec.kubernetesAgent/internal/tdr"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/config"
 
@@ -110,6 +111,20 @@ func main() {
 	if err := agentService.InitializeAgent(ctx, cfg, mgr); err != nil {
 		l.Error("error initializing agent", "error", err)
 		os.Exit(1)
+	}
+
+	if cfg.ThreatDetection.Enabled {
+		proxy := tdr.NewProxyServer(
+			loggerService,
+			cfg.ThreatDetection.ListenOnPort(),
+			cfg.APIEndpoint+"/api/tdr/web_hook",
+			cfg.APIToken,
+		)
+		agentService.RegisterTdrProxy(proxy)
+		if err := mgr.Add(proxy); err != nil {
+			l.Error("Unable to add threat detection proxy to manager", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
