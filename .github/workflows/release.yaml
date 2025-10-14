@@ -53,17 +53,10 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ env.DEV_AWS_ROLE_ARN }}
 
-      - name: Login to Amazon ECR Public Staging
-        run: |
-          aws ecr-public get-login-password --region us-east-1 \
-            | docker login --username AWS --password-stdin public.ecr.aws
-
-      - name: Login to ECR (Staging)
+      - name: Login to Staging ECR
         uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Pull images from staging
-        run: |
-          docker pull ${{ env.DEV_ECR_REPO }}:${{ github.sha }}
+        with:
+          registry-type: public
 
       - name: Configure AWS credentials (Production)
         uses: aws-actions/configure-aws-credentials@v4
@@ -71,13 +64,23 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ env.PROD_AWS_ROLE_ARN }}
 
-      - name: Login to Amazon ECR Public Production
-        run: |
-          aws ecr-public get-login-password --region us-east-1 \
-            | docker login --username AWS --password-stdin public.ecr.aws
+      - name: Login to Production ECR
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
 
-      - name: Promote images to production
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install crane
         run: |
-          docker tag ${{ env.DEV_ECR_REPO }}:${{ github.sha }} \
-                     ${{ env.PROD_ECR_REPO }}:v${{ needs.release.outputs.version }}
-          docker push ${{ env.PROD_ECR_REPO }}:v${{ needs.release.outputs.version }}
+          go install github.com/google/go-containerregistry/cmd/crane@latest
+          echo "${HOME}/go/bin" >> $GITHUB_PATH
+
+      - name: Promote image to production
+        run: |
+          crane copy \
+            ${{ env.DEV_ECR_REPO }}:${{ github.sha }} \
+            ${{ env.PROD_ECR_REPO }}:v${{ needs.release.outputs.version }}
