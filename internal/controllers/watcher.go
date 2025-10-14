@@ -112,12 +112,12 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *Watcher) SetupWithManager(mgr ctrl.Manager, excludedNamespaces []string) error {
+func (r *Watcher) SetupWithManager(mgr ctrl.Manager) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(r.Watched.GroupVersionKind)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("AikidoSecurityWatcher_"+r.Watched.GroupVersionKind.String()+"_"+uuid.NewString()).
-		For(obj, builder.WithPredicates(predicates.GetPredicatesForGVK(obj.GroupVersionKind().String(), excludedNamespaces))).
+		For(obj, builder.WithPredicates(predicates.GetPredicatesForGVK(obj.GroupVersionKind().String(), r.Watched.ExcludedNamespaces))).
 		Complete(r)
 }
