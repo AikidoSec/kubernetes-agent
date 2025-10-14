@@ -50,7 +50,7 @@ jobs:
       - name: Configure AWS credentials (Staging)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: 'us-east-1'
           role-to-assume: ${{ env.DEV_AWS_ROLE_ARN }}
 
       - name: Login to Staging ECR
@@ -61,7 +61,7 @@ jobs:
       - name: Configure AWS credentials (Production)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: 'us-east-1'
           role-to-assume: ${{ env.PROD_AWS_ROLE_ARN }}
 
       - name: Login to Production ECR
