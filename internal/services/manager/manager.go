@@ -163,6 +163,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
+		s.excludedNamespaces = resp.Cluster.ExcludedNamespaces
 	}
 
 	monitoredResourcesGVKs := make([]string, 0, len(resp.MonitoredResources))
@@ -177,6 +178,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
+		s.monitoredResources = monitoredResourcesGVKs
 	}
 
 	return resp, nil
