@@ -69,7 +69,7 @@ func NewBatchClient(logger *slog.Logger, o ClientOptions) (*BatchClient, error) 
 	tr := &http.Transport{
 		MaxIdleConns:        max(32, o.MaxConcurrentRequests*2),
 		MaxIdleConnsPerHost: max(16, o.MaxConcurrentRequests*2),
-		IdleConnTimeout:     90 * time.Second,
+		IdleConnTimeout:     120 * time.Second,
 	}
 
 	bc := &BatchClient{
@@ -77,7 +77,7 @@ func NewBatchClient(logger *slog.Logger, o ClientOptions) (*BatchClient, error) 
 		heartbeatService:      o.HeartbeatService,
 		endpoint:              o.Endpoint,
 		apiToken:              o.Token,
-		httpClient:            &http.Client{Timeout: 15 * time.Second, Transport: tr},
+		httpClient:            &http.Client{Timeout: 120 * time.Second, Transport: tr},
 		maxBatch:              o.MaxBatch,
 		flushEvery:            o.FlushEvery,
 		batch:                 make([]any, 0, o.MaxBatch),

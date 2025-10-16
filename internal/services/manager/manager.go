@@ -46,6 +46,7 @@ type Service struct {
 	agentName           string
 	apiToken            string
 	excludedNamespaces  []string
+	monitoredResources  []string
 	heartbeatChan       chan struct{}
 	kubernetesClientSet *kubernetes.Clientset
 	heartbeatService    *heartbeat.Service
@@ -78,6 +79,7 @@ func NewService(ctx context.Context, o Options) (*Service, error) {
 		apiToken:            o.APIToken,
 		agentNamespace:      o.AgentNamespace,
 		excludedNamespaces:  o.ExcludedNamespaces,
+		monitoredResources:  make([]string, 0),
 		agentName:           deploymentName,
 		kubernetesClientSet: clientSet,
 		heartbeatChan:       make(chan struct{}),
@@ -161,6 +163,22 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
+		s.excludedNamespaces = resp.Cluster.ExcludedNamespaces
+	}
+
+	monitoredResourcesGVKs := make([]string, 0, len(resp.MonitoredResources))
+	for _, gvk := range resp.MonitoredResources {
+		monitoredResourcesGVKs = append(monitoredResourcesGVKs, gvk.String())
+	}
+
+	// If the monitored resources have changed, restart the agent to re-create the watchers with the new configuration
+	if !slices.Equal(s.monitoredResources, monitoredResourcesGVKs) {
+		s.logger.LogInfo("monitored resources changed, restarting agent")
+		if err := s.RestartAgent(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
+			return resp, err
+		}
+		s.monitoredResources = monitoredResourcesGVKs
 	}
 
 	return resp, nil
@@ -207,6 +225,12 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// Append the agent namespace to the excluded namespaces to avoid watching its own resources
 	excludedNamespaces := append(hb.Cluster.ExcludedNamespaces, s.agentNamespace)
+
+	monitoredResourcesGVKs := make([]string, 0, len(hb.MonitoredResources))
+	for _, gvk := range hb.MonitoredResources {
+		monitoredResourcesGVKs = append(monitoredResourcesGVKs, gvk.String())
+	}
+	s.monitoredResources = monitoredResourcesGVKs
 
 	// Set up the resource watchers based on the monitored resources from the heartbeat
 	for _, v := range hb.MonitoredResources {
