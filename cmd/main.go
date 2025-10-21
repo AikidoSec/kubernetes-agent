@@ -131,7 +131,6 @@ func main() {
 
 				// Remove data from ConfigMaps
 				if cm, ok := obj.(*corev1.ConfigMap); ok {
-					cm.Data = nil
 					cm.BinaryData = nil
 				}
 				return obj, nil
