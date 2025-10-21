@@ -17,6 +17,7 @@ func dropUnnecessaryFields(obj *unstructured.Unstructured) {
 	annotations := obj.GetAnnotations()
 	if annotations != nil {
 		delete(annotations, "kubectl.kubernetes.io/last-applied-configuration")
+		obj.SetAnnotations(annotations)
 	}
 	obj.SetManagedFields(nil)
 }

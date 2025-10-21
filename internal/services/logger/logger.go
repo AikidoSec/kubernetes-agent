@@ -50,6 +50,14 @@ func (s *Service) LogInfo(message string, args ...any) {
 	s.logger.Info(message, args...)
 }
 
+func (s *Service) LogWarning(err error, message string, args ...any) {
+	if err == nil {
+		return
+	}
+
+	s.logger.Warn(fmt.Sprintf("%s: %s", message, err.Error()), args...)
+}
+
 func (s *Service) SetAPIToken(token string) {
 	s.OutputClient.SetAPIToken(token)
 }

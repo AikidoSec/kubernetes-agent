@@ -18,8 +18,10 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
 	"go.uber.org/multierr"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"gopkg.in/yaml.v3"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -32,26 +34,28 @@ var noHostErrorMessage = "no such host"
 const defaultAgentVersion = "1.0.0"
 
 type Options struct {
-	AgentNamespace     string
-	PodName            string
-	APIToken           string
-	ExcludedNamespaces []string
-	HeartbeatService   *heartbeat.Service
-	AssetsOutputClient *batchclient.BatchClient
-	Logger             *logger.Service
+	AgentNamespace             string
+	PodName                    string
+	APIToken                   string
+	ExcludedNamespaces         []string
+	HeartbeatService           *heartbeat.Service
+	AssetsOutputClient         *batchclient.BatchClient
+	Logger                     *logger.Service
+	ControllerCacheSyncTimeout time.Duration
 }
 type Service struct {
-	agentVersion        string
-	agentNamespace      string
-	agentName           string
-	apiToken            string
-	excludedNamespaces  []string
-	monitoredResources  []string
-	heartbeatChan       chan struct{}
-	kubernetesClientSet *kubernetes.Clientset
-	heartbeatService    *heartbeat.Service
-	logger              *logger.Service
-	assetsOutputClient  *batchclient.BatchClient
+	agentVersion               string
+	agentNamespace             string
+	agentName                  string
+	apiToken                   string
+	excludedNamespaces         []string
+	monitoredResources         []string
+	heartbeatChan              chan struct{}
+	kubernetesClientSet        *kubernetes.Clientset
+	heartbeatService           *heartbeat.Service
+	logger                     *logger.Service
+	assetsOutputClient         *batchclient.BatchClient
+	ControllerCacheSyncTimeout time.Duration
 }
 
 func NewService(ctx context.Context, o Options) (*Service, error) {
@@ -76,16 +80,17 @@ func NewService(ctx context.Context, o Options) (*Service, error) {
 	deploymentName := strings.Join(agentNameComponents[:len(agentNameComponents)-2], "-")
 
 	return &Service{
-		apiToken:            o.APIToken,
-		agentNamespace:      o.AgentNamespace,
-		excludedNamespaces:  o.ExcludedNamespaces,
-		monitoredResources:  make([]string, 0),
-		agentName:           deploymentName,
-		kubernetesClientSet: clientSet,
-		heartbeatChan:       make(chan struct{}),
-		heartbeatService:    o.HeartbeatService,
-		logger:              o.Logger,
-		assetsOutputClient:  o.AssetsOutputClient,
+		apiToken:                   o.APIToken,
+		agentNamespace:             o.AgentNamespace,
+		excludedNamespaces:         o.ExcludedNamespaces,
+		monitoredResources:         make([]string, 0),
+		agentName:                  deploymentName,
+		kubernetesClientSet:        clientSet,
+		heartbeatChan:              make(chan struct{}),
+		heartbeatService:           o.HeartbeatService,
+		logger:                     o.Logger,
+		assetsOutputClient:         o.AssetsOutputClient,
+		ControllerCacheSyncTimeout: o.ControllerCacheSyncTimeout,
 	}, nil
 }
 
@@ -193,7 +198,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	clusterIdentifier, err := s.GetClusterIdentifier(ctx)
 	if err != nil {
-		s.logger.ReportError(ctx, err, "error getting cluster identifier", "managerError")
+		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}
 
 	// Send the initial heartbeat to get the monitored resources and agent configuration
@@ -232,6 +237,10 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 	s.monitoredResources = monitoredResourcesGVKs
 
+	watcherOptions := controller.Options{
+		CacheSyncTimeout: s.ControllerCacheSyncTimeout,
+	}
+
 	// Set up the resource watchers based on the monitored resources from the heartbeat
 	for _, v := range hb.MonitoredResources {
 		watcherSelector := models.WatcherSelector{
@@ -247,7 +256,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			OutputClient: assetsClient,
 			PendingMu:    sync.Mutex{},
 			Pending:      make(map[string]struct{}),
-		}).SetupWithManager(runtimeManager); err != nil {
+		}).SetupWithManager(runtimeManager, watcherOptions); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new watcher", "managerError")
 			return fmt.Errorf("error creating watcher (%s): %w", v.String(), err)
 		}
@@ -506,6 +515,10 @@ func (s *Service) GetAKSClusterIdentifier(ctx context.Context) (string, error) {
 func (s *Service) GetClusterIdentifierFromProxy(ctx context.Context) (string, error) {
 	configMap, err := s.kubernetesClientSet.CoreV1().ConfigMaps("kube-system").Get(ctx, "kube-proxy", v1.GetOptions{})
 	if err != nil {
+		// kube-proxy is not installed in this cluster
+		if k8sErrors.IsNotFound(err) {
+			return "", nil
+		}
 		return "", fmt.Errorf("error getting kube-proxy configmap: %w", err)
 	}
 

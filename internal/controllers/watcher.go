@@ -18,6 +18,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 )
 
 const defaultRequeueAfter = 12 * time.Hour
@@ -112,12 +113,13 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *Watcher) SetupWithManager(mgr ctrl.Manager) error {
+func (r *Watcher) SetupWithManager(mgr ctrl.Manager, opts controller.Options) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(r.Watched.GroupVersionKind)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("AikidoSecurityWatcher_"+r.Watched.GroupVersionKind.String()+"_"+uuid.NewString()).
 		For(obj, builder.WithPredicates(predicates.GetPredicatesForGVK(obj.GroupVersionKind().String(), r.Watched.ExcludedNamespaces))).
+		WithOptions(opts).
 		Complete(r)
 }
