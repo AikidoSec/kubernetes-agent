@@ -18,10 +18,14 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -102,6 +106,37 @@ func main() {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		HealthProbeBindAddress: probeAddr,
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{
+					&corev1.Secret{},
+				},
+			},
+		},
+		Cache: cache.Options{
+			DefaultTransform: func(obj any) (any, error) {
+				obj, err := cache.TransformStripManagedFields()(obj)
+				if err != nil {
+					return obj, err
+				}
+
+				// Remove `kubectl.kubernetes.io/last-applied-configuration` annotation from objects
+				if metaObj, ok := obj.(metav1.ObjectMetaAccessor); ok {
+					annotations := metaObj.GetObjectMeta().GetAnnotations()
+					if annotations != nil {
+						delete(annotations, "kubectl.kubernetes.io/last-applied-configuration")
+						metaObj.GetObjectMeta().SetAnnotations(annotations)
+					}
+				}
+
+				// Remove data from ConfigMaps
+				if cm, ok := obj.(*corev1.ConfigMap); ok {
+					cm.Data = nil
+					cm.BinaryData = nil
+				}
+				return obj, nil
+			},
+		},
 	})
 	if err != nil {
 		l.Error("error creating manager", "error", err)
