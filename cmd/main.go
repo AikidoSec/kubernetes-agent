@@ -87,11 +87,12 @@ func main() {
 	defer loggerService.Close(ctx)
 
 	agentService, err := manager.NewService(ctx, manager.Options{
-		Logger:           loggerService,
-		AgentNamespace:   ns,
-		PodName:          podName,
-		APIToken:         cfg.APIToken,
-		HeartbeatService: heartbeatService,
+		Logger:                     loggerService,
+		AgentNamespace:             ns,
+		PodName:                    podName,
+		APIToken:                   cfg.APIToken,
+		HeartbeatService:           heartbeatService,
+		ControllerCacheSyncTimeout: cfg.ControllerCacheSyncTimeout,
 	})
 	if err != nil {
 		l.Error("error creating manager service", "error", err)

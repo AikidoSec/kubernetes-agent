@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"gopkg.in/yaml.v3"
@@ -26,6 +27,10 @@ func ParseConfigFromFile(path string) (models.Config, error) {
 	// Remove the trailing slash if present
 	if config.APIEndpoint[len(config.APIEndpoint)-1] == '/' {
 		config.APIEndpoint = config.APIEndpoint[:len(config.APIEndpoint)-1]
+	}
+
+	if config.ControllerCacheSyncTimeout == 0 {
+		config.ControllerCacheSyncTimeout = 5 * time.Minute
 	}
 
 	return config, nil
