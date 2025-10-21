@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"gopkg.in/yaml.v3"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -197,7 +198,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	clusterIdentifier, err := s.GetClusterIdentifier(ctx)
 	if err != nil {
-		s.logger.ReportError(ctx, err, "error getting cluster identifier", "managerError")
+		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}
 
 	// Send the initial heartbeat to get the monitored resources and agent configuration
@@ -514,6 +515,10 @@ func (s *Service) GetAKSClusterIdentifier(ctx context.Context) (string, error) {
 func (s *Service) GetClusterIdentifierFromProxy(ctx context.Context) (string, error) {
 	configMap, err := s.kubernetesClientSet.CoreV1().ConfigMaps("kube-system").Get(ctx, "kube-proxy", v1.GetOptions{})
 	if err != nil {
+		// kube-proxy is not installed in this cluster
+		if k8sErrors.IsNotFound(err) {
+			return "", nil
+		}
 		return "", fmt.Errorf("error getting kube-proxy configmap: %w", err)
 	}
 
