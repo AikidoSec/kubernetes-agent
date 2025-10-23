@@ -23,11 +23,6 @@ import (
 
 const defaultRequeueAfter = 12 * time.Hour
 
-type OutEvent struct {
-	Unstructured *unstructured.Unstructured
-	APIResource  string `json:"apiResource"`
-}
-
 // Watcher reconciles a kubernetes resource
 type Watcher struct {
 	client.Client

@@ -7,11 +7,14 @@ import (
 	"os"
 	"time"
 
+	"aikidoSec.kubernetesAgent/internal/http"
+	"aikidoSec.kubernetesAgent/internal/http/controllers"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/config"
+	"aikidoSec.kubernetesAgent/pkg/imagescache"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -30,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const defaultNamespace = "aikido-security"
+const defaultNamespace = "aikido"
 
 var (
 	scheme = runtime.NewScheme()
@@ -145,6 +148,17 @@ func main() {
 	if err := agentService.InitializeAgent(ctx, cfg, mgr); err != nil {
 		l.Error("error initializing agent", "error", err)
 		os.Exit(1)
+	}
+
+	if cfg.IsSBOMCollectionEnabled {
+		imageCache := imagescache.NewImagesCache()
+		sbomController := controllers.NewSBOMController(l, agentService, imageCache)
+
+		go func() {
+			if err := http.ListenAndServe(ctx, l, 81, sbomController); err != nil {
+				l.Error("error starting HTTP server", "error", err)
+			}
+		}()
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

@@ -556,3 +556,22 @@ func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error)
 
 	return string(ns.UID), nil
 }
+
+func (s *Service) GenerateCollectorConfig(_ context.Context) (models.CollectorConfig, error) {
+	return models.CollectorConfig{
+		APIHost:                    s.heartbeatService.GetAPIEndpoint(),
+		ExcludedNamespaces:         s.excludedNamespaces,
+		ControllerCacheSyncTimeout: s.ControllerCacheSyncTimeout,
+		APIToken:                   s.apiToken,
+	}, nil
+}
+
+func (s *Service) GetAPIToken() string {
+	return s.apiToken
+}
+
+func (s *Service) HandleCollectorError(ctx context.Context, error models.AgentError) error {
+	s.logger.ReportError(ctx, fmt.Errorf(error.Error), "SBOM collector error", error.ErrorType)
+
+	return nil
+}

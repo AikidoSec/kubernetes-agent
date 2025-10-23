@@ -9,6 +9,7 @@ type Config struct {
 	APIToken                   string        `yaml:"apiToken"`
 	APIEndpoint                string        `yaml:"apiEndpoint"`
 	ControllerCacheSyncTimeout time.Duration `yaml:"controllerCacheSyncTimeout"`
+	IsSBOMCollectionEnabled    bool          `yaml:"isSBOMCollectionEnabled"`
 }
 
 func (c *Config) Validate() error {
