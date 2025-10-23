@@ -571,7 +571,7 @@ func (s *Service) GetAPIToken() string {
 }
 
 func (s *Service) HandleCollectorError(ctx context.Context, error models.AgentError) error {
-	s.logger.ReportError(ctx, fmt.Errorf(error.Error), "SBOM collector error", error.ErrorType)
+	s.logger.ReportError(ctx, fmt.Errorf("%s", error.Error), "SBOM collector error", error.ErrorType)
 
 	return nil
 }
