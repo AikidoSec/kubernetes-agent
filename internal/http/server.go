@@ -42,7 +42,7 @@ func ListenAndServe(ctx context.Context, logger *slog.Logger, port int, controll
 
 	sig := <-exit
 	logger.Info("received signal, waiting 30 seconds to finish work", "signal", sig.String())
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {

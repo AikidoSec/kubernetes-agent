@@ -86,12 +86,18 @@ func (c *SBOMController) SetImageProcessingStatus(rw http.ResponseWriter, r *htt
 		return
 	}
 
+	if imageStatus.Image == "" {
+		http.Error(rw, "image field must be non-empty", http.StatusBadRequest)
+		return
+	}
+
 	c.imagesCache.MarkImageAsProcessed(imageStatus.Image)
+	rw.WriteHeader(http.StatusOK)
 }
 
 func (c *SBOMController) ReportCollectorErrors(rw http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Encoding") != "gzip" {
-		http.Error(rw, "Unsupported Content-Encoding", http.StatusBadRequest)
+		http.Error(rw, "Unsupported Content-Encoding", http.StatusUnsupportedMediaType)
 		return
 	}
 
