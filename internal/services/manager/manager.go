@@ -12,9 +12,13 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
+	internalhttp "aikidoSec.kubernetesAgent/internal/http"
+	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/internal/services/sbom"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
+	"aikidoSec.kubernetesAgent/pkg/imagescache"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
 	"go.uber.org/multierr"
@@ -37,6 +41,7 @@ type Options struct {
 	AgentNamespace             string
 	PodName                    string
 	APIToken                   string
+	APIEndpoint                string
 	ExcludedNamespaces         []string
 	HeartbeatService           *heartbeat.Service
 	AssetsOutputClient         *batchclient.BatchClient
@@ -44,21 +49,16 @@ type Options struct {
 	ControllerCacheSyncTimeout time.Duration
 }
 type Service struct {
-	agentVersion               string
-	agentNamespace             string
-	agentName                  string
-	apiToken                   string
-	excludedNamespaces         []string
-	monitoredResources         []string
-	heartbeatChan              chan struct{}
-	kubernetesClientSet        *kubernetes.Clientset
-	heartbeatService           *heartbeat.Service
-	logger                     *logger.Service
-	assetsOutputClient         *batchclient.BatchClient
-	ControllerCacheSyncTimeout time.Duration
+	*models.AgentState
+	logger *logger.Service
+	// Channel to stop the heartbeat goroutine.
+	heartbeatStopChan   chan struct{}
+	kubernetesClientSet *kubernetes.Clientset
+	heartbeatService    *heartbeat.Service
+	assetsOutputClient  *batchclient.BatchClient
 }
 
-func NewService(ctx context.Context, o Options) (*Service, error) {
+func NewService(ctx context.Context, agentState *models.AgentState, o Options) (*Service, error) {
 	ctrlConfig, err := ctrlconfig.GetConfig()
 	if err != nil {
 		o.Logger.ReportError(ctx, err, "error getting kubeconfig", "managerError")
@@ -79,18 +79,23 @@ func NewService(ctx context.Context, o Options) (*Service, error) {
 	}
 	deploymentName := strings.Join(agentNameComponents[:len(agentNameComponents)-2], "-")
 
+	// Load the agent version from the deployment labels
+	agentVersion, err := LoadAgentVersionFromContext(ctx, clientSet, o.AgentNamespace, deploymentName)
+	if err != nil {
+		o.Logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
+		return nil, fmt.Errorf("error loading agent version from context: %w", err)
+	}
+
+	// Initialize the agent state with all values from options and context
+	agentState = models.NewAgentState(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ControllerCacheSyncTimeout)
+
 	return &Service{
-		apiToken:                   o.APIToken,
-		agentNamespace:             o.AgentNamespace,
-		excludedNamespaces:         o.ExcludedNamespaces,
-		monitoredResources:         make([]string, 0),
-		agentName:                  deploymentName,
-		kubernetesClientSet:        clientSet,
-		heartbeatChan:              make(chan struct{}),
-		heartbeatService:           o.HeartbeatService,
-		logger:                     o.Logger,
-		assetsOutputClient:         o.AssetsOutputClient,
-		ControllerCacheSyncTimeout: o.ControllerCacheSyncTimeout,
+		AgentState:          agentState,
+		heartbeatStopChan:   make(chan struct{}),
+		kubernetesClientSet: clientSet,
+		heartbeatService:    o.HeartbeatService,
+		logger:              o.Logger,
+		assetsOutputClient:  o.AssetsOutputClient,
 	}, nil
 }
 
@@ -101,7 +106,7 @@ func (s *Service) StartHeartbeat() {
 		}
 	}()
 
-	s.heartbeatChan = make(chan struct{})
+	s.heartbeatStopChan = make(chan struct{})
 	ticker := time.NewTicker(s.heartbeatService.GetSendInterval())
 	go func() {
 		for {
@@ -111,8 +116,8 @@ func (s *Service) StartHeartbeat() {
 				if _, err := s.SendHeartbeat(ctx); err != nil {
 					s.logger.LogError(err, "error sending heartbeat")
 				}
-			case <-s.heartbeatChan:
-				close(s.heartbeatChan)
+			case <-s.heartbeatStopChan:
+				close(s.heartbeatStopChan)
 				ticker.Stop()
 				return
 			}
@@ -121,7 +126,7 @@ func (s *Service) StartHeartbeat() {
 }
 
 func (s *Service) StopHeartbeat() {
-	s.heartbeatChan <- struct{}{}
+	s.heartbeatStopChan <- struct{}{}
 }
 
 func (s *Service) Close(ctx context.Context) {
@@ -135,7 +140,7 @@ func (s *Service) Close(ctx context.Context) {
 // SendHeartbeat sends a heartbeat to the management server and processes the response
 func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
 	resp, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
-		AgentVersion:       s.agentVersion,
+		AgentVersion:       s.GetAgentVersion(),
 		IsInitialHeartbeat: false,
 	})
 	if err != nil {
@@ -144,7 +149,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	// If the token has changed, update it in the service, output clients and in the agent Kubernetes secret
-	if s.apiToken != resp.Token && resp.Token != "" {
+	if s.GetAPIToken() != resp.Token && resp.Token != "" {
 		s.logger.LogInfo("API token updated from heartbeat response")
 		if err := s.UpdateAPIToken(ctx, resp.Token); err != nil {
 			s.logger.ReportError(ctx, err, "error updating agent API token", "managerError")
@@ -153,8 +158,8 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	// If the agent version has changed, update the deployment with the new image version which will also trigger a restart
-	if s.agentVersion != resp.Cluster.DesiredAgentVersion {
-		s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.agentVersion, "new version", resp.Cluster.DesiredAgentVersion)
+	if s.GetAgentVersion() != resp.Cluster.DesiredAgentVersion {
+		s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.GetAgentVersion(), "new version", resp.Cluster.DesiredAgentVersion)
 		if err := s.UpdateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
 			s.logger.ReportError(ctx, err, "error updating agent version", "managerError")
 			return resp, err
@@ -162,13 +167,13 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	// If the excluded namespaces have changed, restart the agent to re-create the watchers with the new namespaces filters
-	if !slices.Equal(s.excludedNamespaces, resp.Cluster.ExcludedNamespaces) {
+	if !slices.Equal(s.GetExcludedNamespaces(), resp.Cluster.ExcludedNamespaces) {
 		s.logger.LogInfo("excluded namespaces changed, restarting agent")
 		if err := s.RestartAgent(ctx); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
-		s.excludedNamespaces = resp.Cluster.ExcludedNamespaces
+		s.SetExcludedNamespaces(resp.Cluster.ExcludedNamespaces)
 	}
 
 	monitoredResourcesGVKs := make([]string, 0, len(resp.MonitoredResources))
@@ -177,25 +182,19 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	// If the monitored resources have changed, restart the agent to re-create the watchers with the new configuration
-	if !slices.Equal(s.monitoredResources, monitoredResourcesGVKs) {
+	if !slices.Equal(s.GetMonitoredResources(), monitoredResourcesGVKs) {
 		s.logger.LogInfo("monitored resources changed, restarting agent")
 		if err := s.RestartAgent(ctx); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
-		s.monitoredResources = monitoredResourcesGVKs
+		s.SetMonitoredResources(monitoredResourcesGVKs)
 	}
 
 	return resp, nil
 }
 
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager) error {
-	// Load the agent version from the deployment labels
-	if err := s.LoadAgentVersionFromContext(ctx); err != nil {
-		s.logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
-		return fmt.Errorf("error loading agent version from context: %w", err)
-	}
-
 	clusterIdentifier, err := s.GetClusterIdentifier(ctx)
 	if err != nil {
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
@@ -203,7 +202,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// Send the initial heartbeat to get the monitored resources and agent configuration
 	hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
-		AgentVersion:       s.agentVersion,
+		AgentVersion:       s.GetAgentVersion(),
 		IsInitialHeartbeat: true,
 		ClusterIdentifier:  clusterIdentifier,
 	})
@@ -211,7 +210,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
 		return fmt.Errorf("error sending initial heartbeat: %w", err)
 	}
-	s.excludedNamespaces = hb.Cluster.ExcludedNamespaces
+	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
@@ -229,16 +228,25 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.assetsOutputClient = assetsClient
 
 	// Append the agent namespace to the excluded namespaces to avoid watching its own resources
-	excludedNamespaces := append(hb.Cluster.ExcludedNamespaces, s.agentNamespace)
+	excludedNamespaces := append(hb.Cluster.ExcludedNamespaces, s.GetAgentNamespace())
 
 	monitoredResourcesGVKs := make([]string, 0, len(hb.MonitoredResources))
 	for _, gvk := range hb.MonitoredResources {
 		monitoredResourcesGVKs = append(monitoredResourcesGVKs, gvk.String())
 	}
-	s.monitoredResources = monitoredResourcesGVKs
+	s.SetMonitoredResources(monitoredResourcesGVKs)
+
+	sbomController := httpcontrollers.NewSBOMController(s.logger.GetLogger(), sbom.NewService(s.logger, s.AgentState, imagescache.NewImagesCache()))
+
+	// Initialize the HTTP server that communicates with other components (e.g. the SBOM collector)
+	go func() {
+		if err := internalhttp.ListenAndServe(ctx, s.logger.GetLogger(), 81, sbomController); err != nil {
+			s.logger.ReportError(ctx, err, "error starting sbom controller", "managerError")
+		}
+	}()
 
 	watcherOptions := controller.Options{
-		CacheSyncTimeout: s.ControllerCacheSyncTimeout,
+		CacheSyncTimeout: s.GetControllerCacheSyncTimeout(),
 	}
 
 	// Set up the resource watchers based on the monitored resources from the heartbeat
@@ -264,28 +272,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	s.StartHeartbeat()
 
-	s.logger.LogInfo("starting agent", "version", s.agentVersion, "excluded_namespaces", excludedNamespaces)
-
-	return nil
-}
-
-// LoadAgentVersionFromContext gets the deployment details from the API server and extracts the agent version from the labels
-func (s *Service) LoadAgentVersionFromContext(ctx context.Context) error {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
-		s.agentVersion = defaultAgentVersion
-		return nil
-	}
-
-	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.agentNamespace).Get(ctx, s.agentName, v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("error getting agent deployment: %w", err)
-	}
-
-	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
-	if !ok {
-		return fmt.Errorf("agent version label not found on deployment")
-	}
-	s.agentVersion = agentVersion
+	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", excludedNamespaces)
 
 	return nil
 }
@@ -297,7 +284,7 @@ func (s *Service) RestartAgent(ctx context.Context) error {
 		return nil
 	}
 
-	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.agentNamespace).Get(ctx, s.agentName, v1.GetOptions{})
+	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetAgentName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting agent deployment: %w", err)
 	}
@@ -307,7 +294,7 @@ func (s *Service) RestartAgent(ctx context.Context) error {
 	}
 	deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339Nano)
 
-	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.agentNamespace).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
+	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update deployment: %w", err)
 	}
 
@@ -320,7 +307,7 @@ func (s *Service) UpdateAgentVersion(ctx context.Context, newVersion string) err
 		return nil
 	}
 
-	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.agentNamespace).Get(ctx, s.agentName, v1.GetOptions{})
+	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetAgentName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting agent deployment: %w", err)
 	}
@@ -336,13 +323,13 @@ func (s *Service) UpdateAgentVersion(ctx context.Context, newVersion string) err
 	deployment.Labels["app.kubernetes.io/version"] = newVersion
 	deployment.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
 
-	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.agentNamespace).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
+	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update deployment: %w", err)
 	}
 
 	// We're setting the agent version to prevent multiple updates of the deployment if the heartbeat interval is
 	// shorter than the time it takes for the deployment to roll out
-	s.agentVersion = newVersion
+	s.SetAgentVersion(newVersion)
 	return nil
 }
 
@@ -351,21 +338,21 @@ func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
 	if err := s.updateAgentSecret(ctx, newToken); err != nil {
 		return fmt.Errorf("error updating agent secret: %w", err)
 	}
-	s.apiToken = newToken
+	s.SetAPIToken(newToken)
 
 	// Set the token for the output clients
-	s.assetsOutputClient.SetAPIToken(s.apiToken)
-	s.logger.SetAPIToken(s.apiToken)
+	s.assetsOutputClient.SetAPIToken(s.GetAPIToken())
+	s.logger.SetAPIToken(s.GetAPIToken())
 
 	// Set the heartbeat service token
-	s.heartbeatService.SetAPIToken(s.apiToken)
+	s.heartbeatService.SetAPIToken(s.GetAPIToken())
 
 	return nil
 }
 
 // updateAgentSecret identifies the agent secret in Kubernetes using the agent name and namespace and updates the API token
 func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error {
-	secret, err := s.kubernetesClientSet.CoreV1().Secrets(s.agentNamespace).Get(ctx, s.agentName, v1.GetOptions{})
+	secret, err := s.kubernetesClientSet.CoreV1().Secrets(s.GetAgentNamespace()).Get(ctx, s.GetAgentName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting agent secret to update API token: %w", err)
 	}
@@ -383,7 +370,7 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 	secret.Data["config.yaml"] = newCfgData
 	secret.Annotations["helm.sh/resource-policy"] = "keep"
 
-	if _, err := s.kubernetesClientSet.CoreV1().Secrets(s.agentNamespace).Update(ctx, secret, v1.UpdateOptions{}); err != nil {
+	if _, err := s.kubernetesClientSet.CoreV1().Secrets(s.GetAgentNamespace()).Update(ctx, secret, v1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("error updating agent secret with new API token: %w", err)
 	}
 
@@ -557,21 +544,21 @@ func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error)
 	return string(ns.UID), nil
 }
 
-func (s *Service) GenerateCollectorConfig(_ context.Context) (models.CollectorConfig, error) {
-	return models.CollectorConfig{
-		APIHost:                    s.heartbeatService.GetAPIEndpoint(),
-		ExcludedNamespaces:         s.excludedNamespaces,
-		ControllerCacheSyncTimeout: s.ControllerCacheSyncTimeout,
-		APIToken:                   s.apiToken,
-	}, nil
-}
+// LoadAgentVersionFromContext gets the deployment details from the API server and extracts the agent version from the labels
+func LoadAgentVersionFromContext(ctx context.Context, clientSet *kubernetes.Clientset, agentNamespace, agentName string) (string, error) {
+	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+		return defaultAgentVersion, nil
+	}
 
-func (s *Service) GetAPIToken() string {
-	return s.apiToken
-}
+	deployment, err := clientSet.AppsV1().Deployments(agentNamespace).Get(ctx, agentName, v1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("error getting agent deployment: %w", err)
+	}
 
-func (s *Service) HandleCollectorError(ctx context.Context, error models.AgentError) error {
-	s.logger.ReportError(ctx, fmt.Errorf("%s", error.Error), "SBOM collector error", error.ErrorType)
+	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
+	if !ok {
+		return "", fmt.Errorf("agent version label not found on deployment")
+	}
 
-	return nil
+	return agentVersion, nil
 }

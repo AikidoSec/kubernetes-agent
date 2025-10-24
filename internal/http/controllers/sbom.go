@@ -7,22 +7,19 @@ import (
 	"log/slog"
 	"net/http"
 
-	"aikidoSec.kubernetesAgent/internal/services/manager"
-	"aikidoSec.kubernetesAgent/pkg/imagescache"
+	"aikidoSec.kubernetesAgent/internal/services/sbom"
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
 type SBOMController struct {
-	service     *manager.Service
-	logger      *slog.Logger
-	imagesCache *imagescache.ImagesCache
+	service *sbom.Service
+	logger  *slog.Logger
 }
 
-func NewSBOMController(logger *slog.Logger, service *manager.Service, cache *imagescache.ImagesCache) *SBOMController {
+func NewSBOMController(logger *slog.Logger, svc *sbom.Service) *SBOMController {
 	return &SBOMController{
-		service:     service,
-		logger:      logger,
-		imagesCache: cache,
+		service: svc,
+		logger:  logger,
 	}
 }
 
@@ -31,11 +28,11 @@ func (c *SBOMController) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sbom-collector/token", c.GetCollectorToken)
 	mux.HandleFunc("GET /sbom-collector/image-status/{image}", c.GetImageProcessingStatus)
 	mux.HandleFunc("POST /sbom-collector/image-status", c.SetImageProcessingStatus)
-	mux.HandleFunc("POST /sbom-collector/errors", c.ReportCollectorErrors)
+	mux.HandleFunc("POST /sbom-collector/errors", c.ReportCollectorError)
 }
 
 func (c *SBOMController) GetCollectorConfig(rw http.ResponseWriter, r *http.Request) {
-	cfg, err := c.service.GenerateCollectorConfig(r.Context())
+	cfg, err := c.service.HandleGetCollectorConfig(r.Context())
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("error generating SBOM collector config: %s", err.Error()), http.StatusInternalServerError)
 		return
@@ -66,7 +63,11 @@ func (c *SBOMController) GetImageProcessingStatus(rw http.ResponseWriter, r *htt
 		return
 	}
 
-	isProcessed := c.imagesCache.IsImageProcessed(image)
+	isProcessed, err := c.service.HandleGetImageProcessingStatus(r.Context(), image)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("error getting image processing status: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
 
 	rw.Header().Set("Content-Type", "application/json")
 
@@ -91,11 +92,16 @@ func (c *SBOMController) SetImageProcessingStatus(rw http.ResponseWriter, r *htt
 		return
 	}
 
-	c.imagesCache.MarkImageAsProcessed(imageStatus.Image)
+	err := c.service.HandleSetImageProcessingStatus(r.Context(), imageStatus.Image)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("error setting image processing status: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
 	rw.WriteHeader(http.StatusOK)
 }
 
-func (c *SBOMController) ReportCollectorErrors(rw http.ResponseWriter, r *http.Request) {
+func (c *SBOMController) ReportCollectorError(rw http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Encoding") != "gzip" {
 		http.Error(rw, "Unsupported Content-Encoding", http.StatusUnsupportedMediaType)
 		return
@@ -119,7 +125,7 @@ func (c *SBOMController) ReportCollectorErrors(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	if err := c.service.HandleCollectorError(r.Context(), payload); err != nil {
+	if err := c.service.HandleReportCollectorError(r.Context(), payload); err != nil {
 		http.Error(rw, fmt.Sprintf("error handling collector errors: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}

@@ -7,14 +7,12 @@ import (
 	"os"
 	"time"
 
-	"aikidoSec.kubernetesAgent/internal/http"
-	"aikidoSec.kubernetesAgent/internal/http/controllers"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/config"
-	"aikidoSec.kubernetesAgent/pkg/imagescache"
+	"aikidoSec.kubernetesAgent/pkg/models"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -93,11 +91,13 @@ func main() {
 	loggerService := logger.NewService(l, errorsClient)
 	defer loggerService.Close(ctx)
 
-	agentService, err := manager.NewService(ctx, manager.Options{
+	agentState := models.NewEmptyAgentState()
+	agentService, err := manager.NewService(ctx, agentState, manager.Options{
 		Logger:                     loggerService,
 		AgentNamespace:             ns,
 		PodName:                    podName,
 		APIToken:                   cfg.APIToken,
+		APIEndpoint:                cfg.APIEndpoint,
 		HeartbeatService:           heartbeatService,
 		ControllerCacheSyncTimeout: cfg.ControllerCacheSyncTimeout,
 	})
@@ -148,17 +148,6 @@ func main() {
 	if err := agentService.InitializeAgent(ctx, cfg, mgr); err != nil {
 		l.Error("error initializing agent", "error", err)
 		os.Exit(1)
-	}
-
-	if cfg.IsSBOMCollectionEnabled {
-		imageCache := imagescache.NewImagesCache()
-		sbomController := controllers.NewSBOMController(l, agentService, imageCache)
-
-		go func() {
-			if err := http.ListenAndServe(ctx, l, 81, sbomController); err != nil {
-				l.Error("error starting HTTP server", "error", err)
-			}
-		}()
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
