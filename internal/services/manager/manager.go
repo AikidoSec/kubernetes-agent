@@ -35,7 +35,11 @@ import (
 
 var noHostErrorMessage = "no such host"
 
-const defaultAgentVersion = "1.0.0"
+const (
+	defaultAgentVersion = "1.0.0"
+
+	daemonsetName = "aikido-kubernetes-sbom-collector"
+)
 
 type Options struct {
 	AgentNamespace             string
@@ -191,6 +195,14 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		s.SetMonitoredResources(monitoredResourcesGVKs)
 	}
 
+	if s.IsSBOMCollectorEnabled() != resp.Cluster.SBOMCollectorEnabled {
+		s.logger.LogInfo("sbom collector enabled state changed from heartbeat response", "current state", s.IsSBOMCollectorEnabled(), "new state", resp.Cluster.SBOMCollectorEnabled)
+		if err := s.ConfigureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled); err != nil {
+			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
+			return resp, err
+		}
+	}
+
 	return resp, nil
 }
 
@@ -239,6 +251,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	sbomController := httpcontrollers.NewSBOMController(s.logger.GetLogger(), sbom.NewService(s.logger, s.AgentState, imagescache.NewImagesCache()))
 
 	// Initialize the HTTP server that communicates with other components (e.g. the SBOM collector)
+	s.SetSBOMCollectorEnabled(hb.Cluster.SBOMCollectorEnabled)
 	go func() {
 		if err := internalhttp.ListenAndServe(ctx, s.logger.GetLogger(), 81, sbomController); err != nil {
 			s.logger.ReportError(ctx, err, "error starting sbom controller", "managerError")
@@ -374,6 +387,26 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 		return fmt.Errorf("error updating agent secret with new API token: %w", err)
 	}
 
+	return nil
+}
+
+func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool) error {
+	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, daemonsetName, v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting SBOM collector daemonset: %w", err)
+	}
+
+	if enabled {
+		ds.Spec.Template.Spec.NodeSelector = make(map[string]string)
+	} else {
+		ds.Spec.Template.Spec.NodeSelector = map[string]string{
+			"aikidoSec.com/disable-sbom-collector": "true",
+		}
+	}
+
+	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, ds, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating SBOM collector daemonset: %w", err)
+	}
 	return nil
 }
 

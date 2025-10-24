@@ -15,6 +15,8 @@ type AgentState struct {
 	monitoredResources         []string
 	controllerCacheSyncTimeout time.Duration
 
+	sbomCollectorEnabled bool
+
 	mu sync.Mutex
 }
 
@@ -87,6 +89,12 @@ func (a *AgentState) GetControllerCacheSyncTimeout() time.Duration {
 	return a.controllerCacheSyncTimeout
 }
 
+func (a *AgentState) IsSBOMCollectorEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sbomCollectorEnabled
+}
+
 func (a *AgentState) SetAgentVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -133,4 +141,10 @@ func (a *AgentState) SetControllerCacheSyncTimeout(timeout time.Duration) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.controllerCacheSyncTimeout = timeout
+}
+
+func (a *AgentState) SetSBOMCollectorEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sbomCollectorEnabled = enabled
 }
