@@ -6,12 +6,13 @@ import (
 )
 
 type Cluster struct {
-	ID                   int      `json:"id"`
-	SysGroupID           int      `json:"sys_group_id"`
-	Name                 string   `json:"name"`
-	ExcludedNamespaces   []string `json:"excluded_namespaces"`
-	DesiredAgentVersion  string   `json:"desired_agent_version"`
-	SBOMCollectorEnabled bool     `json:"sbom_collector_enabled"`
+	ID                          int      `json:"id"`
+	SysGroupID                  int      `json:"sys_group_id"`
+	Name                        string   `json:"name"`
+	ExcludedNamespaces          []string `json:"excluded_namespaces"`
+	DesiredAgentVersion         string   `json:"desired_agent_version"`
+	DesiredSBOMCollectorVersion string   `json:"desired_sbom_collector_version"`
+	SBOMCollectorEnabled        bool     `json:"sbom_collector_enabled"`
 }
 
 func (c *Cluster) FromJSON(r io.Reader) error {

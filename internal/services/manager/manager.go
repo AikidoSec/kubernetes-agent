@@ -85,14 +85,20 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	deploymentName := strings.Join(agentNameComponents[:len(agentNameComponents)-2], "-")
 
 	// Load the agent version from the deployment labels
-	agentVersion, err := LoadAgentVersionFromContext(ctx, clientSet, o.AgentNamespace, deploymentName)
+	agentVersion, err := LoadDeploymentVersion(ctx, clientSet, o.AgentNamespace, deploymentName)
 	if err != nil {
 		o.Logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
 		return nil, fmt.Errorf("error loading agent version from context: %w", err)
 	}
 
+	sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, clientSet, o.AgentNamespace, sbomCollectorOwnerName, o.IsSBOMCollectorRunningAsDaemonSet)
+	if err != nil {
+		o.Logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
+		return nil, fmt.Errorf("error loading sbom collector version from context: %w", err)
+	}
+
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet)
+	agentState.SetInitialValues(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, sbomCollectorVersion)
 
 	return &Service{
 		AgentState:          agentState,
@@ -173,8 +179,15 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 
 	// If the excluded namespaces have changed, restart the agent to re-create the watchers with the new namespaces filters
 	if !slices.Equal(s.GetExcludedNamespaces(), resp.Cluster.ExcludedNamespaces) {
+		if s.IsSBOMCollectorEnabled() {
+			s.logger.LogInfo("excluded namespaces changed, restarting sbom collector")
+			if err := s.RestartSBOMCollector(ctx); err != nil {
+				s.logger.ReportError(ctx, err, "error restarting sbom collector", "managerError")
+			}
+		}
+
 		s.logger.LogInfo("excluded namespaces changed, restarting agent")
-		if err := s.RestartAgent(ctx); err != nil {
+		if err := s.RestartDeployment(ctx, s.GetAgentName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
@@ -189,18 +202,27 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// If the monitored resources have changed, restart the agent to re-create the watchers with the new configuration
 	if !slices.Equal(s.GetMonitoredResources(), monitoredResourcesGVKs) {
 		s.logger.LogInfo("monitored resources changed, restarting agent")
-		if err := s.RestartAgent(ctx); err != nil {
+		if err := s.RestartDeployment(ctx, s.GetAgentName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
 		s.SetMonitoredResources(monitoredResourcesGVKs)
 	}
 
+	// If the SBOM collector enabled state has changed, update the deployment/daemonset accordingly
 	if s.IsSBOMCollectorEnabled() != resp.Cluster.SBOMCollectorEnabled {
 		s.logger.LogInfo("sbom collector enabled state changed from heartbeat response", "current state", s.IsSBOMCollectorEnabled(), "new state", resp.Cluster.SBOMCollectorEnabled)
 		if err := s.ConfigureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled); err != nil {
 			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 			return resp, err
+		}
+	}
+
+	// If the SBOM collector version has changed, update it in the service state
+	if s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
+		s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
+		if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
+			s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
 		}
 	}
 
@@ -291,16 +313,16 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	return nil
 }
 
-// RestartAgent fetches the agent deployment and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
-// a restart of the agent
-func (s *Service) RestartAgent(ctx context.Context) error {
+// RestartDeployment fetches the deployment and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
+// a restart.
+func (s *Service) RestartDeployment(ctx context.Context, deploymentName string) error {
 	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
 		return nil
 	}
 
-	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetAgentName(), v1.GetOptions{})
+	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, deploymentName, v1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("error getting agent deployment: %w", err)
+		return fmt.Errorf("error getting deployment: %w", err)
 	}
 
 	if deployment.Spec.Template.Annotations == nil {
@@ -309,7 +331,7 @@ func (s *Service) RestartAgent(ctx context.Context) error {
 	deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339Nano)
 
 	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update deployment: %w", err)
+		return fmt.Errorf("error updating deployment: %w", err)
 	}
 
 	return nil
@@ -606,15 +628,22 @@ func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error)
 	return string(ns.UID), nil
 }
 
-// LoadAgentVersionFromContext gets the deployment details from the API server and extracts the agent version from the labels
-func LoadAgentVersionFromContext(ctx context.Context, clientSet *kubernetes.Clientset, agentNamespace, agentName string) (string, error) {
+func LoadSBOMCollectorVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, ownerName string, isDaemonSet bool) (string, error) {
+	if isDaemonSet {
+		return LoadDaemonSetVersion(ctx, clientSet, ns, ownerName)
+	}
+	return LoadDeploymentVersion(ctx, clientSet, ns, ownerName)
+}
+
+// LoadDeploymentVersion gets the deployment details from the API server and extracts the version from the labels
+func LoadDeploymentVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, deploymentName string) (string, error) {
 	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
 		return defaultAgentVersion, nil
 	}
 
-	deployment, err := clientSet.AppsV1().Deployments(agentNamespace).Get(ctx, agentName, v1.GetOptions{})
+	deployment, err := clientSet.AppsV1().Deployments(ns).Get(ctx, deploymentName, v1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("error getting agent deployment: %w", err)
+		return "", fmt.Errorf("error getting deployment: %w", err)
 	}
 
 	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
@@ -623,4 +652,127 @@ func LoadAgentVersionFromContext(ctx context.Context, clientSet *kubernetes.Clie
 	}
 
 	return agentVersion, nil
+}
+
+// LoadDaemonSetVersion gets the daemonSet details from the API server and extracts the version from the labels
+func LoadDaemonSetVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, dsName string) (string, error) {
+	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+		return defaultAgentVersion, nil
+	}
+
+	deployment, err := clientSet.AppsV1().DaemonSets(ns).Get(ctx, dsName, v1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("error getting daemonSet: %w", err)
+	}
+
+	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
+	if !ok {
+		return "", fmt.Errorf("agent version label not found on deployment")
+	}
+
+	return agentVersion, nil
+}
+
+func (s *Service) RestartSBOMCollector(ctx context.Context) error {
+	if s.IsSBOMCollectorRunningAsDaemonSet() {
+		return s.RestartDaemonSet(ctx, sbomCollectorOwnerName)
+	}
+
+	return s.RestartDeployment(ctx, sbomCollectorOwnerName)
+}
+
+// RestartDaemonSet fetches the daemonSet and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
+// a restart.
+func (s *Service) RestartDaemonSet(ctx context.Context, dsName string) error {
+	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+		return nil
+	}
+
+	deployment, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, dsName, v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting daemonSet: %w", err)
+	}
+
+	if deployment.Spec.Template.Annotations == nil {
+		deployment.Spec.Template.Annotations = map[string]string{}
+	}
+	deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339Nano)
+
+	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating daemonSet: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Service) UpdateSBOMCollectorVersion(ctx context.Context, newVersion string) error {
+	if s.IsSBOMCollectorRunningAsDaemonSet() {
+		return s.UpdateSBOMCollectorDaemonSetVersion(ctx, newVersion)
+	}
+
+	return s.UpdateSBOMCollectorDeploymentVersion(ctx, newVersion)
+}
+
+// UpdateSBOMCollectorDeploymentVersion updates the sbom collector deployment with a new image version and updates the version labels
+func (s *Service) UpdateSBOMCollectorDeploymentVersion(ctx context.Context, newVersion string) error {
+	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+		return nil
+	}
+
+	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting sbom collector deployment: %w", err)
+	}
+
+	image := deployment.Spec.Template.Spec.Containers[0].Image
+	imageParts := strings.Split(image, ":")
+	if len(imageParts) != 2 {
+		return fmt.Errorf("invalid image format: %s", image)
+	}
+
+	newImage := fmt.Sprintf("%s:%s", imageParts[0], newVersion)
+	deployment.Spec.Template.Spec.Containers[0].Image = newImage
+	deployment.Labels["app.kubernetes.io/version"] = newVersion
+	deployment.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
+
+	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating sbom collector deployment: %w", err)
+	}
+
+	// We're setting the sbom collector version to prevent multiple updates of the deployment if the heartbeat interval is
+	// shorter than the time it takes for the deployment to roll out
+	s.SetSBOMCollectorVersion(newVersion)
+	return nil
+}
+
+// UpdateSBOMCollectorDaemonSetVersion updates the sbom collector daemonSet with a new image version and updates the version labels
+func (s *Service) UpdateSBOMCollectorDaemonSetVersion(ctx context.Context, newVersion string) error {
+	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+		return nil
+	}
+
+	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting sbom collector deployment: %w", err)
+	}
+
+	image := daemonSet.Spec.Template.Spec.Containers[0].Image
+	imageParts := strings.Split(image, ":")
+	if len(imageParts) != 2 {
+		return fmt.Errorf("invalid image format: %s", image)
+	}
+
+	newImage := fmt.Sprintf("%s:%s", imageParts[0], newVersion)
+	daemonSet.Spec.Template.Spec.Containers[0].Image = newImage
+	daemonSet.Labels["app.kubernetes.io/version"] = newVersion
+	daemonSet.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
+
+	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, daemonSet, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating sbom collector deployment: %w", err)
+	}
+
+	// We're setting the sbom collector version to prevent multiple updates of the deployment if the heartbeat interval is
+	// shorter than the time it takes for the deployment to roll out
+	s.SetSBOMCollectorVersion(newVersion)
+	return nil
 }
