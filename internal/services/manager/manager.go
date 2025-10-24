@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -271,7 +272,8 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 	s.SetMonitoredResources(monitoredResourcesGVKs)
 
-	sbomController := httpcontrollers.NewSBOMController(s.logger.GetLogger(), sbom.NewService(s.logger, s.AgentState, imagescache.NewImagesCache()))
+	imagesCache := imagescache.NewImagesCache()
+	sbomController := httpcontrollers.NewSBOMController(s.logger.GetLogger(), sbom.NewService(s.logger, s.AgentState, imagesCache))
 
 	// Initialize the HTTP server that communicates with other components (e.g. the SBOM collector)
 	s.SetSBOMCollectorEnabled(hb.Cluster.SBOMCollectorEnabled)
@@ -280,6 +282,18 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			s.logger.ReportError(ctx, err, "error starting sbom controller", "managerError")
 		}
 	}()
+
+	// If the SBOM collector is enabled, load the already scanned images from the API server into the cache.
+	if s.IsSBOMCollectorEnabled() {
+		collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
+		}
+
+		if len(collectorScannedImages) > 0 {
+			imagesCache.LoadFromScannedImages(collectorScannedImages)
+		}
+	}
 
 	watcherOptions := controller.Options{
 		CacheSyncTimeout: s.GetControllerCacheSyncTimeout(),
@@ -775,4 +789,34 @@ func (s *Service) UpdateSBOMCollectorDaemonSetVersion(ctx context.Context, newVe
 	// shorter than the time it takes for the deployment to roll out
 	s.SetSBOMCollectorVersion(newVersion)
 	return nil
+}
+
+func (s *Service) ListCollectorScannedImages(ctx context.Context) ([]models.ScannedImage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/api/sbom/list-scanned-images", s.GetAPIEndpoint()), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request to get collector scanned images: %w", err)
+	}
+	defer func() {
+		if err := res.Body.Close(); err != nil {
+			s.logger.ReportError(ctx, err, "error closing list collector scanned images body", "managerError")
+		}
+	}()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("error listing collector scanned images, status code: %d", res.StatusCode)
+	}
+
+	var response []models.ScannedImage
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }

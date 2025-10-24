@@ -1,6 +1,10 @@
 package imagescache
 
-import "sync"
+import (
+	"sync"
+
+	"aikidoSec.kubernetesAgent/pkg/models"
+)
 
 // SBOM collector processed images cache
 type ImagesCache struct {
@@ -28,4 +32,13 @@ func (c *ImagesCache) MarkImageAsProcessed(imageID string) {
 	defer c.ProcessedImagesCacheLock.Unlock()
 
 	c.ProcessedImagesCache[imageID] = struct{}{}
+}
+
+func (c *ImagesCache) LoadFromScannedImages(scannedImages []models.ScannedImage) {
+	c.ProcessedImagesCacheLock.Lock()
+	defer c.ProcessedImagesCacheLock.Unlock()
+
+	for _, img := range scannedImages {
+		c.ProcessedImagesCache[img.Image] = struct{}{}
+	}
 }
