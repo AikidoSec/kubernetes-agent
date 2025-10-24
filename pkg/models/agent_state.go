@@ -15,7 +15,8 @@ type AgentState struct {
 	monitoredResources         []string
 	controllerCacheSyncTimeout time.Duration
 
-	sbomCollectorEnabled bool
+	sbomCollectorEnabled              bool
+	isSBOMCollectorRunningAsDaemonSet bool
 
 	mu sync.Mutex
 }
@@ -28,7 +29,7 @@ func NewEmptyAgentState() *AgentState {
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentVersion, agentNamespace, agentName, apiToken, apiEndpoint string, controllerCacheSyncTimeout time.Duration) *AgentState {
+func (a *AgentState) SetInitialValues(agentVersion, agentNamespace, agentName, apiToken, apiEndpoint string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -38,6 +39,7 @@ func (a *AgentState) SetInitialValues(agentVersion, agentNamespace, agentName, a
 	a.apiToken = apiToken
 	a.apiEndpoint = apiEndpoint
 	a.controllerCacheSyncTimeout = controllerCacheSyncTimeout
+	a.isSBOMCollectorRunningAsDaemonSet = isSBOMCollectorRunningAsDaemonSet
 	return a
 }
 
@@ -95,6 +97,12 @@ func (a *AgentState) IsSBOMCollectorEnabled() bool {
 	return a.sbomCollectorEnabled
 }
 
+func (a *AgentState) IsSBOMCollectorRunningAsDaemonSet() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.isSBOMCollectorRunningAsDaemonSet
+}
+
 func (a *AgentState) SetAgentVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -147,4 +155,10 @@ func (a *AgentState) SetSBOMCollectorEnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sbomCollectorEnabled = enabled
+}
+
+func (a *AgentState) SetSBOMCollectorRunningAsDaemonSet(runningAsDaemonSet bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.isSBOMCollectorRunningAsDaemonSet = runningAsDaemonSet
 }

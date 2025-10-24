@@ -93,13 +93,14 @@ func main() {
 
 	agentState := models.NewEmptyAgentState()
 	agentService, err := manager.NewService(ctx, agentState, manager.Options{
-		Logger:                     loggerService,
-		AgentNamespace:             ns,
-		PodName:                    podName,
-		APIToken:                   cfg.APIToken,
-		APIEndpoint:                cfg.APIEndpoint,
-		HeartbeatService:           heartbeatService,
-		ControllerCacheSyncTimeout: cfg.ControllerCacheSyncTimeout,
+		Logger:                            loggerService,
+		AgentNamespace:                    ns,
+		PodName:                           podName,
+		APIToken:                          cfg.APIToken,
+		APIEndpoint:                       cfg.APIEndpoint,
+		HeartbeatService:                  heartbeatService,
+		ControllerCacheSyncTimeout:        cfg.ControllerCacheSyncTimeout,
+		IsSBOMCollectorRunningAsDaemonSet: cfg.IsSBOMCollectorRunningAsDaemonSet,
 	})
 	if err != nil {
 		l.Error("error creating manager service", "error", err)

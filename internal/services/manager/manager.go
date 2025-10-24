@@ -38,19 +38,20 @@ var noHostErrorMessage = "no such host"
 const (
 	defaultAgentVersion = "1.0.0"
 
-	daemonsetName = "aikido-kubernetes-sbom-collector"
+	sbomCollectorOwnerName = "aikido-kubernetes-sbom-collector"
 )
 
 type Options struct {
-	AgentNamespace             string
-	PodName                    string
-	APIToken                   string
-	APIEndpoint                string
-	ExcludedNamespaces         []string
-	HeartbeatService           *heartbeat.Service
-	AssetsOutputClient         *batchclient.BatchClient
-	Logger                     *logger.Service
-	ControllerCacheSyncTimeout time.Duration
+	AgentNamespace                    string
+	PodName                           string
+	APIToken                          string
+	APIEndpoint                       string
+	ExcludedNamespaces                []string
+	HeartbeatService                  *heartbeat.Service
+	AssetsOutputClient                *batchclient.BatchClient
+	Logger                            *logger.Service
+	ControllerCacheSyncTimeout        time.Duration
+	IsSBOMCollectorRunningAsDaemonSet bool
 }
 type Service struct {
 	*models.AgentState
@@ -91,7 +92,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}
 
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ControllerCacheSyncTimeout)
+	agentState.SetInitialValues(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet)
 
 	return &Service{
 		AgentState:          agentState,
@@ -391,7 +392,15 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 }
 
 func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool) error {
-	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, daemonsetName, v1.GetOptions{})
+	if s.IsSBOMCollectorRunningAsDaemonSet() {
+		return s.configureSBOMCollectorDaemonSet(ctx, enabled)
+	}
+
+	return s.configureSBOMCollectorDeployment(ctx, enabled)
+}
+
+func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled bool) error {
+	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting SBOM collector daemonset: %w", err)
 	}
@@ -406,6 +415,26 @@ func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool) erro
 
 	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, ds, v1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("error updating SBOM collector daemonset: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled bool) error {
+	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting SBOM collector deployment: %w", err)
+	}
+
+	if enabled {
+		replicas := int32(1)
+		dep.Spec.Replicas = &replicas
+	} else {
+		replicas := int32(0)
+		dep.Spec.Replicas = &replicas
+	}
+
+	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, dep, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating SBOM collector deployment: %w", err)
 	}
 	return nil
 }
