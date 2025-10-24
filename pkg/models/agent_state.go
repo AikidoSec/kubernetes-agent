@@ -13,22 +13,21 @@ type AgentState struct {
 	controllerCacheSyncTimeout time.Duration
 }
 
-func NewAgentState(agentVersion, agentNamespace, agentName, apiToken, apiEndpoint string, controllerCacheSyncTimeout time.Duration) *AgentState {
-	return &AgentState{
-		agentVersion:               agentVersion,
-		agentNamespace:             agentNamespace,
-		agentName:                  agentName,
-		apiToken:                   apiToken,
-		apiEndpoint:                apiEndpoint,
-		controllerCacheSyncTimeout: controllerCacheSyncTimeout,
-	}
-}
-
 func NewEmptyAgentState() *AgentState {
 	return &AgentState{
 		excludedNamespaces: make([]string, 0),
 		monitoredResources: make([]string, 0),
 	}
+}
+
+func (a *AgentState) SetInitialValues(agentVersion, agentNamespace, agentName, apiToken, apiEndpoint string, controllerCacheSyncTimeout time.Duration) *AgentState {
+	a.agentVersion = agentVersion
+	a.agentNamespace = agentNamespace
+	a.agentName = agentName
+	a.apiToken = apiToken
+	a.apiEndpoint = apiEndpoint
+	a.controllerCacheSyncTimeout = controllerCacheSyncTimeout
+	return a
 }
 
 func (a *AgentState) GetAgentVersion() string {

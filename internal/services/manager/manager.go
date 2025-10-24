@@ -87,7 +87,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}
 
 	// Initialize the agent state with all values from options and context
-	agentState = models.NewAgentState(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ControllerCacheSyncTimeout)
+	agentState.SetInitialValues(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ControllerCacheSyncTimeout)
 
 	return &Service{
 		AgentState:          agentState,
