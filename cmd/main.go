@@ -100,7 +100,7 @@ func main() {
 		APIEndpoint:                       cfg.APIEndpoint,
 		HeartbeatService:                  heartbeatService,
 		ControllerCacheSyncTimeout:        cfg.ControllerCacheSyncTimeout,
-		IsSBOMCollectorRunningAsDaemonSet: cfg.IsSBOMCollectorRunningAsDaemonSet,
+		IsSBOMCollectorRunningAsDaemonSet: cfg.RunSBOMCollectorAsDaemonSet,
 	})
 	if err != nil {
 		l.Error("error creating manager service", "error", err)

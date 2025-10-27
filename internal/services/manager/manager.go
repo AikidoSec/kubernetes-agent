@@ -176,6 +176,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			s.logger.ReportError(ctx, err, "error updating agent version", "managerError")
 			return resp, err
 		}
+		s.SetAgentVersion(resp.Cluster.DesiredAgentVersion)
 	}
 
 	// If the excluded namespaces have changed, restart the agent to re-create the watchers with the new namespaces filters
@@ -217,6 +218,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 			return resp, err
 		}
+		s.SetSBOMCollectorEnabled(resp.Cluster.SBOMCollectorEnabled)
 	}
 
 	// If the SBOM collector version has changed, update it in the service state
@@ -225,6 +227,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
 			s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
 		}
+		s.SetSBOMCollectorVersion(resp.Cluster.DesiredSBOMCollectorVersion)
 	}
 
 	return resp, nil
@@ -428,7 +431,7 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 }
 
 func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool) error {
-	if s.IsSBOMCollectorRunningAsDaemonSet() {
+	if s.GetRunSBOMCollectorAsDaemonSet() {
 		return s.configureSBOMCollectorDaemonSet(ctx, enabled)
 	}
 
@@ -445,7 +448,7 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled b
 		ds.Spec.Template.Spec.NodeSelector = make(map[string]string)
 	} else {
 		ds.Spec.Template.Spec.NodeSelector = map[string]string{
-			"aikidoSec.com/disable-sbom-collector": "true",
+			"aikidoSecurity.disable-sbom-collector": "true",
 		}
 	}
 
@@ -688,7 +691,7 @@ func LoadDaemonSetVersion(ctx context.Context, clientSet *kubernetes.Clientset, 
 }
 
 func (s *Service) RestartSBOMCollector(ctx context.Context) error {
-	if s.IsSBOMCollectorRunningAsDaemonSet() {
+	if s.GetRunSBOMCollectorAsDaemonSet() {
 		return s.RestartDaemonSet(ctx, sbomCollectorOwnerName)
 	}
 
@@ -720,7 +723,7 @@ func (s *Service) RestartDaemonSet(ctx context.Context, dsName string) error {
 }
 
 func (s *Service) UpdateSBOMCollectorVersion(ctx context.Context, newVersion string) error {
-	if s.IsSBOMCollectorRunningAsDaemonSet() {
+	if s.GetRunSBOMCollectorAsDaemonSet() {
 		return s.UpdateSBOMCollectorDaemonSetVersion(ctx, newVersion)
 	}
 
@@ -798,6 +801,7 @@ func (s *Service) ListCollectorScannedImages(ctx context.Context) ([]models.Scan
 	}
 
 	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Authorization", "Bearer "+s.GetAPIToken())
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
