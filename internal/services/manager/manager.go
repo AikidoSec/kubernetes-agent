@@ -23,6 +23,7 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
 	"go.uber.org/multierr"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"gopkg.in/yaml.v3"
@@ -313,13 +314,15 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	serverResourcesGVKs := make(map[string]struct{})
 	for _, apiResourceList := range serverResources {
 		for _, apiResource := range apiResourceList.APIResources {
-			groupVersion := apiResourceList.GroupVersion
-			// For empty group, we use "/v1" to match the GVK format used by the GVK type.
-			if groupVersion == "v1" {
-				groupVersion = "/v1"
+			gv, err := schema.ParseGroupVersion(apiResourceList.GroupVersion)
+			if err != nil {
+				s.logger.ReportError(ctx, err, "error parsing group version", "managerError")
+				continue
 			}
-			gvk := fmt.Sprintf("%s, Kind=%s", groupVersion, apiResource.Kind)
-			serverResourcesGVKs[gvk] = struct{}{}
+
+			gvk := schema.GroupVersionKind{Group: gv.Group, Version: gv.Version, Kind: apiResource.Kind}
+
+			serverResourcesGVKs[gvk.String()] = struct{}{}
 		}
 	}
 
