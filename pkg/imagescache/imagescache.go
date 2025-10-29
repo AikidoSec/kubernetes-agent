@@ -1,6 +1,7 @@
 package imagescache
 
 import (
+	"fmt"
 	"sync"
 
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -39,6 +40,6 @@ func (c *ImagesCache) LoadFromScannedImages(scannedImages []models.ScannedImage)
 	defer c.ProcessedImagesCacheLock.Unlock()
 
 	for _, img := range scannedImages {
-		c.ProcessedImagesCache[img.Image] = struct{}{}
+		c.ProcessedImagesCache[fmt.Sprintf("%s:%s", img.Image, img.Digest)] = struct{}{}
 	}
 }

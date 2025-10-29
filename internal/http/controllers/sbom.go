@@ -26,7 +26,7 @@ func NewSBOMController(logger *slog.Logger, svc *sbom.Service) *SBOMController {
 func (c *SBOMController) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sbom-collector/config", c.GetCollectorConfig)
 	mux.HandleFunc("GET /sbom-collector/token", c.GetCollectorToken)
-	mux.HandleFunc("GET /sbom-collector/image-status/{image}", c.GetImageProcessingStatus)
+	mux.HandleFunc("GET /sbom-collector/image-status", c.GetImageProcessingStatus)
 	mux.HandleFunc("POST /sbom-collector/image-status", c.SetImageProcessingStatus)
 	mux.HandleFunc("POST /sbom-collector/errors", c.ReportCollectorError)
 }
@@ -57,13 +57,19 @@ func (c *SBOMController) GetCollectorToken(rw http.ResponseWriter, _ *http.Reque
 }
 
 func (c *SBOMController) GetImageProcessingStatus(rw http.ResponseWriter, r *http.Request) {
-	image := r.PathValue("image")
+	image := r.URL.Query().Get("image")
 	if image == "" {
-		http.Error(rw, "missing image in path", http.StatusBadRequest)
+		http.Error(rw, "missing `image` from query parameters", http.StatusBadRequest)
 		return
 	}
 
-	isProcessed, err := c.service.HandleGetImageProcessingStatus(r.Context(), image)
+	digest := r.URL.Query().Get("digest")
+	if digest == "" {
+		http.Error(rw, "missing `digest` from query parameters", http.StatusBadRequest)
+		return
+	}
+
+	isProcessed, err := c.service.HandleGetImageProcessingStatus(r.Context(), image, digest)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("error getting image processing status: %s", err.Error()), http.StatusInternalServerError)
 		return
@@ -92,7 +98,7 @@ func (c *SBOMController) SetImageProcessingStatus(rw http.ResponseWriter, r *htt
 		return
 	}
 
-	err := c.service.HandleSetImageProcessingStatus(r.Context(), imageStatus.Image)
+	err := c.service.HandleSetImageProcessingStatus(r.Context(), imageStatus)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("error setting image processing status: %s", err.Error()), http.StatusInternalServerError)
 		return

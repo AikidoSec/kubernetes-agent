@@ -33,12 +33,12 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 	}, nil
 }
 
-func (s *Service) HandleGetImageProcessingStatus(_ context.Context, image string) (bool, error) {
-	return s.imagesCache.IsImageProcessed(image), nil
+func (s *Service) HandleGetImageProcessingStatus(_ context.Context, image, digest string) (bool, error) {
+	return s.imagesCache.IsImageProcessed(fmt.Sprintf("%s:%s", image, digest)), nil
 }
 
-func (s *Service) HandleSetImageProcessingStatus(_ context.Context, image string) error {
-	s.imagesCache.MarkImageAsProcessed(image)
+func (s *Service) HandleSetImageProcessingStatus(_ context.Context, imageStatus models.CollectorImageStatus) error {
+	s.imagesCache.MarkImageAsProcessed(fmt.Sprintf("%s:%s", imageStatus.Image, imageStatus.Digest))
 	return nil
 }
 
