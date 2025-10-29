@@ -20,7 +20,22 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 				return false
 			}
 
-			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+			if IsObjectFromExcludedNamespace(e.Object, excludedNamespaces) {
+				return false
+			}
+
+			pod, err := podFromUnstructured(e.Object)
+			if err != nil {
+				log.Println("error converting object to Pod:", err)
+				return false
+			}
+
+			// Only reconcile if pod is running, succeeded, or failed.
+			// Pending pods from the initial list are filtered out and will be reconciled later via UpdateFunc when
+			// they transition to a running state.
+			return pod.Status.Phase == v1.PodRunning ||
+				pod.Status.Phase == v1.PodSucceeded ||
+				pod.Status.Phase == v1.PodFailed
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			if IsObjectFromExcludedNamespace(e.ObjectNew, excludedNamespaces) {
