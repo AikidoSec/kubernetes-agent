@@ -103,7 +103,7 @@ func main() {
 		IsSBOMCollectorRunningAsDaemonSet: cfg.RunSBOMCollectorAsDaemonSet,
 	})
 	if err != nil {
-		l.Error("error creating manager service", "error", err)
+		loggerService.ReportError(ctx, err, "error creating agent service", "agentSetupError")
 		os.Exit(1)
 	}
 
@@ -142,26 +142,26 @@ func main() {
 		},
 	})
 	if err != nil {
-		l.Error("error creating manager", "error", err)
+		loggerService.ReportError(ctx, err, "error creating manager", "agentSetupError")
 		os.Exit(1)
 	}
 
 	if err := agentService.InitializeAgent(ctx, cfg, mgr); err != nil {
-		l.Error("error initializing agent", "error", err)
+		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
 		os.Exit(1)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		l.Error("error adding healthz check", "error", err)
+		loggerService.ReportError(ctx, err, "error adding healthz check", "agentSetupError")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		l.Error("error adding ready check", "error", err)
+		loggerService.ReportError(ctx, err, "error adding readyz check", "agentSetupError")
 		os.Exit(1)
 	}
 
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		l.Error("error running manager", "error", err)
+		loggerService.ReportError(ctx, err, "error starting manager", "agentSetupError")
 		os.Exit(1)
 	}
 	agentService.Close(ctx)
