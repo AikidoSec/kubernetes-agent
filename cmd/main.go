@@ -12,6 +12,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/services/manager"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/config"
+	"aikidoSec.kubernetesAgent/pkg/models"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -30,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const defaultNamespace = "aikido-security"
+const defaultNamespace = "aikido"
 
 var (
 	scheme = runtime.NewScheme()
@@ -90,16 +91,19 @@ func main() {
 	loggerService := logger.NewService(l, errorsClient)
 	defer loggerService.Close(ctx)
 
-	agentService, err := manager.NewService(ctx, manager.Options{
-		Logger:                     loggerService,
-		AgentNamespace:             ns,
-		PodName:                    podName,
-		APIToken:                   cfg.APIToken,
-		HeartbeatService:           heartbeatService,
-		ControllerCacheSyncTimeout: cfg.ControllerCacheSyncTimeout,
+	agentState := models.NewEmptyAgentState()
+	agentService, err := manager.NewService(ctx, agentState, manager.Options{
+		Logger:                            loggerService,
+		AgentNamespace:                    ns,
+		PodName:                           podName,
+		APIToken:                          cfg.APIToken,
+		APIEndpoint:                       cfg.APIEndpoint,
+		HeartbeatService:                  heartbeatService,
+		ControllerCacheSyncTimeout:        cfg.ControllerCacheSyncTimeout,
+		IsSBOMCollectorRunningAsDaemonSet: cfg.RunSBOMCollectorAsDaemonSet,
 	})
 	if err != nil {
-		l.Error("error creating manager service", "error", err)
+		loggerService.ReportError(ctx, err, "error creating agent service", "agentSetupError")
 		os.Exit(1)
 	}
 
@@ -138,26 +142,26 @@ func main() {
 		},
 	})
 	if err != nil {
-		l.Error("error creating manager", "error", err)
+		loggerService.ReportError(ctx, err, "error creating manager", "agentSetupError")
 		os.Exit(1)
 	}
 
 	if err := agentService.InitializeAgent(ctx, cfg, mgr); err != nil {
-		l.Error("error initializing agent", "error", err)
+		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
 		os.Exit(1)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		l.Error("error adding healthz check", "error", err)
+		loggerService.ReportError(ctx, err, "error adding healthz check", "agentSetupError")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		l.Error("error adding ready check", "error", err)
+		loggerService.ReportError(ctx, err, "error adding readyz check", "agentSetupError")
 		os.Exit(1)
 	}
 
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		l.Error("error running manager", "error", err)
+		loggerService.ReportError(ctx, err, "error starting manager", "agentSetupError")
 		os.Exit(1)
 	}
 	agentService.Close(ctx)

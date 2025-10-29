@@ -6,9 +6,10 @@ import (
 )
 
 type Config struct {
-	APIToken                   string        `yaml:"apiToken"`
-	APIEndpoint                string        `yaml:"apiEndpoint"`
-	ControllerCacheSyncTimeout time.Duration `yaml:"controllerCacheSyncTimeout"`
+	APIToken                    string        `yaml:"apiToken"`
+	APIEndpoint                 string        `yaml:"apiEndpoint"`
+	ControllerCacheSyncTimeout  time.Duration `yaml:"controllerCacheSyncTimeout"`
+	RunSBOMCollectorAsDaemonSet bool          `yaml:"runSBOMCollectorAsDaemonSet"`
 }
 
 func (c *Config) Validate() error {

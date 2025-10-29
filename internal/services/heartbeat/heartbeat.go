@@ -46,6 +46,10 @@ func (s *Service) SetAPIToken(token string) {
 	s.APIToken = token
 }
 
+func (s *Service) GetAPIEndpoint() string {
+	return s.APIEndpoint
+}
+
 func (s *Service) GetSendInterval() time.Duration {
 	return s.sendInterval
 }
