@@ -25,9 +25,14 @@ func NewService(logger *logger.Service, agentState *models.AgentState, cache *im
 }
 
 func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorConfig, error) {
+	// Include the agent namespace in the excluded namespaces to prevent scanning itself
+	excludedNamespaces := make([]string, len(s.GetExcludedNamespaces()))
+	copy(excludedNamespaces, s.GetExcludedNamespaces())
+	excludedNamespaces = append(excludedNamespaces, s.GetAgentNamespace())
+
 	return models.CollectorConfig{
 		APIHost:                    s.GetAPIEndpoint(),
-		ExcludedNamespaces:         s.GetExcludedNamespaces(),
+		ExcludedNamespaces:         excludedNamespaces,
 		ControllerCacheSyncTimeout: s.GetControllerCacheSyncTimeout(),
 		APIToken:                   s.GetAPIToken(),
 	}, nil
