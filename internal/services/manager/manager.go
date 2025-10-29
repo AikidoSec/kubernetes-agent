@@ -302,8 +302,35 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		CacheSyncTimeout: s.GetControllerCacheSyncTimeout(),
 	}
 
+	// Get the available resources from the Kubernetes API server.
+	serverResources, err := s.kubernetesClientSet.Discovery().ServerPreferredResources()
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error getting server resources", "managerError")
+	}
+
+	// Build a map of available GVKs in the cluster for quick lookup.
+	// This is used to skip setting up watchers for resources that are not available in the cluster.
+	serverResourcesGVKs := make(map[string]struct{})
+	for _, apiResourceList := range serverResources {
+		for _, apiResource := range apiResourceList.APIResources {
+			groupVersion := apiResourceList.GroupVersion
+			// For empty group, we use "/v1" to match the GVK format used by the GVK type.
+			if groupVersion == "v1" {
+				groupVersion = "/v1"
+			}
+			gvk := fmt.Sprintf("%s, Kind=%s", groupVersion, apiResource.Kind)
+			serverResourcesGVKs[gvk] = struct{}{}
+		}
+	}
+
 	// Set up the resource watchers based on the monitored resources from the heartbeat
 	for _, v := range hb.MonitoredResources {
+		// Skip the GVK if it's not available in the cluster
+		if _, found := serverResourcesGVKs[v.String()]; len(serverResourcesGVKs) > 0 && !found {
+			s.logger.LogWarning(fmt.Errorf("GVK %s not found in cluster", v.String()), "skipping watcher setup")
+			continue
+		}
+
 		watcherSelector := models.WatcherSelector{
 			GroupVersionKind:   v,
 			ExcludedNamespaces: excludedNamespaces,
