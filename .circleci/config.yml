@@ -1,0 +1,123 @@
+version: 2.1
+
+orbs:
+  go: circleci/go@3.0.3
+  aws-ecr: circleci/aws-ecr@9.7.0
+  aws-cli: circleci/aws-cli@5.4.1
+
+jobs:
+  verification:
+    docker:
+      - image: cimg/go:1.24
+    steps:
+      - checkout
+      - go/load-mod-cache
+      - go/mod-download
+      - go/save-mod-cache
+      - run:
+          name: Install golangci-lint
+          command: |
+            curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.5.0
+      - run:
+          name: Run linter
+          command: golangci-lint run
+
+  build-amd64:
+    docker:
+      - image: cimg/base:current
+    resource_class: medium
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - aws-ecr/build_and_push_image:
+          auth:
+            - aws-cli/setup:
+                profile_name: circleci
+                role_arn: ${DEV_AWS_ROLE_ARN}
+                region: us-east-1
+          account_id: ${DEV_AWS_ACCOUNT_ID}
+          platform: linux/amd64
+          profile_name: circleci
+          no_output_timeout: 30m
+          public_registry: true
+          public_registry_alias: aikido-security-staging
+          push_image: true
+          repo: kubernetes-agent
+          tag: ${CIRCLE_SHA1}-amd64
+          region: us-east-1
+
+  build-arm64:
+    docker:
+      - image: cimg/base:current
+    resource_class: arm.medium
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - aws-ecr/build_and_push_image:
+          auth:
+            - aws-cli/setup:
+                profile_name: circleci
+                role_arn: ${DEV_AWS_ROLE_ARN}
+                region: us-east-1
+          account_id: ${DEV_AWS_ACCOUNT_ID}
+          platform: linux/arm64
+          profile_name: circleci
+          no_output_timeout: 30m
+          public_registry: true
+          public_registry_alias: aikido-security-staging
+          push_image: true
+          repo: kubernetes-agent
+          tag: ${CIRCLE_SHA1}-arm64
+          region: us-east-1
+
+  create-manifest:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - aws-cli/setup:
+          role_arn: ${DEV_AWS_ROLE_ARN}
+          region: us-east-1
+      - run:
+          name: Create multi-arch manifest
+          command: |
+            aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+
+            docker buildx imagetools create \
+              -t public.ecr.aws/aikido-security-staging/kubernetes-agent:${CIRCLE_SHA1} \
+              -t public.ecr.aws/aikido-security-staging/kubernetes-agent:latest \
+              public.ecr.aws/aikido-security-staging/kubernetes-agent:${CIRCLE_SHA1}-amd64 \
+              public.ecr.aws/aikido-security-staging/kubernetes-agent:${CIRCLE_SHA1}-arm64
+
+workflows:
+  pull-request:
+    jobs:
+      - verification:
+          filters:
+            branches:
+              ignore: main
+
+  main-deploy:
+    jobs:
+      - build-amd64:
+          filters:
+            branches:
+              only: main
+          context: staging
+      - build-arm64:
+          filters:
+            branches:
+              only: main
+          context: staging
+      - create-manifest:
+          requires:
+            - build-amd64
+            - build-arm64
+          filters:
+            branches:
+              only: main
+          context: staging
