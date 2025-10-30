@@ -93,11 +93,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		return nil, fmt.Errorf("error loading agent version from context: %w", err)
 	}
 
-	sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, clientSet, o.AgentNamespace, sbomCollectorOwnerName, o.IsSBOMCollectorRunningAsDaemonSet)
-	if err != nil {
-		o.Logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
-		return nil, fmt.Errorf("error loading sbom collector version from context: %w", err)
-	}
+	sbomCollectorVersion, _ := LoadSBOMCollectorVersion(ctx, clientSet, o.AgentNamespace, sbomCollectorOwnerName, o.IsSBOMCollectorRunningAsDaemonSet)
 
 	// Initialize the agent state with all values from options and context
 	agentState.SetInitialValues(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, sbomCollectorVersion)
@@ -223,7 +219,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	// If the SBOM collector version has changed, update it in the service state
-	if s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
+	if s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
 		s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
 		if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
 			s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
