@@ -95,7 +95,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 
 	sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, clientSet, o.AgentNamespace, sbomCollectorOwnerName, o.IsSBOMCollectorRunningAsDaemonSet)
 	if err != nil {
-		o.Logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
+		o.Logger.LogWarning(err, "error loading sbom collector version from context", "managerError")
 	}
 
 	// Initialize the agent state with all values from options and context
