@@ -70,13 +70,13 @@ func main() {
 
 	apiPortStr, exists := os.LookupEnv("API_PORT")
 	if !exists {
-		l.Error("API_PORT environment variable not set")
-		os.Exit(1)
+		apiPortStr = "8091"
 	}
 
 	apiPort, err := strconv.Atoi(apiPortStr)
 	if err != nil {
-		apiPortStr = "8091"
+		l.Error("invalid API_PORT value", "error", err)
+		os.Exit(1)
 	}
 
 	// Load the config from the file passed as argument
