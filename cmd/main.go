@@ -76,8 +76,7 @@ func main() {
 
 	apiPort, err := strconv.Atoi(apiPortStr)
 	if err != nil {
-		l.Error("invalid API_PORT value", "error", err)
-		os.Exit(1)
+		apiPortStr = "8091"
 	}
 
 	// Load the config from the file passed as argument
