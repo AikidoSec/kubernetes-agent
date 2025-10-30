@@ -234,7 +234,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	return resp, nil
 }
 
-func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager) error {
+func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, apiPort int) error {
 	clusterIdentifier, err := s.GetClusterIdentifier(ctx)
 	if err != nil {
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
@@ -282,7 +282,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	// Initialize the HTTP server that communicates with other components (e.g. the SBOM collector)
 	s.SetSBOMCollectorEnabled(hb.Cluster.SBOMCollectorEnabled)
 	go func() {
-		if err := internalhttp.ListenAndServe(ctx, s.logger.GetLogger(), 81, sbomController); err != nil {
+		if err := internalhttp.ListenAndServe(ctx, s.logger.GetLogger(), apiPort, sbomController); err != nil {
 			s.logger.ReportError(ctx, err, "error starting sbom controller", "managerError")
 		}
 	}()

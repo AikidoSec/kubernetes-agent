@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
@@ -64,6 +65,18 @@ func main() {
 	podName, exists := os.LookupEnv("POD_NAME")
 	if !exists {
 		l.Error("POD_NAME environment variable not set")
+		os.Exit(1)
+	}
+
+	apiPortStr, exists := os.LookupEnv("API_PORT")
+	if !exists {
+		l.Error("API_PORT environment variable not set")
+		os.Exit(1)
+	}
+
+	apiPort, err := strconv.Atoi(apiPortStr)
+	if err != nil {
+		l.Error("invalid API_PORT value", "error", err)
 		os.Exit(1)
 	}
 
@@ -146,7 +159,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := agentService.InitializeAgent(ctx, cfg, mgr); err != nil {
+	if err := agentService.InitializeAgent(ctx, cfg, mgr, apiPort); err != nil {
 		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
 		os.Exit(1)
 	}
