@@ -150,6 +150,7 @@ func (s *Service) Close(ctx context.Context) {
 func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
 	resp, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
 		AgentVersion:       s.GetAgentVersion(),
+		CollectorVersion:   s.GetSBOMCollectorVersion(),
 		IsInitialHeartbeat: false,
 	})
 	if err != nil {
@@ -239,6 +240,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	// Send the initial heartbeat to get the monitored resources and agent configuration
 	hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
 		AgentVersion:       s.GetAgentVersion(),
+		CollectorVersion:   s.GetSBOMCollectorVersion(),
 		IsInitialHeartbeat: true,
 		ClusterIdentifier:  clusterIdentifier,
 	})
