@@ -70,8 +70,7 @@ func main() {
 
 	apiPortStr, exists := os.LookupEnv("API_PORT")
 	if !exists {
-		l.Error("API_PORT environment variable not set")
-		os.Exit(1)
+		apiPortStr = "8091"
 	}
 
 	apiPort, err := strconv.Atoi(apiPortStr)
