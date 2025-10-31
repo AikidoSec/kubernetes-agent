@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -48,6 +49,13 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		errs = multierr.Append(errs, fmt.Errorf("environment variable POD_NAME not set"))
 	}
 
+	// Extract the agent name from the Pod name by removing the last two components (replicaset name and random suffix)
+	agentNameComponents := strings.Split(podName, "-")
+	if len(agentNameComponents) < 2 {
+		errs = multierr.Append(errs, fmt.Errorf("invalid POD_NAME format: %s", podName))
+	}
+	agentName := strings.Join(agentNameComponents[:len(agentNameComponents)-2], "-")
+
 	apiPortStr, exists := os.LookupEnv("API_PORT")
 	if !exists {
 		apiPortStr = "8091"
@@ -78,12 +86,12 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 
 	configSecretName, exists := os.LookupEnv("CONFIG_SECRET_NAME")
 	if !exists {
-		errs = multierr.Append(errs, fmt.Errorf("environment variable CONFIG_SECRET_NAME not set"))
+		configSecretName = agentName
 	}
 
 	return models.EnvironmentConfig{
 		Namespace:                   namespace,
-		PodName:                     podName,
+		AgentName:                   agentName,
 		APIPort:                     apiPort,
 		ControllerCacheSyncTimeout:  controllerCacheSyncTimeout,
 		RunSBOMCollectorAsDaemonSet: runSBOMCollectorAsDaemonSet,

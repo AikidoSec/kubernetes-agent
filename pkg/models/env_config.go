@@ -4,7 +4,7 @@ import "time"
 
 type EnvironmentConfig struct {
 	Namespace                   string
-	PodName                     string
+	AgentName                   string
 	APIPort                     int
 	ControllerCacheSyncTimeout  time.Duration
 	RunSBOMCollectorAsDaemonSet bool

@@ -91,7 +91,7 @@ func main() {
 	agentService, err := manager.NewService(ctx, agentState, manager.Options{
 		Logger:                            loggerService,
 		AgentNamespace:                    envCfg.Namespace,
-		PodName:                           envCfg.PodName,
+		AgentName:                         envCfg.AgentName,
 		ConfigSecretName:                  envCfg.ConfigSecretName,
 		APIToken:                          cfg.APIToken,
 		APIEndpoint:                       cfg.APIEndpoint,
