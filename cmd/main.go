@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -84,8 +83,6 @@ func main() {
 		loggerService.ReportError(ctx, err, "error parsing environment configs", "agentSetupError")
 		os.Exit(1)
 	}
-
-	fmt.Println(envCfg)
 
 	agentState := models.NewEmptyAgentState()
 	agentService, err := manager.NewService(ctx, agentState, manager.Options{
