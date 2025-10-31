@@ -7,6 +7,7 @@ import (
 
 type HeartbeatPayload struct {
 	AgentVersion       string `json:"agent_version"`
+	CollectorVersion   string `json:"collector_version"`
 	IsInitialHeartbeat bool   `json:"is_initial_heartbeat"`
 	ClusterIdentifier  string `json:"cluster_identifier"`
 }

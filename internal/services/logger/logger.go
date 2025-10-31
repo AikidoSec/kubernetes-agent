@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
@@ -24,6 +25,11 @@ func NewService(logger *slog.Logger, outputClient *batchclient.BatchClient) *Ser
 
 func (s *Service) ReportError(ctx context.Context, err error, message string, errorType string, args ...any) {
 	if err == nil {
+		return
+	}
+
+	// These errors might be caused by the automatic update process stopping the agent
+	if strings.Contains(err.Error(), "context canceled") {
 		return
 	}
 
