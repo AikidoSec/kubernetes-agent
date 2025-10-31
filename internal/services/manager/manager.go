@@ -48,6 +48,7 @@ type Options struct {
 	PodName                           string
 	APIToken                          string
 	APIEndpoint                       string
+	ConfigSecretName                  string
 	ExcludedNamespaces                []string
 	HeartbeatService                  *heartbeat.Service
 	AssetsOutputClient                *batchclient.BatchClient
@@ -96,7 +97,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	sbomCollectorVersion, _ := LoadSBOMCollectorVersion(ctx, clientSet, o.AgentNamespace, sbomCollectorOwnerName, o.IsSBOMCollectorRunningAsDaemonSet)
 
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, sbomCollectorVersion)
+	agentState.SetInitialValues(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, sbomCollectorVersion)
 
 	return &Service{
 		AgentState:          agentState,
@@ -433,7 +434,7 @@ func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
 
 // updateAgentSecret identifies the agent secret in Kubernetes using the agent name and namespace and updates the API token
 func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error {
-	secret, err := s.kubernetesClientSet.CoreV1().Secrets(s.GetAgentNamespace()).Get(ctx, s.GetAgentName(), v1.GetOptions{})
+	secret, err := s.kubernetesClientSet.CoreV1().Secrets(s.GetAgentNamespace()).Get(ctx, s.GetConfigSecretName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting agent secret to update API token: %w", err)
 	}

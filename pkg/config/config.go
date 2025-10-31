@@ -3,11 +3,15 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/models"
+	"go.uber.org/multierr"
 	"gopkg.in/yaml.v3"
 )
+
+const defaultNamespace = "aikido"
 
 func ParseConfigFromFile(path string) (models.Config, error) {
 	content, err := os.ReadFile(path)
@@ -29,9 +33,60 @@ func ParseConfigFromFile(path string) (models.Config, error) {
 		config.APIEndpoint = config.APIEndpoint[:len(config.APIEndpoint)-1]
 	}
 
-	if config.ControllerCacheSyncTimeout == 0 {
-		config.ControllerCacheSyncTimeout = 5 * time.Minute
+	return config, nil
+}
+
+func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
+	var errs error
+	namespace, exists := os.LookupEnv("AGENT_NAMESPACE")
+	if !exists {
+		namespace = defaultNamespace
 	}
 
-	return config, nil
+	podName, exists := os.LookupEnv("POD_NAME")
+	if !exists {
+		errs = multierr.Append(errs, fmt.Errorf("environment variable POD_NAME not set"))
+	}
+
+	apiPortStr, exists := os.LookupEnv("API_PORT")
+	if !exists {
+		apiPortStr = "8091"
+	}
+
+	apiPort, err := strconv.Atoi(apiPortStr)
+	if err != nil {
+		errs = multierr.Append(errs, fmt.Errorf("invalid API_PORT value: %s", apiPortStr))
+	}
+
+	controllerCacheSyncTimeoutStr, exists := os.LookupEnv("CONTROLLER_CACHE_SYNC_TIMEOUT")
+	if !exists {
+		controllerCacheSyncTimeoutStr = "30m"
+	}
+	controllerCacheSyncTimeout, err := time.ParseDuration(controllerCacheSyncTimeoutStr)
+	if err != nil {
+		controllerCacheSyncTimeout = 30 * time.Minute
+	}
+
+	runSBOMCollectorAsDaemonSetStr, exists := os.LookupEnv("RUN_COLLECTOR_AS_DAEMONSET")
+	if !exists {
+		runSBOMCollectorAsDaemonSetStr = "true"
+	}
+	runSBOMCollectorAsDaemonSet, err := strconv.ParseBool(runSBOMCollectorAsDaemonSetStr)
+	if err != nil {
+		runSBOMCollectorAsDaemonSet = true
+	}
+
+	configSecretName, exists := os.LookupEnv("CONFIG_SECRET_NAME")
+	if !exists {
+		errs = multierr.Append(errs, fmt.Errorf("environment variable CONFIG_SECRET_NAME not set"))
+	}
+
+	return models.EnvironmentConfig{
+		Namespace:                   namespace,
+		PodName:                     podName,
+		APIPort:                     apiPort,
+		ControllerCacheSyncTimeout:  controllerCacheSyncTimeout,
+		RunSBOMCollectorAsDaemonSet: runSBOMCollectorAsDaemonSet,
+		ConfigSecretName:            configSecretName,
+	}, errs
 }

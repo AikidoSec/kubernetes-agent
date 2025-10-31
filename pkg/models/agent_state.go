@@ -14,6 +14,7 @@ type AgentState struct {
 	excludedNamespaces         []string
 	monitoredResources         []string
 	controllerCacheSyncTimeout time.Duration
+	configSecretName           string
 
 	sbomCollectorEnabled        bool
 	runSBOMCollectorAsDaemonSet bool
@@ -30,7 +31,7 @@ func NewEmptyAgentState() *AgentState {
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentVersion, agentNamespace, agentName, apiToken, apiEndpoint string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorVersion string) *AgentState {
+func (a *AgentState) SetInitialValues(agentVersion, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorVersion string) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -42,6 +43,7 @@ func (a *AgentState) SetInitialValues(agentVersion, agentNamespace, agentName, a
 	a.controllerCacheSyncTimeout = controllerCacheSyncTimeout
 	a.runSBOMCollectorAsDaemonSet = isSBOMCollectorRunningAsDaemonSet
 	a.sbomCollectorVersion = sbomCollectorVersion
+	a.configSecretName = configSecretName
 	return a
 }
 
@@ -111,6 +113,12 @@ func (a *AgentState) GetSBOMCollectorVersion() string {
 	return a.sbomCollectorVersion
 }
 
+func (a *AgentState) GetConfigSecretName() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.configSecretName
+}
+
 func (a *AgentState) SetAgentVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -175,4 +183,10 @@ func (a *AgentState) SetSBOMCollectorVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sbomCollectorVersion = version
+}
+
+func (a *AgentState) SetConfigSecretName(name string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.configSecretName = name
 }

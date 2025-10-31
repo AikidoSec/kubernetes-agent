@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
@@ -32,8 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const defaultNamespace = "aikido"
-
 var (
 	scheme = runtime.NewScheme()
 )
@@ -56,28 +54,6 @@ func main() {
 
 	ctx := context.Background()
 	l := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-
-	ns, exists := os.LookupEnv("AGENT_NAMESPACE")
-	if !exists {
-		ns = defaultNamespace
-	}
-
-	podName, exists := os.LookupEnv("POD_NAME")
-	if !exists {
-		l.Error("POD_NAME environment variable not set")
-		os.Exit(1)
-	}
-
-	apiPortStr, exists := os.LookupEnv("API_PORT")
-	if !exists {
-		apiPortStr = "8091"
-	}
-
-	apiPort, err := strconv.Atoi(apiPortStr)
-	if err != nil {
-		l.Error("invalid API_PORT value", "error", err)
-		os.Exit(1)
-	}
 
 	// Load the config from the file passed as argument
 	cfg, err := config.ParseConfigFromFile(configFile)
@@ -103,16 +79,25 @@ func main() {
 	loggerService := logger.NewService(l, errorsClient)
 	defer loggerService.Close(ctx)
 
+	envCfg, err := config.ParseEnvironmentConfigs()
+	if err != nil {
+		loggerService.ReportError(ctx, err, "error parsing environment configs", "agentSetupError")
+		os.Exit(1)
+	}
+
+	fmt.Println(envCfg)
+
 	agentState := models.NewEmptyAgentState()
 	agentService, err := manager.NewService(ctx, agentState, manager.Options{
 		Logger:                            loggerService,
-		AgentNamespace:                    ns,
-		PodName:                           podName,
+		AgentNamespace:                    envCfg.Namespace,
+		PodName:                           envCfg.PodName,
+		ConfigSecretName:                  envCfg.ConfigSecretName,
 		APIToken:                          cfg.APIToken,
 		APIEndpoint:                       cfg.APIEndpoint,
 		HeartbeatService:                  heartbeatService,
-		ControllerCacheSyncTimeout:        cfg.ControllerCacheSyncTimeout,
-		IsSBOMCollectorRunningAsDaemonSet: cfg.RunSBOMCollectorAsDaemonSet,
+		ControllerCacheSyncTimeout:        envCfg.ControllerCacheSyncTimeout,
+		IsSBOMCollectorRunningAsDaemonSet: envCfg.RunSBOMCollectorAsDaemonSet,
 	})
 	if err != nil {
 		loggerService.ReportError(ctx, err, "error creating agent service", "agentSetupError")
@@ -158,7 +143,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := agentService.InitializeAgent(ctx, cfg, mgr, apiPort); err != nil {
+	if err := agentService.InitializeAgent(ctx, cfg, mgr, envCfg.APIPort); err != nil {
 		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
 		os.Exit(1)
 	}
