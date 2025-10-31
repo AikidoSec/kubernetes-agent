@@ -920,6 +920,10 @@ func (s *Service) GetAgentMetrics(ctx context.Context) (models.ComponentMetrics,
 		return models.ComponentMetrics{}, fmt.Errorf("error getting agent pod metrics: %w", err)
 	}
 
+	if len(podMetrics.Containers) == 0 {
+		return models.ComponentMetrics{}, nil
+	}
+
 	cpuUsage := podMetrics.Containers[0].Usage.Cpu().MilliValue()
 
 	memUsage := podMetrics.Containers[0].Usage.Memory()

@@ -5,6 +5,6 @@ type Metrics struct {
 }
 
 type ComponentMetrics struct {
-	CPUUsage    string `json:"cpu_usage"`
-	MemoryUsage string `json:"memory_usage"`
+	CPUUsage    string `json:"cpu_usage"`    // CPU usage in millicores
+	MemoryUsage string `json:"memory_usage"` // Memory usage in Mi
 }
