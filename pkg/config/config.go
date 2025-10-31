@@ -51,7 +51,7 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 
 	// Extract the agent name from the Pod name by removing the last two components (replicaset name and random suffix)
 	agentNameComponents := strings.Split(podName, "-")
-	if len(agentNameComponents) < 2 {
+	if len(agentNameComponents) < 3 {
 		errs = multierr.Append(errs, fmt.Errorf("invalid POD_NAME format: %s", podName))
 	}
 	agentName := strings.Join(agentNameComponents[:len(agentNameComponents)-2], "-")
