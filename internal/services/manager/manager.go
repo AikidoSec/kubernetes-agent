@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/multierr"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"gopkg.in/yaml.v3"
@@ -31,6 +33,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
@@ -49,6 +52,7 @@ type Options struct {
 	APIToken                          string
 	APIEndpoint                       string
 	ConfigSecretName                  string
+	AgentPodName                      string
 	ExcludedNamespaces                []string
 	HeartbeatService                  *heartbeat.Service
 	AssetsOutputClient                *batchclient.BatchClient
@@ -64,6 +68,7 @@ type Service struct {
 	kubernetesClientSet *kubernetes.Clientset
 	heartbeatService    *heartbeat.Service
 	assetsOutputClient  *batchclient.BatchClient
+	metricClient        *metricsclient.Clientset
 }
 
 func NewService(ctx context.Context, agentState *models.AgentState, o Options) (*Service, error) {
@@ -80,7 +85,28 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}
 
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet)
+	agentState.SetInitialValues(o.AgentPodName, o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet)
+
+	// Build the cluster configuration based on the environment.
+	var cfg *rest.Config
+	if IsLocalEnvironment() {
+		cfg, err = BuildLocalConfig()
+	} else {
+		cfg, err = rest.InClusterConfig()
+	}
+	if err != nil {
+		o.Logger.LogInfo("unable to use in-cluster config, memory usage reporting will be disabled", "error", err.Error())
+	}
+
+	var mClient *metricsclient.Clientset
+	if cfg != nil {
+		// Create the metrics client
+		mClient, err = metricsclient.NewForConfig(cfg)
+		if err != nil {
+			o.Logger.LogInfo("unable to create metrics client, memory usage reporting will be disabled", "error", err.Error())
+			mClient = nil
+		}
+	}
 
 	return &Service{
 		AgentState:          agentState,
@@ -89,6 +115,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		heartbeatService:    o.HeartbeatService,
 		logger:              o.Logger,
 		assetsOutputClient:  o.AssetsOutputClient,
+		metricClient:        mClient,
 	}, nil
 }
 
@@ -132,10 +159,25 @@ func (s *Service) Close(ctx context.Context) {
 
 // SendHeartbeat sends a heartbeat to the management server and processes the response
 func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
+	metrics := models.Metrics{}
+	if s.metricClient != nil {
+		agentMetrics, err := s.GetAgentMetrics(ctx)
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error getting agent metrics", "managerError")
+		}
+		metrics.AgentMetrics = agentMetrics
+	}
+
+	metricsPayload, err := json.Marshal(metrics)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error marshalling metrics payload", "managerError")
+	}
+
 	resp, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
 		AgentVersion:       s.GetAgentVersion(),
 		CollectorVersion:   s.GetSBOMCollectorVersion(),
 		IsInitialHeartbeat: false,
+		Metrics:            string(metricsPayload),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending heartbeat", "managerError")
@@ -360,7 +402,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 // RestartDeployment fetches the deployment and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
 // a restart.
 func (s *Service) RestartDeployment(ctx context.Context, deploymentName string) error {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+	if IsLocalEnvironment() {
 		return nil
 	}
 
@@ -383,7 +425,7 @@ func (s *Service) RestartDeployment(ctx context.Context, deploymentName string) 
 
 // UpdateAgentVersion updates the agent deployment with a new image version and updates the version labels
 func (s *Service) UpdateAgentVersion(ctx context.Context, newVersion string) error {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+	if IsLocalEnvironment() {
 		return nil
 	}
 
@@ -850,4 +892,36 @@ func (s *Service) ListCollectorScannedImages(ctx context.Context) ([]models.Scan
 	}
 
 	return response, nil
+}
+
+func (s *Service) GetAgentMetrics(ctx context.Context) (models.ComponentMetrics, error) {
+	podMetrics, err := s.metricClient.MetricsV1beta1().PodMetricses(s.GetAgentNamespace()).Get(ctx, s.GetAgentPodName(), v1.GetOptions{})
+	if err != nil {
+		// The metrics for the agent might not have been generated yet (it takes ~60s after the pod starts) or the
+		// metrics server might be temporarily unavailable or not installed.
+		if k8sErrors.IsNotFound(err) || k8sErrors.IsServiceUnavailable(err) {
+			return models.ComponentMetrics{}, nil
+		}
+		return models.ComponentMetrics{}, fmt.Errorf("error getting agent pod metrics: %w", err)
+	}
+
+	cpuUsage := podMetrics.Containers[0].Usage.Cpu().MilliValue()
+
+	memUsage := podMetrics.Containers[0].Usage.Memory()
+
+	return models.ComponentMetrics{CPUUsage: fmt.Sprintf("%dm", cpuUsage), MemoryUsage: fmt.Sprintf("%.0fMi", float64(memUsage.Value())/(1024*1024))}, nil
+}
+
+func BuildLocalConfig() (*rest.Config, error) {
+	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+	return clientcmd.BuildConfigFromFlags("", kubeconfig)
+}
+
+func IsLocalEnvironment() bool {
+	val, ok := os.LookupEnv("ENVIRONMENT")
+	if ok && val == "local" {
+		return true
+	}
+
+	return false
 }

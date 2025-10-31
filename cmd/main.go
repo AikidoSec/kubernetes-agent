@@ -90,6 +90,7 @@ func main() {
 		AgentNamespace:                    envCfg.Namespace,
 		AgentName:                         envCfg.AgentName,
 		ConfigSecretName:                  envCfg.ConfigSecretName,
+		AgentPodName:                      envCfg.AgentPodName,
 		APIToken:                          cfg.APIToken,
 		APIEndpoint:                       cfg.APIEndpoint,
 		HeartbeatService:                  heartbeatService,

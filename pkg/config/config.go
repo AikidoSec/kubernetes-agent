@@ -96,5 +96,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		ControllerCacheSyncTimeout:  controllerCacheSyncTimeout,
 		RunSBOMCollectorAsDaemonSet: runSBOMCollectorAsDaemonSet,
 		ConfigSecretName:            configSecretName,
+		AgentPodName:                podName,
 	}, errs
 }

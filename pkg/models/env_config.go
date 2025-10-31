@@ -9,4 +9,5 @@ type EnvironmentConfig struct {
 	ControllerCacheSyncTimeout  time.Duration
 	RunSBOMCollectorAsDaemonSet bool
 	ConfigSecretName            string
+	AgentPodName                string
 }
