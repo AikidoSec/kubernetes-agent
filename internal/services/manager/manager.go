@@ -937,7 +937,7 @@ func (s *Service) ListResourceEvents(ctx context.Context, kind, name string) ([]
 		FieldSelector: fieldSelector,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error listing deployment events: %w", err)
+		return nil, fmt.Errorf("error listing resource events: %w", err)
 	}
 
 	events := make([]corev1.Event, 0, len(eventsList.Items))
