@@ -45,9 +45,10 @@ const (
 
 type Options struct {
 	AgentNamespace                    string
-	PodName                           string
+	AgentName                         string
 	APIToken                          string
 	APIEndpoint                       string
+	ConfigSecretName                  string
 	ExcludedNamespaces                []string
 	HeartbeatService                  *heartbeat.Service
 	AssetsOutputClient                *batchclient.BatchClient
@@ -78,25 +79,8 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		return nil, fmt.Errorf("error creating kubernetes client: %w", err)
 	}
 
-	// Extract the agent name from the Pod name by removing the last two components (replicaset name and random suffix)
-	agentNameComponents := strings.Split(o.PodName, "-")
-	if len(agentNameComponents) < 2 {
-		o.Logger.ReportError(ctx, fmt.Errorf("invalid agent name: %s", o.PodName), "invalid agent name", "managerError")
-		return nil, fmt.Errorf("invalid agent name: %s", o.PodName)
-	}
-	deploymentName := strings.Join(agentNameComponents[:len(agentNameComponents)-2], "-")
-
-	// Load the agent version from the deployment labels
-	agentVersion, err := LoadDeploymentVersion(ctx, clientSet, o.AgentNamespace, deploymentName)
-	if err != nil {
-		o.Logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
-		return nil, fmt.Errorf("error loading agent version from context: %w", err)
-	}
-
-	sbomCollectorVersion, _ := LoadSBOMCollectorVersion(ctx, clientSet, o.AgentNamespace, sbomCollectorOwnerName, o.IsSBOMCollectorRunningAsDaemonSet)
-
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(agentVersion, o.AgentNamespace, deploymentName, o.APIToken, o.APIEndpoint, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, sbomCollectorVersion)
+	agentState.SetInitialValues(o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet)
 
 	return &Service{
 		AgentState:          agentState,
@@ -232,6 +216,14 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 }
 
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, apiPort int) error {
+	// Load the agent version from the deployment labels
+	agentVersion, err := LoadDeploymentVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetAgentName())
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
+		return fmt.Errorf("error loading agent version from context: %w", err)
+	}
+	s.SetAgentVersion(agentVersion)
+
 	clusterIdentifier, err := s.GetClusterIdentifier(ctx)
 	if err != nil {
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
@@ -287,6 +279,13 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// If the SBOM collector is enabled, load the already scanned images from the API server into the cache.
 	if s.IsSBOMCollectorEnabled() {
+		// Load the SBOM collector version from the deployment labels
+		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), sbomCollectorOwnerName, s.GetRunSBOMCollectorAsDaemonSet())
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
+		}
+		s.SetSBOMCollectorVersion(sbomCollectorVersion)
+
 		collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
@@ -433,7 +432,7 @@ func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
 
 // updateAgentSecret identifies the agent secret in Kubernetes using the agent name and namespace and updates the API token
 func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error {
-	secret, err := s.kubernetesClientSet.CoreV1().Secrets(s.GetAgentNamespace()).Get(ctx, s.GetAgentName(), v1.GetOptions{})
+	secret, err := s.kubernetesClientSet.CoreV1().Secrets(s.GetAgentNamespace()).Get(ctx, s.GetConfigSecretName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting agent secret to update API token: %w", err)
 	}
