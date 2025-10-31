@@ -24,6 +24,7 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
 	"go.uber.org/multierr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -45,6 +46,14 @@ const (
 
 	sbomCollectorOwnerName = "aikido-kubernetes-sbom-collector"
 )
+
+var ignoredEventsReasons = []string{
+	"Pulled",
+	"Created",
+	"Started",
+	"Scheduled",
+	"ScalingReplicaSet",
+}
 
 type Options struct {
 	AgentNamespace                    string
@@ -161,10 +170,8 @@ func (s *Service) Close(ctx context.Context) {
 func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
 	metrics := models.Metrics{}
 	if s.metricClient != nil {
-		agentMetrics, err := s.GetAgentMetrics(ctx)
-		if err != nil {
-			s.logger.ReportError(ctx, err, "error getting agent metrics", "managerError")
-		}
+		agentMetrics, _ := s.GetAgentMetrics(ctx)
+		// We currently ignore the errors since most agents will lack the necessary permissions to fetch metrics.
 		metrics.AgentMetrics = agentMetrics
 	}
 
@@ -271,12 +278,20 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}
 
+	deploymentEvents, _ := s.ListResourceEvents(ctx, "Deployment", s.GetAgentName())
+	// We currently ignore the errors because most agents will lack the necessary permissions to fetch deployment events.
+	deploymentEventsPayload, err := json.Marshal(deploymentEvents)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error marshalling deployment events payload", "managerError")
+	}
+
 	// Send the initial heartbeat to get the monitored resources and agent configuration
 	hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
 		AgentVersion:       s.GetAgentVersion(),
 		CollectorVersion:   s.GetSBOMCollectorVersion(),
 		IsInitialHeartbeat: true,
 		ClusterIdentifier:  clusterIdentifier,
+		DeploymentEvents:   string(deploymentEventsPayload),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
@@ -910,6 +925,28 @@ func (s *Service) GetAgentMetrics(ctx context.Context) (models.ComponentMetrics,
 	memUsage := podMetrics.Containers[0].Usage.Memory()
 
 	return models.ComponentMetrics{CPUUsage: fmt.Sprintf("%dm", cpuUsage), MemoryUsage: fmt.Sprintf("%.0fMi", float64(memUsage.Value())/(1024*1024))}, nil
+}
+
+func (s *Service) ListResourceEvents(ctx context.Context, kind, name string) ([]corev1.Event, error) {
+	fieldSelector := fmt.Sprintf("involvedObject.kind=%s,involvedObject.name=%s", kind, name)
+	eventsList, err := s.kubernetesClientSet.CoreV1().Events(s.GetAgentNamespace()).List(ctx, v1.ListOptions{
+		FieldSelector: fieldSelector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error listing deployment events: %w", err)
+	}
+
+	events := make([]corev1.Event, 0, len(eventsList.Items))
+	// Filter out irrelevant events by reason.
+	for _, event := range eventsList.Items {
+		if slices.Contains(ignoredEventsReasons, event.Reason) {
+			continue
+		}
+
+		events = append(events, event)
+	}
+
+	return events, nil
 }
 
 func BuildLocalConfig() (*rest.Config, error) {
