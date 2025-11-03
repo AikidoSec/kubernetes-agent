@@ -66,6 +66,16 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		errs = multierr.Append(errs, fmt.Errorf("invalid API_PORT value: %s", apiPortStr))
 	}
 
+	metricsPortStr, exists := os.LookupEnv("METRICS_PORT")
+	if !exists {
+		metricsPortStr = "8080"
+	}
+
+	metricsPort, err := strconv.Atoi(metricsPortStr)
+	if err != nil {
+		errs = multierr.Append(errs, fmt.Errorf("invalid METRICS_PORT value: %s", apiPortStr))
+	}
+
 	controllerCacheSyncTimeoutStr, exists := os.LookupEnv("CONTROLLER_CACHE_SYNC_TIMEOUT")
 	if !exists {
 		controllerCacheSyncTimeoutStr = "30m"
@@ -97,5 +107,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		RunSBOMCollectorAsDaemonSet: runSBOMCollectorAsDaemonSet,
 		ConfigSecretName:            configSecretName,
 		AgentPodName:                podName,
+		MetricsPort:                 metricsPort,
 	}, errs
 }
