@@ -71,7 +71,8 @@ type Options struct {
 }
 type Service struct {
 	*models.AgentState
-	logger *logger.Service
+	scannedImagesCache *imagescache.ImagesCache
+	logger             *logger.Service
 	// Channel to stop the heartbeat goroutine.
 	heartbeatStopChan   chan struct{}
 	kubernetesClientSet *kubernetes.Clientset
@@ -125,6 +126,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		logger:              o.Logger,
 		assetsOutputClient:  o.AssetsOutputClient,
 		metricClient:        mClient,
+		scannedImagesCache:  imagescache.NewImagesCache(),
 	}, nil
 }
 
@@ -250,6 +252,25 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			return resp, err
 		}
 		s.SetSBOMCollectorEnabled(resp.Cluster.SBOMCollectorEnabled)
+
+		// If the SBOM collector was enabled, load the scanned images from the API server into the cache and set the deployed collector version.
+		if s.IsSBOMCollectorEnabled() {
+			// Load the SBOM collector version from the deployment labels
+			sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), sbomCollectorOwnerName, s.GetRunSBOMCollectorAsDaemonSet())
+			if err != nil {
+				s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
+			}
+			s.SetSBOMCollectorVersion(sbomCollectorVersion)
+			// Load the scanned images cache
+			collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+			if err != nil {
+				s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
+			}
+
+			if len(collectorScannedImages) > 0 {
+				s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
+			}
+		}
 	}
 
 	// If the SBOM collector version has changed, update it in the service state
@@ -323,8 +344,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 	s.SetMonitoredResources(monitoredResourcesGVKs)
 
-	imagesCache := imagescache.NewImagesCache()
-	sbomController := httpcontrollers.NewSBOMController(s.logger.GetLogger(), sbom.NewService(s.logger, s.AgentState, imagesCache))
+	sbomController := httpcontrollers.NewSBOMController(s.logger.GetLogger(), sbom.NewService(s.logger, s.AgentState, s.scannedImagesCache))
 
 	// Initialize the HTTP server that communicates with other components (e.g. the SBOM collector)
 	s.SetSBOMCollectorEnabled(hb.Cluster.SBOMCollectorEnabled)
@@ -353,7 +373,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 
 		if len(collectorScannedImages) > 0 {
-			imagesCache.LoadFromScannedImages(collectorScannedImages)
+			s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
 		}
 	}
 
