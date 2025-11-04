@@ -73,7 +73,7 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 
 	metricsPort, err := strconv.Atoi(metricsPortStr)
 	if err != nil {
-		errs = multierr.Append(errs, fmt.Errorf("invalid METRICS_PORT value: %s", apiPortStr))
+		errs = multierr.Append(errs, fmt.Errorf("invalid METRICS_PORT value: %s", metricsPortStr))
 	}
 
 	controllerCacheSyncTimeoutStr, exists := os.LookupEnv("CONTROLLER_CACHE_SYNC_TIMEOUT")
