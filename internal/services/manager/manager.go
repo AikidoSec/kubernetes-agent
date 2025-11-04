@@ -244,7 +244,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 
 	// If the SBOM collector enabled state has changed, update the deployment/daemonset accordingly
 	if s.IsSBOMCollectorEnabled() != resp.Cluster.SBOMCollectorEnabled {
-		s.logger.LogInfo("sbom collector enabled state changed from heartbeat response", "current state", s.IsSBOMCollectorEnabled(), "new state", resp.Cluster.SBOMCollectorEnabled)
+		s.logger.LogInfo("sbom collector enabled state changed from heartbeat response", "current state", resp.Cluster.SBOMCollectorEnabled, "new state", s.IsSBOMCollectorEnabled())
 		if err := s.ConfigureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled); err != nil {
 			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 			return resp, err
