@@ -15,6 +15,7 @@ type AgentState struct {
 	monitoredResources         []string
 	controllerCacheSyncTimeout time.Duration
 	configSecretName           string
+	agentPodName               string
 
 	sbomCollectorEnabled        bool
 	runSBOMCollectorAsDaemonSet bool
@@ -31,7 +32,7 @@ func NewEmptyAgentState() *AgentState {
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool) *AgentState {
+func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -42,6 +43,7 @@ func (a *AgentState) SetInitialValues(agentNamespace, agentName, apiToken, apiEn
 	a.controllerCacheSyncTimeout = controllerCacheSyncTimeout
 	a.runSBOMCollectorAsDaemonSet = isSBOMCollectorRunningAsDaemonSet
 	a.configSecretName = configSecretName
+	a.agentPodName = agentPodName
 	return a
 }
 
@@ -117,6 +119,12 @@ func (a *AgentState) GetConfigSecretName() string {
 	return a.configSecretName
 }
 
+func (a *AgentState) GetAgentPodName() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.agentPodName
+}
+
 func (a *AgentState) SetAgentVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -187,4 +195,10 @@ func (a *AgentState) SetConfigSecretName(name string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.configSecretName = name
+}
+
+func (a *AgentState) SetAgentPodName(podName string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.agentPodName = podName
 }

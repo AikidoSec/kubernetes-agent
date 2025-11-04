@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -23,7 +24,9 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
 	"go.uber.org/multierr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"gopkg.in/yaml.v3"
@@ -31,6 +34,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
@@ -43,12 +47,21 @@ const (
 	sbomCollectorOwnerName = "aikido-kubernetes-sbom-collector"
 )
 
+var ignoredEventsReasons = []string{
+	"Pulled",
+	"Created",
+	"Started",
+	"Scheduled",
+	"ScalingReplicaSet",
+}
+
 type Options struct {
 	AgentNamespace                    string
 	AgentName                         string
 	APIToken                          string
 	APIEndpoint                       string
 	ConfigSecretName                  string
+	AgentPodName                      string
 	ExcludedNamespaces                []string
 	HeartbeatService                  *heartbeat.Service
 	AssetsOutputClient                *batchclient.BatchClient
@@ -58,12 +71,14 @@ type Options struct {
 }
 type Service struct {
 	*models.AgentState
-	logger *logger.Service
+	scannedImagesCache *imagescache.ImagesCache
+	logger             *logger.Service
 	// Channel to stop the heartbeat goroutine.
 	heartbeatStopChan   chan struct{}
 	kubernetesClientSet *kubernetes.Clientset
 	heartbeatService    *heartbeat.Service
 	assetsOutputClient  *batchclient.BatchClient
+	metricClient        *metricsclient.Clientset
 }
 
 func NewService(ctx context.Context, agentState *models.AgentState, o Options) (*Service, error) {
@@ -80,7 +95,28 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}
 
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet)
+	agentState.SetInitialValues(o.AgentPodName, o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet)
+
+	// Build the cluster configuration based on the environment.
+	var cfg *rest.Config
+	if IsLocalEnvironment() {
+		cfg, err = BuildLocalConfig()
+	} else {
+		cfg, err = rest.InClusterConfig()
+	}
+	if err != nil {
+		o.Logger.LogInfo("unable to use in-cluster config, memory usage reporting will be disabled", "error", err.Error())
+	}
+
+	var mClient *metricsclient.Clientset
+	if cfg != nil {
+		// Create the metrics client
+		mClient, err = metricsclient.NewForConfig(cfg)
+		if err != nil {
+			o.Logger.LogInfo("unable to create metrics client, memory usage reporting will be disabled", "error", err.Error())
+			mClient = nil
+		}
+	}
 
 	return &Service{
 		AgentState:          agentState,
@@ -89,6 +125,8 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		heartbeatService:    o.HeartbeatService,
 		logger:              o.Logger,
 		assetsOutputClient:  o.AssetsOutputClient,
+		metricClient:        mClient,
+		scannedImagesCache:  imagescache.NewImagesCache(),
 	}, nil
 }
 
@@ -132,10 +170,23 @@ func (s *Service) Close(ctx context.Context) {
 
 // SendHeartbeat sends a heartbeat to the management server and processes the response
 func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
+	metrics := models.Metrics{}
+	if s.metricClient != nil {
+		agentMetrics, _ := s.GetAgentMetrics(ctx)
+		// We currently ignore the errors since most agents will lack the necessary permissions to fetch metrics.
+		metrics.AgentMetrics = agentMetrics
+	}
+
+	metricsPayload, err := json.Marshal(metrics)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error marshalling metrics payload", "managerError")
+	}
+
 	resp, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
 		AgentVersion:       s.GetAgentVersion(),
 		CollectorVersion:   s.GetSBOMCollectorVersion(),
 		IsInitialHeartbeat: false,
+		Metrics:            string(metricsPayload),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending heartbeat", "managerError")
@@ -201,6 +252,25 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			return resp, err
 		}
 		s.SetSBOMCollectorEnabled(resp.Cluster.SBOMCollectorEnabled)
+
+		// If the SBOM collector was enabled, load the scanned images from the API server into the cache and set the deployed collector version.
+		if s.IsSBOMCollectorEnabled() {
+			// Load the SBOM collector version from the deployment labels
+			sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), sbomCollectorOwnerName, s.GetRunSBOMCollectorAsDaemonSet())
+			if err != nil {
+				s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
+			}
+			s.SetSBOMCollectorVersion(sbomCollectorVersion)
+			// Load the scanned images cache
+			collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+			if err != nil {
+				s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
+			}
+
+			if len(collectorScannedImages) > 0 {
+				s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
+			}
+		}
 	}
 
 	// If the SBOM collector version has changed, update it in the service state
@@ -215,7 +285,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	return resp, nil
 }
 
-func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, apiPort int) error {
+func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
 	// Load the agent version from the deployment labels
 	agentVersion, err := LoadDeploymentVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
@@ -229,12 +299,20 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}
 
+	deploymentEvents, _ := s.ListResourceEvents(ctx, "Deployment", s.GetAgentName())
+	// We currently ignore the errors because most agents will lack the necessary permissions to fetch deployment events.
+	deploymentEventsPayload, err := json.Marshal(deploymentEvents)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error marshalling deployment events payload", "managerError")
+	}
+
 	// Send the initial heartbeat to get the monitored resources and agent configuration
 	hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
 		AgentVersion:       s.GetAgentVersion(),
 		CollectorVersion:   s.GetSBOMCollectorVersion(),
 		IsInitialHeartbeat: true,
 		ClusterIdentifier:  clusterIdentifier,
+		DeploymentEvents:   string(deploymentEventsPayload),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
@@ -266,19 +344,22 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 	s.SetMonitoredResources(monitoredResourcesGVKs)
 
-	imagesCache := imagescache.NewImagesCache()
-	sbomController := httpcontrollers.NewSBOMController(s.logger.GetLogger(), sbom.NewService(s.logger, s.AgentState, imagesCache))
+	sbomController := httpcontrollers.NewSBOMController(s.logger.GetLogger(), sbom.NewService(s.logger, s.AgentState, s.scannedImagesCache))
 
 	// Initialize the HTTP server that communicates with other components (e.g. the SBOM collector)
 	s.SetSBOMCollectorEnabled(hb.Cluster.SBOMCollectorEnabled)
 	go func() {
-		if err := internalhttp.ListenAndServe(ctx, s.logger.GetLogger(), apiPort, sbomController); err != nil {
+		if err := internalhttp.ListenAndServe(ctx, s.logger.GetLogger(), environmentConfig.APIPort, sbomController); err != nil {
 			s.logger.ReportError(ctx, err, "error starting sbom controller", "managerError")
 		}
 	}()
 
-	// If the SBOM collector is enabled, load the already scanned images from the API server into the cache.
+	// If the SBOM collector is enabled, load the already scanned images from the API server into the cache and configure the collector.
 	if s.IsSBOMCollectorEnabled() {
+		// Configure the SBOM collector deployment/daemonset based on the current enabled state.
+		if err := s.ConfigureSBOMCollector(ctx, s.IsSBOMCollectorEnabled()); err != nil {
+			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
+		}
 		// Load the SBOM collector version from the deployment labels
 		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), sbomCollectorOwnerName, s.GetRunSBOMCollectorAsDaemonSet())
 		if err != nil {
@@ -292,7 +373,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 
 		if len(collectorScannedImages) > 0 {
-			imagesCache.LoadFromScannedImages(collectorScannedImages)
+			s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
 		}
 	}
 
@@ -360,7 +441,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 // RestartDeployment fetches the deployment and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
 // a restart.
 func (s *Service) RestartDeployment(ctx context.Context, deploymentName string) error {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+	if IsLocalEnvironment() {
 		return nil
 	}
 
@@ -383,7 +464,7 @@ func (s *Service) RestartDeployment(ctx context.Context, deploymentName string) 
 
 // UpdateAgentVersion updates the agent deployment with a new image version and updates the version labels
 func (s *Service) UpdateAgentVersion(ctx context.Context, newVersion string) error {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+	if IsLocalEnvironment() {
 		return nil
 	}
 
@@ -850,4 +931,62 @@ func (s *Service) ListCollectorScannedImages(ctx context.Context) ([]models.Scan
 	}
 
 	return response, nil
+}
+
+func (s *Service) GetAgentMetrics(ctx context.Context) (models.ComponentMetrics, error) {
+	podMetrics, err := s.metricClient.MetricsV1beta1().PodMetricses(s.GetAgentNamespace()).Get(ctx, s.GetAgentPodName(), v1.GetOptions{})
+	if err != nil {
+		// The metrics for the agent might not have been generated yet (it takes ~60s after the pod starts) or the
+		// metrics server might be temporarily unavailable or not installed.
+		if k8sErrors.IsNotFound(err) || k8sErrors.IsServiceUnavailable(err) {
+			return models.ComponentMetrics{}, nil
+		}
+		return models.ComponentMetrics{}, fmt.Errorf("error getting agent pod metrics: %w", err)
+	}
+
+	if len(podMetrics.Containers) == 0 {
+		return models.ComponentMetrics{}, nil
+	}
+
+	cpuUsage := podMetrics.Containers[0].Usage.Cpu().MilliValue()
+
+	memUsage := podMetrics.Containers[0].Usage.Memory()
+
+	return models.ComponentMetrics{CPUUsage: fmt.Sprintf("%dm", cpuUsage), MemoryUsage: fmt.Sprintf("%.0fMi", float64(memUsage.Value())/(1024*1024))}, nil
+}
+
+func (s *Service) ListResourceEvents(ctx context.Context, kind, name string) ([]corev1.Event, error) {
+	fieldSelector := fmt.Sprintf("involvedObject.kind=%s,involvedObject.name=%s", kind, name)
+	eventsList, err := s.kubernetesClientSet.CoreV1().Events(s.GetAgentNamespace()).List(ctx, v1.ListOptions{
+		FieldSelector: fieldSelector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error listing resource events: %w", err)
+	}
+
+	events := make([]corev1.Event, 0, len(eventsList.Items))
+	// Filter out irrelevant events by reason.
+	for _, event := range eventsList.Items {
+		if slices.Contains(ignoredEventsReasons, event.Reason) {
+			continue
+		}
+
+		events = append(events, event)
+	}
+
+	return events, nil
+}
+
+func BuildLocalConfig() (*rest.Config, error) {
+	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+	return clientcmd.BuildConfigFromFlags("", kubeconfig)
+}
+
+func IsLocalEnvironment() bool {
+	val, ok := os.LookupEnv("ENVIRONMENT")
+	if ok && val == "local" {
+		return true
+	}
+
+	return false
 }

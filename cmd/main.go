@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var (
@@ -90,6 +92,7 @@ func main() {
 		AgentNamespace:                    envCfg.Namespace,
 		AgentName:                         envCfg.AgentName,
 		ConfigSecretName:                  envCfg.ConfigSecretName,
+		AgentPodName:                      envCfg.AgentPodName,
 		APIToken:                          cfg.APIToken,
 		APIEndpoint:                       cfg.APIEndpoint,
 		HeartbeatService:                  heartbeatService,
@@ -104,6 +107,7 @@ func main() {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		HealthProbeBindAddress: probeAddr,
+		Metrics:                metricsserver.Options{BindAddress: fmt.Sprintf(":%d", envCfg.MetricsPort)},
 		Client: client.Options{
 			Cache: &client.CacheOptions{
 				DisableFor: []client.Object{
@@ -140,7 +144,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := agentService.InitializeAgent(ctx, cfg, mgr, envCfg.APIPort); err != nil {
+	if err := agentService.InitializeAgent(ctx, cfg, mgr, envCfg); err != nil {
 		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
 		os.Exit(1)
 	}
