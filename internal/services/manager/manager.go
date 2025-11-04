@@ -386,7 +386,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Get the available resources from the Kubernetes API server.
-	serverResources, err := s.kubernetesClientSet.Discovery().ServerPreferredResources()
+	_, serverResources, err := s.kubernetesClientSet.Discovery().ServerGroupsAndResources()
 	if err != nil {
 		if !discovery.IsGroupDiscoveryFailedError(err) {
 			s.logger.ReportError(ctx, err, "error getting server resources", "managerError")
