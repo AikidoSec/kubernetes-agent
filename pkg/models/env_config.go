@@ -11,5 +11,4 @@ type EnvironmentConfig struct {
 	RunSBOMCollectorAsDaemonSet bool
 	ConfigSecretName            string
 	AgentPodName                string
-	SBOMCollectorEnabled        bool
 }

@@ -334,8 +334,12 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 	}()
 
-	// If the SBOM collector is enabled, load the already scanned images from the API server into the cache.
+	// If the SBOM collector is enabled, load the already scanned images from the API server into the cache and configure the collector.
 	if s.IsSBOMCollectorEnabled() {
+		// Configure the SBOM collector deployment/daemonset based on the current enabled state.
+		if err := s.ConfigureSBOMCollector(ctx, s.IsSBOMCollectorEnabled()); err != nil {
+			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
+		}
 		// Load the SBOM collector version from the deployment labels
 		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), sbomCollectorOwnerName, s.GetRunSBOMCollectorAsDaemonSet())
 		if err != nil {
@@ -350,14 +354,6 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 		if len(collectorScannedImages) > 0 {
 			imagesCache.LoadFromScannedImages(collectorScannedImages)
-		}
-	}
-
-	// Check if there is a mismatch between the sbomCollector enabled flag from charts and the cluster configuration.
-	if s.IsSBOMCollectorEnabled() != environmentConfig.SBOMCollectorEnabled {
-		s.logger.LogInfo("sbom collector enabled state changed from initial config", "current state", s.IsSBOMCollectorEnabled(), "new state", environmentConfig.SBOMCollectorEnabled)
-		if err := s.ConfigureSBOMCollector(ctx, s.IsSBOMCollectorEnabled()); err != nil {
-			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 		}
 	}
 
