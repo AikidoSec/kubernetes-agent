@@ -264,7 +264,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	return resp, nil
 }
 
-func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, apiPort int) error {
+func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
 	// Load the agent version from the deployment labels
 	agentVersion, err := LoadDeploymentVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
@@ -329,7 +329,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	// Initialize the HTTP server that communicates with other components (e.g. the SBOM collector)
 	s.SetSBOMCollectorEnabled(hb.Cluster.SBOMCollectorEnabled)
 	go func() {
-		if err := internalhttp.ListenAndServe(ctx, s.logger.GetLogger(), apiPort, sbomController); err != nil {
+		if err := internalhttp.ListenAndServe(ctx, s.logger.GetLogger(), environmentConfig.APIPort, sbomController); err != nil {
 			s.logger.ReportError(ctx, err, "error starting sbom controller", "managerError")
 		}
 	}()
@@ -350,6 +350,14 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 		if len(collectorScannedImages) > 0 {
 			imagesCache.LoadFromScannedImages(collectorScannedImages)
+		}
+	}
+
+	// Check if there is a mismatch between the sbomCollector enabled flag from charts and the cluster configuration.
+	if s.IsSBOMCollectorEnabled() != environmentConfig.SBOMCollectorEnabled {
+		s.logger.LogInfo("sbom collector enabled state changed from initial config", "current state", s.IsSBOMCollectorEnabled(), "new state", environmentConfig.SBOMCollectorEnabled)
+		if err := s.ConfigureSBOMCollector(ctx, s.IsSBOMCollectorEnabled()); err != nil {
+			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 		}
 	}
 

@@ -144,7 +144,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := agentService.InitializeAgent(ctx, cfg, mgr, envCfg.APIPort); err != nil {
+	if err := agentService.InitializeAgent(ctx, cfg, mgr, envCfg); err != nil {
 		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
 		os.Exit(1)
 	}
