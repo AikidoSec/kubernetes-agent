@@ -26,6 +26,7 @@ import (
 	"go.uber.org/multierr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
@@ -300,6 +301,9 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	deploymentEvents, _ := s.ListResourceEvents(ctx, "Deployment", s.GetAgentName())
+	if deploymentEvents == nil {
+		deploymentEvents = []corev1.Event{} // empty slice instead of nil so the payload is `[]` instead of `null`
+	}
 	// We currently ignore the errors because most agents will lack the necessary permissions to fetch deployment events.
 	deploymentEventsPayload, err := json.Marshal(deploymentEvents)
 	if err != nil {
@@ -382,9 +386,11 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Get the available resources from the Kubernetes API server.
-	serverResources, err := s.kubernetesClientSet.Discovery().ServerPreferredResources()
+	_, serverResources, err := s.kubernetesClientSet.Discovery().ServerGroupsAndResources()
 	if err != nil {
-		s.logger.ReportError(ctx, err, "error getting server resources", "managerError")
+		if !discovery.IsGroupDiscoveryFailedError(err) {
+			s.logger.ReportError(ctx, err, "error getting server resources", "managerError")
+		}
 	}
 
 	// Build a map of available GVKs in the cluster for quick lookup.
