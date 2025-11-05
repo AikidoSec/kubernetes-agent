@@ -303,6 +303,11 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	if namespaceEvents == nil {
 		namespaceEvents = []corev1.Event{} // empty slice instead of nil so the payload is `[]` instead of `null`
 	}
+
+	// Remove the object metadata to reduce payload size
+	for i := range namespaceEvents {
+		namespaceEvents[i].ObjectMeta = v1.ObjectMeta{}
+	}
 	// We currently ignore the errors because most agents will lack the necessary permissions to fetch deployment events.
 	namespaceEventsPayload, err := json.Marshal(namespaceEvents)
 	if err != nil {
