@@ -44,8 +44,6 @@ var noHostErrorMessage = "no such host"
 
 const (
 	defaultAgentVersion = "1.0.0"
-
-	sbomCollectorOwnerName = "aikido-kubernetes-sbom-collector"
 )
 
 var ignoredEventsReasons = []string{
@@ -96,7 +94,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}
 
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(o.AgentPodName, o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet)
+	agentState.SetInitialValues(o.AgentPodName, o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, fmt.Sprintf("%s-sbom-collector", o.AgentName))
 
 	// Build the cluster configuration based on the environment.
 	var cfg *rest.Config
@@ -257,7 +255,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		// If the SBOM collector was enabled, load the scanned images from the API server into the cache and set the deployed collector version.
 		if s.IsSBOMCollectorEnabled() {
 			// Load the SBOM collector version from the deployment labels
-			sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), sbomCollectorOwnerName, s.GetRunSBOMCollectorAsDaemonSet())
+			sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 			if err != nil {
 				s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
 			}
@@ -366,7 +364,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 		}
 		// Load the SBOM collector version from the deployment labels
-		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), sbomCollectorOwnerName, s.GetRunSBOMCollectorAsDaemonSet())
+		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
 		}
@@ -554,7 +552,7 @@ func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool) erro
 }
 
 func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled bool) error {
-	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting SBOM collector daemonset: %w", err)
 	}
@@ -574,7 +572,7 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled b
 }
 
 func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled bool) error {
-	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting SBOM collector deployment: %w", err)
 	}
@@ -807,10 +805,10 @@ func LoadDaemonSetVersion(ctx context.Context, clientSet *kubernetes.Clientset, 
 
 func (s *Service) RestartSBOMCollector(ctx context.Context) error {
 	if s.GetRunSBOMCollectorAsDaemonSet() {
-		return s.RestartDaemonSet(ctx, sbomCollectorOwnerName)
+		return s.RestartDaemonSet(ctx, s.GetSBOMCollectorName())
 	}
 
-	return s.RestartDeployment(ctx, sbomCollectorOwnerName)
+	return s.RestartDeployment(ctx, s.GetSBOMCollectorName())
 }
 
 // RestartDaemonSet fetches the daemonSet and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
@@ -851,7 +849,7 @@ func (s *Service) UpdateSBOMCollectorDeploymentVersion(ctx context.Context, newV
 		return nil
 	}
 
-	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting sbom collector deployment: %w", err)
 	}
@@ -883,7 +881,7 @@ func (s *Service) UpdateSBOMCollectorDaemonSetVersion(ctx context.Context, newVe
 		return nil
 	}
 
-	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting sbom collector deployment: %w", err)
 	}
