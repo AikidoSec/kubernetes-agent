@@ -300,12 +300,13 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}
 
-	deploymentEvents, _ := s.ListResourceEvents(ctx, "Deployment", s.GetAgentName())
-	if deploymentEvents == nil {
-		deploymentEvents = []corev1.Event{} // empty slice instead of nil so the payload is `[]` instead of `null`
+	// List all events from the agent namespace.
+	namespaceEvents, _ := s.ListEventsByFieldSelector(ctx, "")
+	if namespaceEvents == nil {
+		namespaceEvents = []corev1.Event{} // empty slice instead of nil so the payload is `[]` instead of `null`
 	}
 	// We currently ignore the errors because most agents will lack the necessary permissions to fetch deployment events.
-	deploymentEventsPayload, err := json.Marshal(deploymentEvents)
+	namespaceEventsPayload, err := json.Marshal(namespaceEvents)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error marshalling deployment events payload", "managerError")
 	}
@@ -316,7 +317,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		CollectorVersion:   s.GetSBOMCollectorVersion(),
 		IsInitialHeartbeat: true,
 		ClusterIdentifier:  clusterIdentifier,
-		DeploymentEvents:   string(deploymentEventsPayload),
+		NamespaceEvents:    string(namespaceEventsPayload),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
@@ -963,9 +964,15 @@ func (s *Service) GetAgentMetrics(ctx context.Context) (models.ComponentMetrics,
 
 func (s *Service) ListResourceEvents(ctx context.Context, kind, name string) ([]corev1.Event, error) {
 	fieldSelector := fmt.Sprintf("involvedObject.kind=%s,involvedObject.name=%s", kind, name)
-	eventsList, err := s.kubernetesClientSet.CoreV1().Events(s.GetAgentNamespace()).List(ctx, v1.ListOptions{
-		FieldSelector: fieldSelector,
-	})
+	return s.ListEventsByFieldSelector(ctx, fieldSelector)
+}
+
+func (s *Service) ListEventsByFieldSelector(ctx context.Context, fieldSelector string) ([]corev1.Event, error) {
+	opts := v1.ListOptions{}
+	if fieldSelector != "" {
+		opts.FieldSelector = fieldSelector
+	}
+	eventsList, err := s.kubernetesClientSet.CoreV1().Events(s.GetAgentNamespace()).List(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("error listing resource events: %w", err)
 	}
