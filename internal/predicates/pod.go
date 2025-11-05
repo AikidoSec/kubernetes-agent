@@ -33,9 +33,13 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 			// Only reconcile if pod is running, succeeded, or failed.
 			// Pending pods from the initial list are filtered out and will be reconciled later via UpdateFunc when
 			// they transition to a running state.
-			return pod.Status.Phase == v1.PodRunning ||
-				pod.Status.Phase == v1.PodSucceeded ||
-				pod.Status.Phase == v1.PodFailed
+			if pod.Status.Phase != v1.PodRunning && pod.Status.Phase != v1.PodSucceeded && pod.Status.Phase != v1.PodFailed {
+				return false
+			}
+
+			// Make sure that all images are resolved, running pods can still have unresolved images. This can happen if
+			// the pods initial list contains pods that were recently created and are still resolving their images.
+			return ArePodImagesResolved(pod)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			if IsObjectFromExcludedNamespace(e.ObjectNew, excludedNamespaces) {
@@ -60,13 +64,19 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 				return false
 			}
 
+			// We want to reconcile the pod only after all images are resolved.
+			if !ArePodImagesResolved(newPod) {
+				return false
+			}
+
 			// If the Pod status changed to 'Running' from 'Pending', trigger reconciliation
 			// In this case the spec did not change but the Pod is now ready, and we want to capture that event
 			if newPod.Status.Phase == v1.PodRunning && oldPod.Status.Phase == v1.PodPending {
 				return true
 			}
 
-			return IsSpecModified(e)
+			// Trigger reconciliation if the spec changed or if the container status changed
+			return IsSpecModified(e) || PodContainerStatusChanged(oldPod, newPod)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
@@ -87,4 +97,63 @@ func podFromUnstructured(obj client.Object) (v1.Pod, error) {
 	}
 
 	return pod, nil
+}
+
+func PodContainerStatusChanged(oldPod, newPod v1.Pod) bool {
+	// Check regular containers
+	if ContainerImageIDChanged(oldPod.Status.ContainerStatuses, newPod.Status.ContainerStatuses) {
+		return true
+	}
+
+	// Check init containers
+	if ContainerImageIDChanged(oldPod.Status.InitContainerStatuses, newPod.Status.InitContainerStatuses) {
+		return true
+	}
+
+	// Check ephemeral containers
+	if ContainerImageIDChanged(oldPod.Status.EphemeralContainerStatuses, newPod.Status.EphemeralContainerStatuses) {
+		return true
+	}
+
+	return false
+}
+
+func ContainerImageIDChanged(old []v1.ContainerStatus, new []v1.ContainerStatus) bool {
+	if len(old) != len(new) {
+		return true
+	}
+
+	for i := range new {
+		if old[i].ImageID != new[i].ImageID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func ArePodImagesResolved(pod v1.Pod) bool {
+	if !AreContainersImagesResolved(pod.Status.ContainerStatuses) {
+		return false
+	}
+
+	if !AreContainersImagesResolved(pod.Status.InitContainerStatuses) {
+		return false
+	}
+
+	if !AreContainersImagesResolved(pod.Status.EphemeralContainerStatuses) {
+		return false
+	}
+
+	return true
+}
+
+func AreContainersImagesResolved(statuses []v1.ContainerStatus) bool {
+	for _, status := range statuses {
+		if status.ImageID == "" {
+			return false
+		}
+	}
+
+	return true
 }
