@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -35,8 +36,37 @@ func (s *Service) ReportError(ctx context.Context, err error, message string, er
 
 	s.logger.Error(fmt.Sprintf("%s: %s", message, err.Error()), args...)
 
+	// Build error message as JSON
+	builder := strings.Builder{}
+	builder.WriteString("{\"message\":\"")
+	builder.WriteString(err.Error())
+	builder.WriteString("\"")
+
+	for i := 0; i < len(args)-1; i += 2 {
+		if i+1 >= len(args) {
+			break
+		}
+
+		key, ok := args[i].(string)
+		if !ok {
+			continue
+		}
+		builder.WriteString(",\"")
+		builder.WriteString(key)
+		builder.WriteString("\":")
+
+		argValue, err := json.Marshal(args[i+1])
+		if err != nil {
+			builder.WriteString(fmt.Sprintf(`"%v"`, args[i+1]))
+			continue
+		}
+		builder.WriteString(string(argValue))
+	}
+	builder.WriteString("}")
+	errorMessage := builder.String()
+
 	if err := s.OutputClient.SendContext(ctx, models.AgentError{
-		Error:     fmt.Sprintf("%s: %s", message, err.Error()),
+		Error:     errorMessage,
 		ErrorType: errorType,
 		SeenAt:    time.Now().UTC(),
 	}); err != nil {
