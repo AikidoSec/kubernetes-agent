@@ -22,21 +22,21 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/imagescache"
 	"aikidoSec.kubernetesAgent/pkg/models"
+
 	"github.com/google/uuid"
 	"go.uber.org/multierr"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-
 	"gopkg.in/yaml.v3"
+	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
@@ -44,8 +44,6 @@ var noHostErrorMessage = "no such host"
 
 const (
 	defaultAgentVersion = "1.0.0"
-
-	sbomCollectorOwnerName = "aikido-kubernetes-sbom-collector"
 )
 
 var ignoredEventsReasons = []string{
@@ -96,7 +94,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}
 
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(o.AgentPodName, o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet)
+	agentState.SetInitialValues(o.AgentPodName, o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, fmt.Sprintf("%s-sbom-collector", o.AgentName))
 
 	// Build the cluster configuration based on the environment.
 	var cfg *rest.Config
@@ -257,7 +255,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		// If the SBOM collector was enabled, load the scanned images from the API server into the cache and set the deployed collector version.
 		if s.IsSBOMCollectorEnabled() {
 			// Load the SBOM collector version from the deployment labels
-			sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), sbomCollectorOwnerName, s.GetRunSBOMCollectorAsDaemonSet())
+			sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 			if err != nil {
 				s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
 			}
@@ -300,14 +298,20 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}
 
-	deploymentEvents, _ := s.ListResourceEvents(ctx, "Deployment", s.GetAgentName())
-	if deploymentEvents == nil {
-		deploymentEvents = []corev1.Event{} // empty slice instead of nil so the payload is `[]` instead of `null`
+	// List all events from the agent namespace.
+	namespaceEvents, _ := s.ListEventsByFieldSelector(ctx, "")
+	if namespaceEvents == nil {
+		namespaceEvents = []corev1.Event{} // empty slice instead of nil so the payload is `[]` instead of `null`
 	}
-	// We currently ignore the errors because most agents will lack the necessary permissions to fetch deployment events.
-	deploymentEventsPayload, err := json.Marshal(deploymentEvents)
+
+	// Remove the object metadata to reduce payload size
+	for i := range namespaceEvents {
+		namespaceEvents[i].ObjectMeta = v1.ObjectMeta{}
+	}
+	// We currently ignore the errors because most agents will lack the necessary permissions to fetch namespace events.
+	namespaceEventsPayload, err := json.Marshal(namespaceEvents)
 	if err != nil {
-		s.logger.ReportError(ctx, err, "error marshalling deployment events payload", "managerError")
+		s.logger.ReportError(ctx, err, "error marshalling namespace events payload", "managerError")
 	}
 
 	// Send the initial heartbeat to get the monitored resources and agent configuration
@@ -316,7 +320,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		CollectorVersion:   s.GetSBOMCollectorVersion(),
 		IsInitialHeartbeat: true,
 		ClusterIdentifier:  clusterIdentifier,
-		DeploymentEvents:   string(deploymentEventsPayload),
+		NamespaceEvents:    string(namespaceEventsPayload),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
@@ -365,7 +369,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 		}
 		// Load the SBOM collector version from the deployment labels
-		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), sbomCollectorOwnerName, s.GetRunSBOMCollectorAsDaemonSet())
+		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
 		}
@@ -553,7 +557,7 @@ func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool) erro
 }
 
 func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled bool) error {
-	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting SBOM collector daemonset: %w", err)
 	}
@@ -573,7 +577,7 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled b
 }
 
 func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled bool) error {
-	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting SBOM collector deployment: %w", err)
 	}
@@ -806,10 +810,10 @@ func LoadDaemonSetVersion(ctx context.Context, clientSet *kubernetes.Clientset, 
 
 func (s *Service) RestartSBOMCollector(ctx context.Context) error {
 	if s.GetRunSBOMCollectorAsDaemonSet() {
-		return s.RestartDaemonSet(ctx, sbomCollectorOwnerName)
+		return s.RestartDaemonSet(ctx, s.GetSBOMCollectorName())
 	}
 
-	return s.RestartDeployment(ctx, sbomCollectorOwnerName)
+	return s.RestartDeployment(ctx, s.GetSBOMCollectorName())
 }
 
 // RestartDaemonSet fetches the daemonSet and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
@@ -850,7 +854,7 @@ func (s *Service) UpdateSBOMCollectorDeploymentVersion(ctx context.Context, newV
 		return nil
 	}
 
-	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting sbom collector deployment: %w", err)
 	}
@@ -882,7 +886,7 @@ func (s *Service) UpdateSBOMCollectorDaemonSetVersion(ctx context.Context, newVe
 		return nil
 	}
 
-	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, sbomCollectorOwnerName, v1.GetOptions{})
+	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting sbom collector deployment: %w", err)
 	}
@@ -963,9 +967,15 @@ func (s *Service) GetAgentMetrics(ctx context.Context) (models.ComponentMetrics,
 
 func (s *Service) ListResourceEvents(ctx context.Context, kind, name string) ([]corev1.Event, error) {
 	fieldSelector := fmt.Sprintf("involvedObject.kind=%s,involvedObject.name=%s", kind, name)
-	eventsList, err := s.kubernetesClientSet.CoreV1().Events(s.GetAgentNamespace()).List(ctx, v1.ListOptions{
-		FieldSelector: fieldSelector,
-	})
+	return s.ListEventsByFieldSelector(ctx, fieldSelector)
+}
+
+func (s *Service) ListEventsByFieldSelector(ctx context.Context, fieldSelector string) ([]corev1.Event, error) {
+	opts := v1.ListOptions{}
+	if fieldSelector != "" {
+		opts.FieldSelector = fieldSelector
+	}
+	eventsList, err := s.kubernetesClientSet.CoreV1().Events(s.GetAgentNamespace()).List(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("error listing resource events: %w", err)
 	}

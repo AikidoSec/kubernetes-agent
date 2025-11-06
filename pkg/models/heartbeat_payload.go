@@ -11,7 +11,7 @@ type HeartbeatPayload struct {
 	IsInitialHeartbeat bool   `json:"is_initial_heartbeat"`
 	ClusterIdentifier  string `json:"cluster_identifier"`
 	Metrics            string `json:"metrics"`
-	DeploymentEvents   string `json:"deployment_events"`
+	NamespaceEvents    string `json:"namespace_events"`
 }
 
 func (p *HeartbeatPayload) FromJSON(r io.Reader) error {

@@ -2,15 +2,16 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
-	"aikidoSec.kubernetesAgent/internal/format"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
+
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -58,11 +59,11 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	eventTime := time.Now().UTC()
 	requeueAfter := defaultRequeueAfter
 
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(r.Watched.GroupVersionKind)
-	obj.SetName(req.Name)
-	obj.SetNamespace(req.Namespace)
-
+	obj, err := r.GetTypedObject()
+	if err != nil {
+		r.Logger.ReportError(ctx, err, "error getting typed object for watcher", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
+		return ctrl.Result{}, nil
+	}
 	objectID := r.Watched.String() + "/" + req.String()
 
 	// set event type
@@ -73,22 +74,20 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		requeueAfter = 0 // no need to requeue deleted objects
 		r.clearPending(objectID)
 	case err != nil:
-		r.Logger.ReportError(ctx, err, "error getting object", "watcherError", "name", req.Name, "namespace", req.Namespace)
+		r.Logger.ReportError(ctx, err, "error getting object", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
 	default:
 		eventType = models.ModifiedEventType
 	}
-
-	obj = format.FormatObject(obj)
 
 	// If the object is already pending for processing, skip re-queuing it
 	if v := r.markPendingOnce(objectID); !v {
 		requeueAfter = 0
 	}
 
-	metadata, err := obj.MarshalJSON()
+	metadata, err := json.Marshal(obj)
 	if err != nil {
-		r.Logger.ReportError(ctx, err, "error marshalling object to JSON", "watcherError", "name", req.Name, "namespace", req.Namespace)
+		r.Logger.ReportError(ctx, err, "error marshalling object to JSON", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, fmt.Errorf("error marshalling object to JSON: %w", err)
 	}
 
@@ -100,7 +99,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	}
 
 	if err := r.OutputClient.SendContext(ctx, payload); err != nil {
-		r.Logger.ReportError(ctx, err, "error sending payload to output client", "watcherError", "name", req.Name, "namespace", req.Namespace)
+		r.Logger.ReportError(ctx, err, "error sending payload to output client", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, fmt.Errorf("could not send payload to output client: %w", err)
 	}
 
@@ -117,4 +116,9 @@ func (r *Watcher) SetupWithManager(mgr ctrl.Manager, opts controller.Options) er
 		For(obj, builder.WithPredicates(predicates.GetPredicatesForGVK(obj.GroupVersionKind().String(), r.Watched.ExcludedNamespaces))).
 		WithOptions(opts).
 		Complete(r)
+}
+
+func (r *Watcher) GetTypedObject() (client.Object, error) {
+	obj, err := r.Scheme.New(r.Watched.GroupVersionKind)
+	return obj.(client.Object), err
 }

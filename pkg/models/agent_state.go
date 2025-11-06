@@ -20,6 +20,7 @@ type AgentState struct {
 	sbomCollectorEnabled        bool
 	runSBOMCollectorAsDaemonSet bool
 	sbomCollectorVersion        string
+	sbomCollectorName           string
 
 	mu sync.Mutex
 }
@@ -32,7 +33,7 @@ func NewEmptyAgentState() *AgentState {
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool) *AgentState {
+func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -44,6 +45,7 @@ func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, a
 	a.runSBOMCollectorAsDaemonSet = isSBOMCollectorRunningAsDaemonSet
 	a.configSecretName = configSecretName
 	a.agentPodName = agentPodName
+	a.sbomCollectorName = sbomCollectorName
 	return a
 }
 
@@ -125,6 +127,12 @@ func (a *AgentState) GetAgentPodName() string {
 	return a.agentPodName
 }
 
+func (a *AgentState) GetSBOMCollectorName() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sbomCollectorName
+}
+
 func (a *AgentState) SetAgentVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -201,4 +209,10 @@ func (a *AgentState) SetAgentPodName(podName string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.agentPodName = podName
+}
+
+func (a *AgentState) SetSBOMCollectorName(name string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sbomCollectorName = name
 }

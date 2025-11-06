@@ -15,19 +15,18 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/config"
 	"aikidoSec.kubernetesAgent/pkg/models"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
 	"github.com/go-logr/logr"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
+	// to ensure that exec-entrypoint and run can make use of them.
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -108,32 +107,35 @@ func main() {
 		Scheme:                 scheme,
 		HealthProbeBindAddress: probeAddr,
 		Metrics:                metricsserver.Options{BindAddress: fmt.Sprintf(":%d", envCfg.MetricsPort)},
-		Client: client.Options{
-			Cache: &client.CacheOptions{
-				DisableFor: []client.Object{
-					&corev1.Secret{},
-				},
-			},
-		},
 		Cache: cache.Options{
 			DefaultTransform: func(obj any) (any, error) {
-				obj, err := cache.TransformStripManagedFields()(obj)
+				metaObj, err := meta.Accessor(obj)
 				if err != nil {
-					return obj, err
+					return obj, nil
 				}
 
-				// Remove `kubectl.kubernetes.io/last-applied-configuration` annotation from objects
-				if metaObj, ok := obj.(metav1.ObjectMetaAccessor); ok {
-					annotations := metaObj.GetObjectMeta().GetAnnotations()
-					if annotations != nil {
-						delete(annotations, "kubectl.kubernetes.io/last-applied-configuration")
-						metaObj.GetObjectMeta().SetAnnotations(annotations)
-					}
+				annotations := metaObj.GetAnnotations()
+				if annotations != nil {
+					// Remove `kubectl.kubernetes.io/last-applied-configuration` annotation
+					delete(annotations, "kubectl.kubernetes.io/last-applied-configuration")
+					metaObj.SetAnnotations(annotations)
 				}
 
-				// Remove data from ConfigMaps
+				// Remove managed fields
+				if metaObj.GetManagedFields() != nil {
+					metaObj.SetManagedFields(nil)
+				}
+
+				// Remove binary data from ConfigMaps
 				if cm, ok := obj.(*corev1.ConfigMap); ok {
 					cm.BinaryData = nil
+				}
+
+				// Skip caching Jobs older than 5 days
+				if job, ok := obj.(*batchv1.Job); ok {
+					if job.CreationTimestamp.Time.Before(time.Now().AddDate(0, 0, -5)) {
+						return nil, nil
+					}
 				}
 				return obj, nil
 			},
