@@ -140,7 +140,7 @@ func main() {
 
 				if pod, ok := obj.(*corev1.Pod); ok {
 					// Skip caching Pods that are in Succeeded or Failed phase
-					if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed && pod.DeletionTimestamp.IsZero() {
+					if (pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed) && pod.DeletionTimestamp.IsZero() {
 						return nil, nil
 					}
 				}
