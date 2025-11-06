@@ -131,7 +131,7 @@ func (r *Watcher) GetTypedObject() (client.Object, error) {
 }
 
 func (r *Watcher) SetObjectGVK(obj client.Object) (client.Object, error) {
-	gvk, err := apiutil.GVKForObject(obj, r.Client.Scheme())
+	gvk, err := apiutil.GVKForObject(obj, r.Scheme)
 	if err != nil {
 		return nil, err
 	}
