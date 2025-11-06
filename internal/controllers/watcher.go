@@ -13,13 +13,6 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 
 	"github.com/google/uuid"
-	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
-	discoveryv1 "k8s.io/api/discovery/v1"
-	networkingv1 "k8s.io/api/networking/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -126,55 +119,6 @@ func (r *Watcher) SetupWithManager(mgr ctrl.Manager, opts controller.Options) er
 }
 
 func (r *Watcher) GetTypedObject() (client.Object, error) {
-	switch r.Watched.String() {
-	case "/v1, Kind=Pod":
-		return &corev1.Pod{}, nil
-	case "/v1, Kind=Endpoints":
-		//nolint:staticcheck
-		return &corev1.Endpoints{}, nil
-	case "/v1, Kind=Service":
-		return &corev1.Service{}, nil
-	case "/v1, Kind=Namespace":
-		return &corev1.Namespace{}, nil
-	case "/v1, Kind=Node":
-		return &corev1.Node{}, nil
-	case "/v1, Kind=ServiceAccount":
-		return &corev1.ServiceAccount{}, nil
-	case "/v1, Kind=ConfigMap":
-		return &corev1.ConfigMap{}, nil
-	case "/v1, Kind=PersistentVolume":
-		return &corev1.PersistentVolume{}, nil
-	case "/v1, Kind=PersistentVolumeClaim":
-		return &corev1.PersistentVolumeClaim{}, nil
-	case "apps/v1, Kind=Deployment":
-		return &appsv1.Deployment{}, nil
-	case "apps/v1, Kind=DaemonSet":
-		return &appsv1.DaemonSet{}, nil
-	case "apps/v1, Kind=StatefulSet":
-		return &appsv1.StatefulSet{}, nil
-	case "apps/v1, Kind=ReplicaSet":
-		return &appsv1.ReplicaSet{}, nil
-	case "rbac.authorization.k8s.io/v1, Kind=Role":
-		return &rbacv1.Role{}, nil
-	case "rbac.authorization.k8s.io/v1, Kind=RoleBinding":
-		return &rbacv1.RoleBinding{}, nil
-	case "rbac.authorization.k8s.io/v1, Kind=ClusterRole":
-		return &rbacv1.ClusterRole{}, nil
-	case "rbac.authorization.k8s.io/v1, Kind=ClusterRoleBinding":
-		return &rbacv1.ClusterRoleBinding{}, nil
-	case "networking.k8s.io/v1, Kind=NetworkPolicy":
-		return &networkingv1.NetworkPolicy{}, nil
-	case "networking.k8s.io/v1, Kind=Ingress":
-		return &networkingv1.Ingress{}, nil
-	case "batch/v1, Kind=Job":
-		return &batchv1.Job{}, nil
-	case "batch/v1, Kind=CronJob":
-		return &batchv1.CronJob{}, nil
-	case "storage.k8s.io/v1, Kind=StorageClass":
-		return &storagev1.StorageClass{}, nil
-	case "discovery.k8s.io/v1, Kind=EndpointSlice":
-		return &discoveryv1.EndpointSlice{}, nil
-	default:
-		return nil, fmt.Errorf("could not determine type for GVK %v", r.Watched.String())
-	}
+	obj, err := r.Scheme.New(r.Watched.GroupVersionKind)
+	return obj.(client.Object), err
 }
