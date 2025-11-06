@@ -39,8 +39,8 @@ func (s *Service) ReportError(ctx context.Context, err error, message string, er
 	// Build error message as JSON
 	builder := strings.Builder{}
 	builder.WriteString("{\"message\":")
-	errJSON, err := json.Marshal(err.Error())
-	if err != nil {
+	errJSON, marshalErr := json.Marshal(err.Error())
+	if marshalErr != nil {
 		builder.WriteString(fmt.Sprintf(`"%v"`, err.Error()))
 	} else {
 		builder.WriteString(string(errJSON))
@@ -59,8 +59,8 @@ func (s *Service) ReportError(ctx context.Context, err error, message string, er
 		builder.WriteString(key)
 		builder.WriteString("\":")
 
-		argValue, err := json.Marshal(args[i+1])
-		if err != nil {
+		argValue, marshalErr := json.Marshal(args[i+1])
+		if marshalErr != nil {
 			builder.WriteString(fmt.Sprintf(`"%v"`, args[i+1]))
 			continue
 		}

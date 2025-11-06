@@ -308,10 +308,10 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	for i := range namespaceEvents {
 		namespaceEvents[i].ObjectMeta = v1.ObjectMeta{}
 	}
-	// We currently ignore the errors because most agents will lack the necessary permissions to fetch deployment events.
+	// We currently ignore the errors because most agents will lack the necessary permissions to fetch namespace events.
 	namespaceEventsPayload, err := json.Marshal(namespaceEvents)
 	if err != nil {
-		s.logger.ReportError(ctx, err, "error marshalling deployment events payload", "managerError")
+		s.logger.ReportError(ctx, err, "error marshalling namespace events payload", "managerError")
 	}
 
 	// Send the initial heartbeat to get the monitored resources and agent configuration
