@@ -84,7 +84,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	obj, err = r.SetObjectGVK(obj)
 	if err != nil {
 		r.Logger.ReportError(ctx, err, "error ensuring GVK for object", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
-		return ctrl.Result{}, fmt.Errorf("error ensuring GVK for object: %w", err)
+		return ctrl.Result{}, nil
 	}
 
 	// If the object is already pending for processing, skip re-queuing it
