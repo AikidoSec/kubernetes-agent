@@ -11,6 +11,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -80,6 +81,12 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		eventType = models.ModifiedEventType
 	}
 
+	obj, err = r.SetObjectGVK(obj)
+	if err != nil {
+		r.Logger.ReportError(ctx, err, "error ensuring GVK for object", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
+		return ctrl.Result{}, fmt.Errorf("error ensuring GVK for object: %w", err)
+	}
+
 	// If the object is already pending for processing, skip re-queuing it
 	if v := r.markPendingOnce(objectID); !v {
 		requeueAfter = 0
@@ -121,4 +128,13 @@ func (r *Watcher) SetupWithManager(mgr ctrl.Manager, opts controller.Options) er
 func (r *Watcher) GetTypedObject() (client.Object, error) {
 	obj, err := r.Scheme.New(r.Watched.GroupVersionKind)
 	return obj.(client.Object), err
+}
+
+func (r *Watcher) SetObjectGVK(obj client.Object) (client.Object, error) {
+	gvk, err := apiutil.GVKForObject(obj, r.Client.Scheme())
+	if err != nil {
+		return nil, err
+	}
+	obj.GetObjectKind().SetGroupVersionKind(gvk)
+	return obj, nil
 }
