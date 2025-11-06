@@ -130,6 +130,7 @@ func (r *Watcher) GetTypedObject() (client.Object, error) {
 	case "/v1, Kind=Pod":
 		return &corev1.Pod{}, nil
 	case "/v1, Kind=Endpoints":
+		//nolint:staticcheck
 		return &corev1.Endpoints{}, nil
 	case "/v1, Kind=Service":
 		return &corev1.Service{}, nil
