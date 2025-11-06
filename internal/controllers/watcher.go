@@ -11,8 +11,6 @@ import (
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
-
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -65,6 +63,10 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		r.Logger.ReportError(ctx, err, "error getting typed object for watcher", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, nil
 	}
+	obj.GetObjectKind().SetGroupVersionKind(r.Watched.GroupVersionKind)
+	obj.SetName(req.Name)
+	obj.SetNamespace(req.Namespace)
+
 	objectID := r.Watched.String() + "/" + req.String()
 
 	// set event type
@@ -79,12 +81,6 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
 	default:
 		eventType = models.ModifiedEventType
-	}
-
-	obj, err = r.SetObjectGVK(obj)
-	if err != nil {
-		r.Logger.ReportError(ctx, err, "error ensuring GVK for object", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
-		return ctrl.Result{}, nil
 	}
 
 	// If the object is already pending for processing, skip re-queuing it
@@ -128,13 +124,4 @@ func (r *Watcher) SetupWithManager(mgr ctrl.Manager, opts controller.Options) er
 func (r *Watcher) GetTypedObject() (client.Object, error) {
 	obj, err := r.Scheme.New(r.Watched.GroupVersionKind)
 	return obj.(client.Object), err
-}
-
-func (r *Watcher) SetObjectGVK(obj client.Object) (client.Object, error) {
-	gvk, err := apiutil.GVKForObject(obj, r.Scheme)
-	if err != nil {
-		return nil, err
-	}
-	obj.GetObjectKind().SetGroupVersionKind(gvk)
-	return obj, nil
 }
