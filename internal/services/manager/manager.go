@@ -1021,18 +1021,18 @@ func (s *Service) GenerateAgentPodEvent(ctx context.Context) (*corev1.Event, err
 		return nil, fmt.Errorf("error getting agent pod: %w", err)
 	}
 
-	if agentPodDetails.Status.ContainerStatuses == nil {
+	if len(agentPodDetails.Status.ContainerStatuses) == 0 {
 		return nil, nil
 	}
 
 	event := &corev1.Event{
 		TypeMeta: agentPodDetails.TypeMeta,
 		InvolvedObject: corev1.ObjectReference{
-			Kind:            agentPodDetails.Kind,
+			Kind:            "Pod",
 			Namespace:       agentPodDetails.Namespace,
 			Name:            agentPodDetails.Name,
 			UID:             agentPodDetails.UID,
-			APIVersion:      agentPodDetails.APIVersion,
+			APIVersion:      "v1",
 			ResourceVersion: agentPodDetails.ResourceVersion,
 		},
 		Reason:  "AgentInformation",
