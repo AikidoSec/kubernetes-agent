@@ -52,6 +52,8 @@ var ignoredEventsReasons = []string{
 	"Started",
 	"Scheduled",
 	"ScalingReplicaSet",
+	"SuccessfulCreate",
+	"SuccessfulDelete",
 }
 
 type Options struct {
@@ -308,6 +310,18 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	for i := range namespaceEvents {
 		namespaceEvents[i].ObjectMeta = v1.ObjectMeta{}
 	}
+
+	// Generate an artificial event for the agent pod to include its status in the initial heartbeat.
+	// This helps us identify potential OOM kills.
+	generatedPodEvent, err := s.GenerateAgentPodEvent(ctx)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error generating agent pod event", "managerError")
+	}
+
+	if generatedPodEvent != nil {
+		namespaceEvents = append(namespaceEvents, *generatedPodEvent)
+	}
+
 	// We currently ignore the errors because most agents will lack the necessary permissions to fetch namespace events.
 	namespaceEventsPayload, err := json.Marshal(namespaceEvents)
 	if err != nil {
@@ -557,6 +571,10 @@ func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool) erro
 }
 
 func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled bool) error {
+	if IsLocalEnvironment() {
+		return nil
+	}
+
 	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting SBOM collector daemonset: %w", err)
@@ -577,6 +595,10 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled b
 }
 
 func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled bool) error {
+	if IsLocalEnvironment() {
+		return nil
+	}
+
 	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting SBOM collector deployment: %w", err)
@@ -991,6 +1013,44 @@ func (s *Service) ListEventsByFieldSelector(ctx context.Context, fieldSelector s
 	}
 
 	return events, nil
+}
+
+func (s *Service) GenerateAgentPodEvent(ctx context.Context) (*corev1.Event, error) {
+	agentPodDetails, err := s.GetPodByName(ctx, s.GetAgentPodName())
+	if err != nil {
+		return nil, fmt.Errorf("error getting agent pod: %w", err)
+	}
+
+	if len(agentPodDetails.Status.ContainerStatuses) == 0 {
+		return nil, nil
+	}
+
+	event := &corev1.Event{
+		TypeMeta: agentPodDetails.TypeMeta,
+		InvolvedObject: corev1.ObjectReference{
+			Kind:            "Pod",
+			Namespace:       agentPodDetails.Namespace,
+			Name:            agentPodDetails.Name,
+			UID:             agentPodDetails.UID,
+			APIVersion:      "v1",
+			ResourceVersion: agentPodDetails.ResourceVersion,
+		},
+		Reason:  "AgentInformation",
+		Message: agentPodDetails.Status.ContainerStatuses[0].LastTerminationState.String(),
+		Count:   1,
+		Type:    "AgentStatusInformation",
+	}
+
+	return event, nil
+}
+
+func (s *Service) GetPodByName(ctx context.Context, name string) (*corev1.Pod, error) {
+	pod, err := s.kubernetesClientSet.CoreV1().Pods(s.GetAgentNamespace()).Get(ctx, name, v1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error getting pod by name: %w", err)
+	}
+
+	return pod, nil
 }
 
 func BuildLocalConfig() (*rest.Config, error) {
