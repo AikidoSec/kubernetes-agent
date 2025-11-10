@@ -99,6 +99,17 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		configSecretName = agentName
 	}
 
+	var sbomCollectorEnabled *bool
+	sbomCollectorEnabledStr, exists := os.LookupEnv("SBOM_COLLECTOR_ENABLED")
+	if exists {
+		enabled, err := strconv.ParseBool(sbomCollectorEnabledStr)
+		if err != nil {
+			errs = multierr.Append(errs, fmt.Errorf("invalid SBOM_COLLECTOR_ENABLED value: %s", sbomCollectorEnabledStr))
+		} else {
+			sbomCollectorEnabled = &enabled
+		}
+	}
+
 	return models.EnvironmentConfig{
 		Namespace:                   namespace,
 		AgentName:                   agentName,
@@ -108,5 +119,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		ConfigSecretName:            configSecretName,
 		AgentPodName:                podName,
 		MetricsPort:                 metricsPort,
+		SBOMCollectorEnabled:        sbomCollectorEnabled,
 	}, errs
 }

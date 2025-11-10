@@ -183,11 +183,30 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		s.logger.ReportError(ctx, err, "error marshalling metrics payload", "managerError")
 	}
 
+	// Load the agent and charts versions from the deployment labels. We don't use the agent state value here because the version
+	// might have been updated in the deployment but the new pod might fail to schedule or start, so we need to know if
+	// the old pod is the one that sends the heartbeat.
+	// Also, the charts can be updated without triggering a deployment update, so we need to load it every time.
+	agentVersion, helmChartsVersion, err := s.GetDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error loading agent version from context at heartbeat", "managerError")
+	}
+
+	sbomCollectorVersion := s.GetSBOMCollectorVersion()
+	if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
+		// Load the SBOM collector version from the deployment labels
+		sbomCollectorVersion, err = LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
+		}
+	}
+
 	resp, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
-		AgentVersion:       s.GetAgentVersion(),
-		CollectorVersion:   s.GetSBOMCollectorVersion(),
+		AgentVersion:       agentVersion,
+		CollectorVersion:   sbomCollectorVersion,
 		IsInitialHeartbeat: false,
 		Metrics:            string(metricsPayload),
+		HelmChartsVersion:  helmChartsVersion,
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending heartbeat", "managerError")
@@ -215,7 +234,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 
 	// If the excluded namespaces have changed, restart the agent to re-create the watchers with the new namespaces filters
 	if !slices.Equal(s.GetExcludedNamespaces(), resp.Cluster.ExcludedNamespaces) {
-		if s.IsSBOMCollectorEnabled() {
+		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
 			s.logger.LogInfo("excluded namespaces changed, restarting sbom collector")
 			if err := s.RestartSBOMCollector(ctx); err != nil {
 				s.logger.ReportError(ctx, err, "error restarting sbom collector", "managerError")
@@ -248,14 +267,14 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// If the SBOM collector enabled state has changed, update the deployment/daemonset accordingly
 	if s.IsSBOMCollectorEnabled() != resp.Cluster.SBOMCollectorEnabled {
 		s.logger.LogInfo("sbom collector enabled state changed from heartbeat response", "current state", s.IsSBOMCollectorEnabled(), "new state", resp.Cluster.SBOMCollectorEnabled)
-		if err := s.ConfigureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled); err != nil {
+		if err := s.ConfigureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled, s.IsChartsSBOMCollectorEnabled()); err != nil {
 			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 			return resp, err
 		}
 		s.SetSBOMCollectorEnabled(resp.Cluster.SBOMCollectorEnabled)
 
 		// If the SBOM collector was enabled, load the scanned images from the API server into the cache and set the deployed collector version.
-		if s.IsSBOMCollectorEnabled() {
+		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
 			// Load the SBOM collector version from the deployment labels
 			sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 			if err != nil {
@@ -271,11 +290,14 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			if len(collectorScannedImages) > 0 {
 				s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
 			}
+		} else {
+			// If the SBOM collector was disabled, clear the collector deployed version.
+			s.SetSBOMCollectorVersion("")
 		}
 	}
 
 	// If the SBOM collector version has changed, update it in the service state
-	if s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
+	if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
 		s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
 		if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
 			s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
@@ -287,8 +309,8 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 }
 
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
-	// Load the agent version from the deployment labels
-	agentVersion, err := LoadDeploymentVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetAgentName())
+	// Load the agent and charts versions from the deployment labels
+	agentVersion, helmChartsVersion, err := s.GetDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
 		return fmt.Errorf("error loading agent version from context: %w", err)
@@ -335,6 +357,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		IsInitialHeartbeat: true,
 		ClusterIdentifier:  clusterIdentifier,
 		NamespaceEvents:    string(namespaceEventsPayload),
+		HelmChartsVersion:  helmChartsVersion,
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
@@ -376,12 +399,18 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 	}()
 
+	if environmentConfig.SBOMCollectorEnabled == nil {
+		environmentConfig.SBOMCollectorEnabled = &hb.Cluster.SBOMCollectorEnabled
+	}
+	s.SetChartsSBOMCollectorEnabled(*environmentConfig.SBOMCollectorEnabled)
+
+	// Configure the SBOM collector deployment/daemonset based on the current enabled state.
+	if err := s.ConfigureSBOMCollector(ctx, s.IsSBOMCollectorEnabled(), s.IsChartsSBOMCollectorEnabled()); err != nil {
+		s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
+	}
+
 	// If the SBOM collector is enabled, load the already scanned images from the API server into the cache and configure the collector.
-	if s.IsSBOMCollectorEnabled() {
-		// Configure the SBOM collector deployment/daemonset based on the current enabled state.
-		if err := s.ConfigureSBOMCollector(ctx, s.IsSBOMCollectorEnabled()); err != nil {
-			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
-		}
+	if s.IsSBOMCollectorEnabled() && s.IsChartsSBOMCollectorEnabled() {
 		// Load the SBOM collector version from the deployment labels
 		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 		if err != nil {
@@ -562,16 +591,20 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 	return nil
 }
 
-func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool) error {
+func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool, enabledInCharts bool) error {
 	if s.GetRunSBOMCollectorAsDaemonSet() {
-		return s.configureSBOMCollectorDaemonSet(ctx, enabled)
+		return s.configureSBOMCollectorDaemonSet(ctx, enabled, enabledInCharts)
 	}
 
-	return s.configureSBOMCollectorDeployment(ctx, enabled)
+	return s.configureSBOMCollectorDeployment(ctx, enabled, enabledInCharts)
 }
 
-func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled bool) error {
+func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled, enabledInCharts bool) error {
 	if IsLocalEnvironment() {
+		return nil
+	}
+
+	if !enabledInCharts {
 		return nil
 	}
 
@@ -580,8 +613,8 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled b
 		return fmt.Errorf("error getting SBOM collector daemonset: %w", err)
 	}
 
-	if enabled {
-		ds.Spec.Template.Spec.NodeSelector = make(map[string]string)
+	if enabled && ds.Spec.Template.Spec.NodeSelector != nil {
+		delete(ds.Spec.Template.Spec.NodeSelector, "aikidoSecurity.disable-sbom-collector")
 	} else {
 		ds.Spec.Template.Spec.NodeSelector = map[string]string{
 			"aikidoSecurity.disable-sbom-collector": "true",
@@ -594,8 +627,12 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled b
 	return nil
 }
 
-func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled bool) error {
+func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled, enabledInCharts bool) error {
 	if IsLocalEnvironment() {
+		return nil
+	}
+
+	if !enabledInCharts {
 		return nil
 	}
 
@@ -783,6 +820,29 @@ func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error)
 	}
 
 	return string(ns.UID), nil
+}
+
+func (s *Service) GetDeploymentAndChartsVersions(ctx context.Context, ns, deploymentName string) (string, string, error) {
+	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+		return defaultAgentVersion, defaultAgentVersion, nil
+	}
+
+	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(ns).Get(ctx, deploymentName, v1.GetOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("error getting deployment: %w", err)
+	}
+
+	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
+	if !ok {
+		return "", "", fmt.Errorf("agent version label not found on deployment")
+	}
+
+	chartsVersion, ok := deployment.Labels["helm.sh/chart"]
+	if !ok {
+		return "", "", fmt.Errorf("helm chart version label not found on deployment")
+	}
+
+	return agentVersion, chartsVersion, nil
 }
 
 func LoadSBOMCollectorVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, ownerName string, isDaemonSet bool) (string, error) {
