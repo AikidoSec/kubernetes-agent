@@ -183,10 +183,11 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		s.logger.ReportError(ctx, err, "error marshalling metrics payload", "managerError")
 	}
 
-	// Load the agent version from the deployment labels. We don't use the agent state value here because the version
+	// Load the agent and charts versions from the deployment labels. We don't use the agent state value here because the version
 	// might have been updated in the deployment but the new pod might fail to schedule or start, so we need to know if
 	// the old pod is the one that sends the heartbeat.
-	agentVersion, err := LoadDeploymentVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetAgentName())
+	// Also, the charts can be updated without triggering a deployment update, so we need to load it every time.
+	agentVersion, helmChartsVersion, err := s.GetDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error loading agent version from context at heartbeat", "managerError")
 	}
@@ -205,6 +206,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		CollectorVersion:   sbomCollectorVersion,
 		IsInitialHeartbeat: false,
 		Metrics:            string(metricsPayload),
+		HelmChartsVersion:  helmChartsVersion,
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending heartbeat", "managerError")
@@ -307,8 +309,8 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 }
 
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
-	// Load the agent version from the deployment labels
-	agentVersion, err := LoadDeploymentVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetAgentName())
+	// Load the agent and charts versions from the deployment labels
+	agentVersion, helmChartsVersion, err := s.GetDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
 		return fmt.Errorf("error loading agent version from context: %w", err)
@@ -355,6 +357,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		IsInitialHeartbeat: true,
 		ClusterIdentifier:  clusterIdentifier,
 		NamespaceEvents:    string(namespaceEventsPayload),
+		HelmChartsVersion:  helmChartsVersion,
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
@@ -817,6 +820,29 @@ func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error)
 	}
 
 	return string(ns.UID), nil
+}
+
+func (s *Service) GetDeploymentAndChartsVersions(ctx context.Context, ns, deploymentName string) (string, string, error) {
+	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+		return defaultAgentVersion, defaultAgentVersion, nil
+	}
+
+	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(ns).Get(ctx, deploymentName, v1.GetOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("error getting deployment: %w", err)
+	}
+
+	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
+	if !ok {
+		return "", "", fmt.Errorf("agent version label not found on deployment")
+	}
+
+	chartsVersion, ok := deployment.Labels["helm.sh/chart"]
+	if !ok {
+		return "", "", fmt.Errorf("helm chart version label not found on deployment")
+	}
+
+	return agentVersion, chartsVersion, nil
 }
 
 func LoadSBOMCollectorVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, ownerName string, isDaemonSet bool) (string, error) {
