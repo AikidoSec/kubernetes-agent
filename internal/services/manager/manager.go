@@ -183,9 +183,26 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		s.logger.ReportError(ctx, err, "error marshalling metrics payload", "managerError")
 	}
 
+	// Load the agent version from the deployment labels. We don't use the agent state value here because the version
+	// might have been updated in the deployment but the new pod might fail to schedule or start, so we need to know if
+	// the old pod is the one that sends the heartbeat.
+	agentVersion, err := LoadDeploymentVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetAgentName())
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error loading agent version from context at heartbeat", "managerError")
+	}
+
+	sbomCollectorVersion := s.GetSBOMCollectorVersion()
+	if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
+		// Load the SBOM collector version from the deployment labels
+		sbomCollectorVersion, err = LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
+		}
+	}
+
 	resp, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
-		AgentVersion:       s.GetAgentVersion(),
-		CollectorVersion:   s.GetSBOMCollectorVersion(),
+		AgentVersion:       agentVersion,
+		CollectorVersion:   sbomCollectorVersion,
 		IsInitialHeartbeat: false,
 		Metrics:            string(metricsPayload),
 	})
@@ -271,6 +288,9 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			if len(collectorScannedImages) > 0 {
 				s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
 			}
+		} else {
+			// If the SBOM collector was disabled, clear the collector deployed version.
+			s.SetSBOMCollectorVersion("")
 		}
 	}
 
