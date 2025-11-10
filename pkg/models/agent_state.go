@@ -21,6 +21,7 @@ type AgentState struct {
 	runSBOMCollectorAsDaemonSet bool
 	sbomCollectorVersion        string
 	sbomCollectorName           string
+	chartsSBOMCollectorEnabled  bool
 
 	mu sync.Mutex
 }
@@ -133,6 +134,12 @@ func (a *AgentState) GetSBOMCollectorName() string {
 	return a.sbomCollectorName
 }
 
+func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.chartsSBOMCollectorEnabled = enabled
+}
+
 func (a *AgentState) SetAgentVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -215,4 +222,10 @@ func (a *AgentState) SetSBOMCollectorName(name string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sbomCollectorName = name
+}
+
+func (a *AgentState) IsChartsSBOMCollectorEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.chartsSBOMCollectorEnabled
 }

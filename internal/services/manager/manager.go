@@ -215,7 +215,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 
 	// If the excluded namespaces have changed, restart the agent to re-create the watchers with the new namespaces filters
 	if !slices.Equal(s.GetExcludedNamespaces(), resp.Cluster.ExcludedNamespaces) {
-		if s.IsSBOMCollectorEnabled() {
+		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
 			s.logger.LogInfo("excluded namespaces changed, restarting sbom collector")
 			if err := s.RestartSBOMCollector(ctx); err != nil {
 				s.logger.ReportError(ctx, err, "error restarting sbom collector", "managerError")
@@ -248,14 +248,14 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// If the SBOM collector enabled state has changed, update the deployment/daemonset accordingly
 	if s.IsSBOMCollectorEnabled() != resp.Cluster.SBOMCollectorEnabled {
 		s.logger.LogInfo("sbom collector enabled state changed from heartbeat response", "current state", s.IsSBOMCollectorEnabled(), "new state", resp.Cluster.SBOMCollectorEnabled)
-		if err := s.ConfigureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled); err != nil {
+		if err := s.ConfigureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled, s.IsChartsSBOMCollectorEnabled()); err != nil {
 			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 			return resp, err
 		}
 		s.SetSBOMCollectorEnabled(resp.Cluster.SBOMCollectorEnabled)
 
 		// If the SBOM collector was enabled, load the scanned images from the API server into the cache and set the deployed collector version.
-		if s.IsSBOMCollectorEnabled() {
+		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
 			// Load the SBOM collector version from the deployment labels
 			sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 			if err != nil {
@@ -275,7 +275,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	// If the SBOM collector version has changed, update it in the service state
-	if s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
+	if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
 		s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
 		if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
 			s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
@@ -376,12 +376,18 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 	}()
 
+	if environmentConfig.SBOMCollectorEnabled == nil {
+		environmentConfig.SBOMCollectorEnabled = &hb.Cluster.SBOMCollectorEnabled
+	}
+	s.SetChartsSBOMCollectorEnabled(*environmentConfig.SBOMCollectorEnabled)
+
+	// Configure the SBOM collector deployment/daemonset based on the current enabled state.
+	if err := s.ConfigureSBOMCollector(ctx, s.IsSBOMCollectorEnabled(), s.IsChartsSBOMCollectorEnabled()); err != nil {
+		s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
+	}
+
 	// If the SBOM collector is enabled, load the already scanned images from the API server into the cache and configure the collector.
-	if s.IsSBOMCollectorEnabled() {
-		// Configure the SBOM collector deployment/daemonset based on the current enabled state.
-		if err := s.ConfigureSBOMCollector(ctx, s.IsSBOMCollectorEnabled()); err != nil {
-			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
-		}
+	if s.IsSBOMCollectorEnabled() && s.IsChartsSBOMCollectorEnabled() {
 		// Load the SBOM collector version from the deployment labels
 		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 		if err != nil {
@@ -562,16 +568,20 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 	return nil
 }
 
-func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool) error {
+func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool, enabledInCharts bool) error {
 	if s.GetRunSBOMCollectorAsDaemonSet() {
-		return s.configureSBOMCollectorDaemonSet(ctx, enabled)
+		return s.configureSBOMCollectorDaemonSet(ctx, enabled, enabledInCharts)
 	}
 
-	return s.configureSBOMCollectorDeployment(ctx, enabled)
+	return s.configureSBOMCollectorDeployment(ctx, enabled, enabledInCharts)
 }
 
-func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled bool) error {
+func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled, enabledInCharts bool) error {
 	if IsLocalEnvironment() {
+		return nil
+	}
+
+	if !enabledInCharts {
 		return nil
 	}
 
@@ -581,7 +591,7 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled b
 	}
 
 	if enabled {
-		ds.Spec.Template.Spec.NodeSelector = make(map[string]string)
+		delete(ds.Spec.Template.Spec.NodeSelector, "aikidoSecurity.disable-sbom-collector")
 	} else {
 		ds.Spec.Template.Spec.NodeSelector = map[string]string{
 			"aikidoSecurity.disable-sbom-collector": "true",
@@ -594,8 +604,12 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled b
 	return nil
 }
 
-func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled bool) error {
+func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled, enabledInCharts bool) error {
 	if IsLocalEnvironment() {
+		return nil
+	}
+
+	if !enabledInCharts {
 		return nil
 	}
 
