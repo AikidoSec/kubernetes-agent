@@ -612,9 +612,11 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled, 
 	if err != nil {
 		return fmt.Errorf("error getting SBOM collector daemonset: %w", err)
 	}
-
-	if enabled && ds.Spec.Template.Spec.NodeSelector != nil {
-		delete(ds.Spec.Template.Spec.NodeSelector, "aikidoSecurity.disable-sbom-collector")
+	
+	if enabled {
+		if len(ds.Spec.Template.Spec.NodeSelector) > 0 {
+			delete(ds.Spec.Template.Spec.NodeSelector, "aikidoSecurity.disable-sbom-collector")
+		}
 	} else {
 		ds.Spec.Template.Spec.NodeSelector = map[string]string{
 			"aikidoSecurity.disable-sbom-collector": "true",
