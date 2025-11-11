@@ -7,8 +7,12 @@ import (
 
 type HeartbeatPayload struct {
 	AgentVersion       string `json:"agent_version"`
+	CollectorVersion   string `json:"collector_version"`
 	IsInitialHeartbeat bool   `json:"is_initial_heartbeat"`
 	ClusterIdentifier  string `json:"cluster_identifier"`
+	Metrics            string `json:"metrics"`
+	NamespaceEvents    string `json:"namespace_events"`
+	HelmChartsVersion  string `json:"helm_charts_version"`
 }
 
 func (p *HeartbeatPayload) FromJSON(r io.Reader) error {

@@ -2,8 +2,10 @@ package logger
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
@@ -27,10 +29,48 @@ func (s *Service) ReportError(ctx context.Context, err error, message string, er
 		return
 	}
 
+	// These errors might be caused by the automatic update process stopping the agent
+	if strings.Contains(err.Error(), "context canceled") {
+		return
+	}
+
 	s.logger.Error(fmt.Sprintf("%s: %s", message, err.Error()), args...)
 
+	// Build error message as JSON
+	builder := strings.Builder{}
+	builder.WriteString("{\"message\":")
+	errJSON, marshalErr := json.Marshal(err.Error())
+	if marshalErr != nil {
+		builder.WriteString(fmt.Sprintf(`"%v"`, err.Error()))
+	} else {
+		builder.WriteString(string(errJSON))
+	}
+
+	for i := 0; i < len(args)-1; i += 2 {
+		if i+1 >= len(args) {
+			break
+		}
+
+		key, ok := args[i].(string)
+		if !ok {
+			continue
+		}
+		builder.WriteString(",\"")
+		builder.WriteString(key)
+		builder.WriteString("\":")
+
+		argValue, marshalErr := json.Marshal(args[i+1])
+		if marshalErr != nil {
+			builder.WriteString(fmt.Sprintf(`"%v"`, args[i+1]))
+			continue
+		}
+		builder.WriteString(string(argValue))
+	}
+	builder.WriteString("}")
+	errorMessage := builder.String()
+
 	if err := s.OutputClient.SendContext(ctx, models.AgentError{
-		Error:     fmt.Sprintf("%s: %s", message, err.Error()),
+		Error:     errorMessage,
 		ErrorType: errorType,
 		SeenAt:    time.Now().UTC(),
 	}); err != nil {
@@ -48,6 +88,14 @@ func (s *Service) LogError(err error, message string, args ...any) {
 
 func (s *Service) LogInfo(message string, args ...any) {
 	s.logger.Info(message, args...)
+}
+
+func (s *Service) LogWarning(err error, message string, args ...any) {
+	if err == nil {
+		return
+	}
+
+	s.logger.Warn(fmt.Sprintf("%s: %s", message, err.Error()), args...)
 }
 
 func (s *Service) SetAPIToken(token string) {

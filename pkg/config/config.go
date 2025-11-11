@@ -3,10 +3,16 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/models"
+	"go.uber.org/multierr"
 	"gopkg.in/yaml.v3"
 )
+
+const defaultNamespace = "aikido"
 
 func ParseConfigFromFile(path string) (models.Config, error) {
 	content, err := os.ReadFile(path)
@@ -29,4 +35,90 @@ func ParseConfigFromFile(path string) (models.Config, error) {
 	}
 
 	return config, nil
+}
+
+func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
+	var errs error
+	namespace, exists := os.LookupEnv("AGENT_NAMESPACE")
+	if !exists {
+		namespace = defaultNamespace
+	}
+
+	podName, exists := os.LookupEnv("POD_NAME")
+	if !exists {
+		errs = multierr.Append(errs, fmt.Errorf("environment variable POD_NAME not set"))
+	}
+
+	// Extract the agent name from the Pod name by removing the last two components (replicaset name and random suffix)
+	agentNameComponents := strings.Split(podName, "-")
+	if len(agentNameComponents) < 3 {
+		errs = multierr.Append(errs, fmt.Errorf("invalid POD_NAME format: %s", podName))
+	}
+	agentName := strings.Join(agentNameComponents[:len(agentNameComponents)-2], "-")
+
+	apiPortStr, exists := os.LookupEnv("API_PORT")
+	if !exists {
+		apiPortStr = "8091"
+	}
+
+	apiPort, err := strconv.Atoi(apiPortStr)
+	if err != nil {
+		errs = multierr.Append(errs, fmt.Errorf("invalid API_PORT value: %s", apiPortStr))
+	}
+
+	metricsPortStr, exists := os.LookupEnv("METRICS_PORT")
+	if !exists {
+		metricsPortStr = "8080"
+	}
+
+	metricsPort, err := strconv.Atoi(metricsPortStr)
+	if err != nil {
+		errs = multierr.Append(errs, fmt.Errorf("invalid METRICS_PORT value: %s", metricsPortStr))
+	}
+
+	controllerCacheSyncTimeoutStr, exists := os.LookupEnv("CONTROLLER_CACHE_SYNC_TIMEOUT")
+	if !exists {
+		controllerCacheSyncTimeoutStr = "30m"
+	}
+	controllerCacheSyncTimeout, err := time.ParseDuration(controllerCacheSyncTimeoutStr)
+	if err != nil {
+		controllerCacheSyncTimeout = 30 * time.Minute
+	}
+
+	runSBOMCollectorAsDaemonSetStr, exists := os.LookupEnv("RUN_COLLECTOR_AS_DAEMONSET")
+	if !exists {
+		runSBOMCollectorAsDaemonSetStr = "true"
+	}
+	runSBOMCollectorAsDaemonSet, err := strconv.ParseBool(runSBOMCollectorAsDaemonSetStr)
+	if err != nil {
+		runSBOMCollectorAsDaemonSet = true
+	}
+
+	configSecretName, exists := os.LookupEnv("CONFIG_SECRET_NAME")
+	if !exists {
+		configSecretName = agentName
+	}
+
+	var sbomCollectorEnabled *bool
+	sbomCollectorEnabledStr, exists := os.LookupEnv("SBOM_COLLECTOR_ENABLED")
+	if exists {
+		enabled, err := strconv.ParseBool(sbomCollectorEnabledStr)
+		if err != nil {
+			errs = multierr.Append(errs, fmt.Errorf("invalid SBOM_COLLECTOR_ENABLED value: %s", sbomCollectorEnabledStr))
+		} else {
+			sbomCollectorEnabled = &enabled
+		}
+	}
+
+	return models.EnvironmentConfig{
+		Namespace:                   namespace,
+		AgentName:                   agentName,
+		APIPort:                     apiPort,
+		ControllerCacheSyncTimeout:  controllerCacheSyncTimeout,
+		RunSBOMCollectorAsDaemonSet: runSBOMCollectorAsDaemonSet,
+		ConfigSecretName:            configSecretName,
+		AgentPodName:                podName,
+		MetricsPort:                 metricsPort,
+		SBOMCollectorEnabled:        sbomCollectorEnabled,
+	}, errs
 }

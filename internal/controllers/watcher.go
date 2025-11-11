@@ -2,11 +2,11 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
-	"aikidoSec.kubernetesAgent/internal/format"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
@@ -18,14 +18,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 )
 
 const defaultRequeueAfter = 12 * time.Hour
-
-type OutEvent struct {
-	Unstructured *unstructured.Unstructured
-	APIResource  string `json:"apiResource"`
-}
 
 // Watcher reconciles a kubernetes resource
 type Watcher struct {
@@ -62,8 +58,12 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	eventTime := time.Now().UTC()
 	requeueAfter := defaultRequeueAfter
 
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(r.Watched.GroupVersionKind)
+	obj, err := r.GetTypedObject()
+	if err != nil {
+		r.Logger.ReportError(ctx, err, "error getting typed object for watcher", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
+		return ctrl.Result{}, nil
+	}
+	obj.GetObjectKind().SetGroupVersionKind(r.Watched.GroupVersionKind)
 	obj.SetName(req.Name)
 	obj.SetNamespace(req.Namespace)
 
@@ -77,22 +77,20 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		requeueAfter = 0 // no need to requeue deleted objects
 		r.clearPending(objectID)
 	case err != nil:
-		r.Logger.ReportError(ctx, err, "error getting object", "watcherError", "name", req.Name, "namespace", req.Namespace)
+		r.Logger.ReportError(ctx, err, "error getting object", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
 	default:
 		eventType = models.ModifiedEventType
 	}
-
-	obj = format.FormatObject(obj)
 
 	// If the object is already pending for processing, skip re-queuing it
 	if v := r.markPendingOnce(objectID); !v {
 		requeueAfter = 0
 	}
 
-	metadata, err := obj.MarshalJSON()
+	metadata, err := json.Marshal(obj)
 	if err != nil {
-		r.Logger.ReportError(ctx, err, "error marshalling object to JSON", "watcherError", "name", req.Name, "namespace", req.Namespace)
+		r.Logger.ReportError(ctx, err, "error marshalling object to JSON", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, fmt.Errorf("error marshalling object to JSON: %w", err)
 	}
 
@@ -104,7 +102,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	}
 
 	if err := r.OutputClient.SendContext(ctx, payload); err != nil {
-		r.Logger.ReportError(ctx, err, "error sending payload to output client", "watcherError", "name", req.Name, "namespace", req.Namespace)
+		r.Logger.ReportError(ctx, err, "error sending payload to output client", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, fmt.Errorf("could not send payload to output client: %w", err)
 	}
 
@@ -112,12 +110,18 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *Watcher) SetupWithManager(mgr ctrl.Manager, excludedNamespaces []string) error {
+func (r *Watcher) SetupWithManager(mgr ctrl.Manager, opts controller.Options) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(r.Watched.GroupVersionKind)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("AikidoSecurityWatcher_"+r.Watched.GroupVersionKind.String()+"_"+uuid.NewString()).
-		For(obj, builder.WithPredicates(predicates.GetPredicatesForGVK(obj.GroupVersionKind().String(), excludedNamespaces))).
+		For(obj, builder.WithPredicates(predicates.GetPredicatesForGVK(obj.GroupVersionKind().String(), r.Watched.ExcludedNamespaces))).
+		WithOptions(opts).
 		Complete(r)
+}
+
+func (r *Watcher) GetTypedObject() (client.Object, error) {
+	obj, err := r.Scheme.New(r.Watched.GroupVersionKind)
+	return obj.(client.Object), err
 }
