@@ -36,7 +36,7 @@ func NewEndpointSlicePredicates(excludedNamespaces []string) predicate.Predicate
 			if !reflect.DeepEqual(oldObj.Ports, newObj.Ports) {
 				return true
 			}
-			
+
 			return false
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
