@@ -69,6 +69,7 @@ type Options struct {
 	Logger                            *logger.Service
 	ControllerCacheSyncTimeout        time.Duration
 	IsSBOMCollectorRunningAsDaemonSet bool
+	AutoUpdateEnabled                 bool
 }
 type Service struct {
 	*models.AgentState
@@ -96,7 +97,18 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}
 
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(o.AgentPodName, o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, fmt.Sprintf("%s-sbom-collector", o.AgentName))
+	agentState.SetInitialValues(
+		o.AgentPodName,
+		o.AgentNamespace,
+		o.AgentName,
+		o.APIToken,
+		o.APIEndpoint,
+		o.ConfigSecretName,
+		o.ControllerCacheSyncTimeout,
+		o.IsSBOMCollectorRunningAsDaemonSet,
+		fmt.Sprintf("%s-sbom-collector", o.AgentName),
+		o.AutoUpdateEnabled,
+	)
 
 	// Build the cluster configuration based on the environment.
 	var cfg *rest.Config
@@ -222,14 +234,16 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	// If the agent version has changed, update the deployment with the new image version which will also trigger a restart
-	if s.GetAgentVersion() != resp.Cluster.DesiredAgentVersion {
-		s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.GetAgentVersion(), "new version", resp.Cluster.DesiredAgentVersion)
-		if err := s.UpdateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
-			s.logger.ReportError(ctx, err, "error updating agent version", "managerError")
-			return resp, err
+	if s.GetAutoUpdateEnabled() {
+		// If the agent version has changed, update the deployment with the new image version which will also trigger a restart
+		if s.GetAgentVersion() != resp.Cluster.DesiredAgentVersion {
+			s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.GetAgentVersion(), "new version", resp.Cluster.DesiredAgentVersion)
+			if err := s.UpdateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
+				s.logger.ReportError(ctx, err, "error updating agent version", "managerError")
+				return resp, err
+			}
+			s.SetAgentVersion(resp.Cluster.DesiredAgentVersion)
 		}
-		s.SetAgentVersion(resp.Cluster.DesiredAgentVersion)
 	}
 
 	// If the excluded namespaces have changed, restart the agent to re-create the watchers with the new namespaces filters
@@ -296,13 +310,15 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	// If the SBOM collector version has changed, update it in the service state
-	if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
-		s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
-		if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
-			s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
+	if s.GetAutoUpdateEnabled() {
+		// If the SBOM collector version has changed, update it in the service state
+		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
+			s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
+			if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
+				s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
+			}
+			s.SetSBOMCollectorVersion(resp.Cluster.DesiredSBOMCollectorVersion)
 		}
-		s.SetSBOMCollectorVersion(resp.Cluster.DesiredSBOMCollectorVersion)
 	}
 
 	return resp, nil
@@ -612,7 +628,7 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled, 
 	if err != nil {
 		return fmt.Errorf("error getting SBOM collector daemonset: %w", err)
 	}
-	
+
 	if enabled {
 		if len(ds.Spec.Template.Spec.NodeSelector) > 0 {
 			delete(ds.Spec.Template.Spec.NodeSelector, "aikidoSecurity.disable-sbom-collector")

@@ -22,6 +22,7 @@ type AgentState struct {
 	sbomCollectorVersion        string
 	sbomCollectorName           string
 	chartsSBOMCollectorEnabled  bool
+	autoUpdateEnabled           bool
 
 	mu sync.Mutex
 }
@@ -34,7 +35,7 @@ func NewEmptyAgentState() *AgentState {
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string) *AgentState {
+func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -47,6 +48,8 @@ func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, a
 	a.configSecretName = configSecretName
 	a.agentPodName = agentPodName
 	a.sbomCollectorName = sbomCollectorName
+	a.autoUpdateEnabled = autoUpdate
+
 	return a
 }
 
@@ -108,6 +111,12 @@ func (a *AgentState) GetRunSBOMCollectorAsDaemonSet() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.runSBOMCollectorAsDaemonSet
+}
+
+func (a *AgentState) GetAutoUpdateEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.autoUpdateEnabled
 }
 
 func (a *AgentState) GetSBOMCollectorVersion() string {
