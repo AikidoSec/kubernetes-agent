@@ -110,6 +110,25 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		}
 	}
 
+	tdrEnabledStr, exists := os.LookupEnv("TDR_ENABLED")
+	if !exists {
+		tdrEnabledStr = "false"
+	}
+	tdrEnabled, err := strconv.ParseBool(tdrEnabledStr)
+	if err != nil {
+		tdrEnabled = false
+	}
+
+	tdrPortStr, exists := os.LookupEnv("TDR_PORT")
+	if !exists {
+		tdrPortStr = "8241"
+	}
+
+	tdrPort, err := strconv.Atoi(tdrPortStr)
+	if err != nil {
+		errs = multierr.Append(errs, fmt.Errorf("invalid TDR_PORT value: %s", tdrPortStr))
+	}
+
 	return models.EnvironmentConfig{
 		Namespace:                   namespace,
 		AgentName:                   agentName,
@@ -120,5 +139,7 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		AgentPodName:                podName,
 		MetricsPort:                 metricsPort,
 		SBOMCollectorEnabled:        sbomCollectorEnabled,
+		TDREnabled:                  tdrEnabled,
+		TDRPort:                     tdrPort,
 	}, errs
 }

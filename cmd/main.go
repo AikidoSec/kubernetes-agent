@@ -159,12 +159,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if cfg.ThreatDetection.Enabled {
+	if envCfg.TDREnabled {
 		proxy := tdr.NewProxyServer(
 			loggerService,
-			cfg.ThreatDetection.ListenOnPort(),
-			cfg.APIEndpoint+"/api/tdr/web_hook",
-			cfg.APIToken,
+			envCfg.TDRPort,
+			agentState,
 		)
 		agentService.RegisterTdrProxy(proxy)
 		if err := mgr.Add(proxy); err != nil {

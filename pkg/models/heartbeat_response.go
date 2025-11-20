@@ -11,6 +11,7 @@ type HeartbeatResponse struct {
 	Cluster            Cluster                   `json:"cluster"`
 	Token              string                    `json:"token"`
 	MonitoredResources []schema.GroupVersionKind `json:"monitoredResources"`
+	ThreatCustomRules  []ThreatCustomRule        `json:"threatCustomRules"`
 }
 
 func (h *HeartbeatResponse) FromJSON(r io.Reader) error {

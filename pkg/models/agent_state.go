@@ -23,18 +23,25 @@ type AgentState struct {
 	sbomCollectorName           string
 	chartsSBOMCollectorEnabled  bool
 
+	threatDetectionName    string
+	threatDetectionEnabled bool
+	disabledThreatRules    []string
+	threatCustomRules      []ThreatCustomRule
+
 	mu sync.Mutex
 }
 
 func NewEmptyAgentState() *AgentState {
 	return &AgentState{
-		excludedNamespaces: make([]string, 0),
-		monitoredResources: make([]string, 0),
-		mu:                 sync.Mutex{},
+		excludedNamespaces:  make([]string, 0),
+		monitoredResources:  make([]string, 0),
+		disabledThreatRules: make([]string, 0),
+		threatCustomRules:   make([]ThreatCustomRule, 0),
+		mu:                  sync.Mutex{},
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string) *AgentState {
+func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, threatDetectionName string) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -47,6 +54,7 @@ func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, a
 	a.configSecretName = configSecretName
 	a.agentPodName = agentPodName
 	a.sbomCollectorName = sbomCollectorName
+	a.threatDetectionName = threatDetectionName
 	return a
 }
 
@@ -132,6 +140,30 @@ func (a *AgentState) GetSBOMCollectorName() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.sbomCollectorName
+}
+
+func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.threatDetectionEnabled = enabled
+}
+
+func (a *AgentState) GetDisabledThreatRules() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.disabledThreatRules
+}
+
+func (a *AgentState) GetThreatDetectionName() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.threatDetectionName
+}
+
+func (a *AgentState) SetThreatCustomRules(rules []ThreatCustomRule) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.threatCustomRules = rules
 }
 
 func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
@@ -228,4 +260,22 @@ func (a *AgentState) IsChartsSBOMCollectorEnabled() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.chartsSBOMCollectorEnabled
+}
+
+func (a *AgentState) IsThreatDetectionEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.threatDetectionEnabled
+}
+
+func (a *AgentState) SetDisabledThreatRules(rules []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.disabledThreatRules = rules
+}
+
+func (a *AgentState) GetThreatCustomRules() []ThreatCustomRule {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.threatCustomRules
 }

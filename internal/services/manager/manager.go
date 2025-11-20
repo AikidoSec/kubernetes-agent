@@ -18,8 +18,8 @@ import (
 	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
-	"aikidoSec.kubernetesAgent/internal/tdr"
 	"aikidoSec.kubernetesAgent/internal/services/sbom"
+	"aikidoSec.kubernetesAgent/internal/tdr"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/imagescache"
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -98,7 +98,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}
 
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(o.AgentPodName, o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, fmt.Sprintf("%s-sbom-collector", o.AgentName))
+	agentState.SetInitialValues(o.AgentPodName, o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, fmt.Sprintf("%s-sbom-collector", o.AgentName), fmt.Sprintf("%s-threat-detection", o.AgentName))
 
 	// Build the cluster configuration based on the environment.
 	var cfg *rest.Config
@@ -307,7 +307,104 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		s.SetSBOMCollectorVersion(resp.Cluster.DesiredSBOMCollectorVersion)
 	}
 
+	shouldRestartTDR := false
+	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetDisabledThreatRules(), resp.Cluster.DisabledThreatRules) {
+		shouldRestartTDR = true
+		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetDisabledThreatRules(), "new rules", resp.Cluster.DisabledThreatRules)
+		if err := s.UpdateDisabledThreatDetectionRules(ctx, resp.Cluster.DisabledThreatRules); err != nil {
+			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
+		}
+	}
+
+	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetThreatCustomRules(), resp.ThreatCustomRules) {
+		shouldRestartTDR = true
+		s.logger.LogInfo("threat detection custom rules changed from heartbeat response", "current rules", s.GetThreatCustomRules(), "new rules", resp.ThreatCustomRules)
+		if err := s.UpdateThreatDetectionCustomRules(ctx, resp.ThreatCustomRules); err != nil {
+			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
+		}
+	}
+
+	if shouldRestartTDR {
+		// Restart the TDR daemonset to apply the new rules
+		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectionName()); err != nil {
+			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
+		}
+	}
+
 	return resp, nil
+}
+
+func (s *Service) UpdateDisabledThreatDetectionRules(ctx context.Context, disabledRules []string) error {
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, s.GetThreatDetectionName(), v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting TDR configmap: %w", err)
+	}
+
+	data := make(map[string]any)
+	if err := yaml.Unmarshal([]byte(cm.Data["falco.yaml"]), &data); err != nil {
+		return fmt.Errorf("error unmarshalling TDR rules: %w", err)
+	}
+
+	rulesActions := make([]models.ThreatDetectionRuleAction, len(disabledRules))
+	for i, rule := range disabledRules {
+		if strings.HasPrefix(rule, "name:") {
+			rulesActions[i] = models.ThreatDetectionRuleAction{Disable: models.ThreatDetectionRuleSelector{
+				Rule: strings.TrimPrefix(rule, "name:"),
+			}}
+			continue
+		}
+
+		rulesActions[i] = models.ThreatDetectionRuleAction{Disable: models.ThreatDetectionRuleSelector{
+			Tag: strings.TrimPrefix(rule, "tag:"),
+		}}
+	}
+
+	data["rules"] = rulesActions
+	newYaml, err := yaml.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("error marshalling TDR rules: %w", err)
+	}
+	cm.Data["falco.yaml"] = string(newYaml)
+
+	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating TDR configmap: %w", err)
+	}
+
+	// Store the new disabled rules in the agent state.
+	s.SetDisabledThreatRules(disabledRules)
+	return nil
+}
+
+func (s *Service) UpdateThreatDetectionCustomRules(ctx context.Context, rules []models.ThreatCustomRule) error {
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, fmt.Sprintf("%s-custom-rules", s.GetThreatDetectionName()), v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting TDR configmap: %w", err)
+	}
+
+	data := make([]any, 0)
+	for _, rule := range rules {
+		ruleDefinitions := make([]any, 0)
+		if err := yaml.Unmarshal([]byte(rule.RuleDefinition), &ruleDefinitions); err != nil {
+			s.logger.ReportError(ctx, err, "error unmarshalling TDR custom rule", "managerError")
+			continue
+		}
+
+		data = append(data, ruleDefinitions...)
+	}
+
+	newYaml, err := yaml.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("error marshalling TDR rules: %w", err)
+	}
+	cm.Data["aikido-custom-rules.yaml"] = string(newYaml)
+
+	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating TDR configmap: %w", err)
+	}
+
+	// Store the new custom rules in the agent state.
+	s.SetThreatCustomRules(rules)
+	return nil
 }
 
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
@@ -366,6 +463,9 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		return fmt.Errorf("error sending initial heartbeat: %w", err)
 	}
 	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
+	s.SetThreatDetectionEnabled(environmentConfig.TDREnabled)
+	s.SetDisabledThreatRules(hb.Cluster.DisabledThreatRules)
+	s.SetThreatCustomRules(hb.ThreatCustomRules)
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
@@ -486,6 +586,22 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 	}
 
+	// TODO: Init container on Falco ds
+	// If the TDR is enabled, update the rules configmaps and restart the daemonset.
+	if s.IsThreatDetectionEnabled() {
+		if err := s.UpdateDisabledThreatDetectionRules(ctx, s.GetDisabledThreatRules()); err != nil {
+			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
+		}
+
+		if err := s.UpdateThreatDetectionCustomRules(ctx, s.GetThreatCustomRules()); err != nil {
+			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
+		}
+
+		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectionName()); err != nil {
+			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
+		}
+	}
+
 	s.StartHeartbeat()
 
 	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", excludedNamespaces)
@@ -561,10 +677,7 @@ func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
 	s.logger.SetAPIToken(s.GetAPIToken())
 
 	// Set the heartbeat service token
-	s.heartbeatService.SetAPIToken(s.apiToken)
-	if s.tdrProxy != nil {
-		s.tdrProxy.SetAPIToken(s.GetAPIToken())
-	}
+	s.heartbeatService.SetAPIToken(s.GetAPIToken())
 	s.heartbeatService.SetAPIToken(s.GetAPIToken())
 
 	return nil
@@ -618,7 +731,7 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled, 
 	if err != nil {
 		return fmt.Errorf("error getting SBOM collector daemonset: %w", err)
 	}
-	
+
 	if enabled {
 		if len(ds.Spec.Template.Spec.NodeSelector) > 0 {
 			delete(ds.Spec.Template.Spec.NodeSelector, "aikidoSecurity.disable-sbom-collector")

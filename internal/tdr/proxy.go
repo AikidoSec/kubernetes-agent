@@ -3,13 +3,20 @@ package tdr
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/pkg/models"
 )
+
+type FalcoPayload struct {
+	OutputFields map[string]any `json:"output_fields"`
+}
 
 // This is how it works from a high-level
 //   - Falco sends a JSON object to the proxy via HTTP POST.
@@ -20,10 +27,9 @@ import (
 // Proxy implements manager.Runnable for integration with controller-runtime
 type Proxy struct {
 	*logger.Service
+	*models.AgentState
 
-	listenPort string
-	aikidoURL  string
-	apiToken   string
+	listenPort int
 	server     *http.Server
 	queue      chan threatDetectionFinding
 }
@@ -31,14 +37,12 @@ type Proxy struct {
 // JSON representation as received from falco and as forwarded to Aikido Cloud
 type threatDetectionFinding []byte
 
-func NewProxyServer(logger *logger.Service, listenPort, aikidoURL, aikidoToken string) *Proxy {
+func NewProxyServer(logger *logger.Service, listenPort int, agentState *models.AgentState) *Proxy {
 	return &Proxy{
+		AgentState: agentState,
 		Service:    logger,
 		listenPort: listenPort,
-		aikidoURL:  aikidoURL,
-		apiToken:   aikidoToken,
 		queue:      make(chan threatDetectionFinding, 1000), // buffered queue
-
 	}
 }
 
@@ -48,7 +52,7 @@ func (p *Proxy) Start(ctx context.Context) error {
 	mux.HandleFunc("/tdr", p.handleRequest)
 
 	p.server = &http.Server{
-		Addr:    ":" + p.listenPort,
+		Addr:    ":" + strconv.Itoa(p.listenPort),
 		Handler: mux,
 	}
 
@@ -122,9 +126,40 @@ func (p *Proxy) deliveryManager(ctx context.Context) {
 			// Stop the
 			return
 		case body := <-p.queue:
+			if p.ShouldFilterOutEvent(ctx, body) {
+				p.LogInfo("filtered out event", "event_body", string(body))
+				continue
+			}
 			p.deliverWithRetry(ctx, body)
 		}
 	}
+}
+
+// ShouldFilterOutEvent checks if the event should be filtered out.
+// For example, events from the agent namespace should not be forwarded.
+func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetectionFinding) bool {
+	var falcoEvent FalcoPayload
+	err := json.Unmarshal(body, &falcoEvent)
+	if err != nil {
+		p.LogError(err, "failed to unmarshal falco event")
+		return true
+	}
+
+	nsI, ok := falcoEvent.OutputFields["k8s.ns.name"]
+	if !ok {
+		return false
+	}
+
+	ns, ok := nsI.(string)
+	if !ok {
+		return false
+	}
+
+	if ns == p.GetAgentNamespace() {
+		return true
+	}
+
+	return false
 }
 
 // deliverWithRetry tries to POST with exponential backoff until success or shutdown
@@ -135,13 +170,13 @@ func (p *Proxy) deliverWithRetry(ctx context.Context, body threatDetectionFindin
 	// later we can try to share the client
 	client := &http.Client{Timeout: 10 * time.Second}
 	for {
-		req, err := http.NewRequest(http.MethodPost, p.aikidoURL, bytes.NewReader(body))
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/tdr/web_hook", p.GetAPIEndpoint()), bytes.NewReader(body))
 		if err != nil {
 			p.LogError(err, "failed to create request")
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Add("Authorization", "Bearer "+p.apiToken)
+		req.Header.Add("Authorization", "Bearer "+p.GetAPIToken())
 
 		resp, err := client.Do(req)
 		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -172,8 +207,4 @@ func (p *Proxy) deliverWithRetry(ctx context.Context, body threatDetectionFindin
 			}
 		}
 	}
-}
-
-func (p *Proxy) SetAPIToken(token string) {
-	p.apiToken = token
 }

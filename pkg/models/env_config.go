@@ -12,4 +12,6 @@ type EnvironmentConfig struct {
 	ConfigSecretName            string
 	AgentPodName                string
 	SBOMCollectorEnabled        *bool
+	TDREnabled                  bool
+	TDRPort                     int
 }
