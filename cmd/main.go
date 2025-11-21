@@ -105,6 +105,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	agentStartTime := time.Now()
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		HealthProbeBindAddress: probeAddr,
@@ -135,14 +136,14 @@ func main() {
 
 				// Skip caching Jobs older than 5 days
 				if job, ok := obj.(*batchv1.Job); ok {
-					if job.CreationTimestamp.Time.Before(time.Now().AddDate(0, 0, -5)) {
+					if job.CreationTimestamp.Time.Before(agentStartTime.AddDate(0, 0, -5)) {
 						return nil, nil
 					}
 				}
 
 				if pod, ok := obj.(*corev1.Pod); ok {
 					// Skip caching Pods that are in Succeeded or Failed phase
-					if (pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed) && pod.DeletionTimestamp.IsZero() {
+					if (pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed) && pod.DeletionTimestamp.IsZero() && pod.CreationTimestamp.Time.Before(agentStartTime) {
 						return nil, nil
 					}
 				}
