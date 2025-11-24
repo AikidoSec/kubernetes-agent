@@ -31,20 +31,26 @@ type Watcher struct {
 	Watched      models.WatcherSelector
 	OutputClient *batchclient.BatchClient
 
-	// Lock and map that ensures that objects are re-queued only once
+	// Lock and map that ensures that objects are re-queued only once per defaultRequeueAfter period.
 	PendingMu sync.Mutex
-	Pending   map[string]struct{}
+	Pending   map[string]time.Time
 }
 
-func (r *Watcher) markPendingOnce(key string) bool {
+// shouldRequeue ensures an object is requeued at most once per defaultRequeueAfter period.
+// Returns true if the object should be requeued. It will return true the first time it is called for a given object or
+// after the defaultRequeueAfter period has passed since the last requeue for that object.
+// Returns false if the object was marked recently (within defaultRequeueAfter window).
+// This prevents duplicate requeues while allowing periodic processing every 12 hours.
+func (r *Watcher) shouldRequeue(key string) bool {
 	r.PendingMu.Lock()
 	defer r.PendingMu.Unlock()
 
-	if _, ok := r.Pending[key]; ok {
+	lastRequeue, exists := r.Pending[key]
+	if exists && time.Since(lastRequeue) < defaultRequeueAfter {
 		return false
 	}
 
-	r.Pending[key] = struct{}{}
+	r.Pending[key] = time.Now()
 	return true
 }
 
@@ -55,8 +61,10 @@ func (r *Watcher) clearPending(key string) {
 }
 
 func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Add a small delay before processing the event to wait for the cache sync since it lags behind by definition.
+	time.Sleep(200 * time.Millisecond)
 	eventTime := time.Now().UTC()
-	requeueAfter := defaultRequeueAfter
+	requeueAfter := time.Duration(0)
 
 	obj, err := r.GetTypedObject()
 	if err != nil {
@@ -74,18 +82,16 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	switch err := r.Get(ctx, req.NamespacedName, obj); {
 	case errors.IsNotFound(err):
 		eventType = models.DeletedEventType
-		requeueAfter = 0 // no need to requeue deleted objects
 		r.clearPending(objectID)
 	case err != nil:
 		r.Logger.ReportError(ctx, err, "error getting object", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
 	default:
 		eventType = models.ModifiedEventType
-	}
-
-	// If the object is already pending for processing, skip re-queuing it
-	if v := r.markPendingOnce(objectID); !v {
-		requeueAfter = 0
+		// Only requeue once per object per defaultRequeueAfter period.
+		if r.shouldRequeue(objectID) {
+			requeueAfter = defaultRequeueAfter
+		}
 	}
 
 	metadata, err := json.Marshal(obj)
