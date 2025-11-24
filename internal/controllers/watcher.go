@@ -55,6 +55,8 @@ func (r *Watcher) clearPending(key string) {
 }
 
 func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Add a small delay before processing the event to wait for the cache sync since it lags behind by definition.
+	time.Sleep(200 * time.Millisecond)
 	eventTime := time.Now().UTC()
 	requeueAfter := defaultRequeueAfter
 
