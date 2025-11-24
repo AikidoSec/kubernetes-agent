@@ -31,12 +31,17 @@ type Watcher struct {
 	Watched      models.WatcherSelector
 	OutputClient *batchclient.BatchClient
 
-	// Lock and map that ensures that objects are re-queued only once
+	// Lock and map that ensures that objects are re-queued only once per defaultRequeueAfter period.
 	PendingMu sync.Mutex
 	Pending   map[string]time.Time
 }
 
-func (r *Watcher) markPendingOnce(key string) bool {
+// shouldRequeue ensures an object is requeued at most once per defaultRequeueAfter period.
+// Returns true if the object should be requeued. It will return true the first time it is called for a given object or
+// after the defaultRequeueAfter period has passed since the last requeue for that object.
+// Returns false if the object was marked recently (within defaultRequeueAfter window).
+// This prevents duplicate requeues while allowing periodic processing every 12 hours.
+func (r *Watcher) shouldRequeue(key string) bool {
 	r.PendingMu.Lock()
 	defer r.PendingMu.Unlock()
 
@@ -83,8 +88,8 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
 	default:
 		eventType = models.ModifiedEventType
-		// Only requeue once per object every 12 hours (defaultRequeueAfter)
-		if r.markPendingOnce(objectID) {
+		// Only requeue once per object per defaultRequeueAfter period.
+		if r.shouldRequeue(objectID) {
 			requeueAfter = defaultRequeueAfter
 		}
 	}
