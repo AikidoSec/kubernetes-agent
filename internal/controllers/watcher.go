@@ -33,18 +33,19 @@ type Watcher struct {
 
 	// Lock and map that ensures that objects are re-queued only once
 	PendingMu sync.Mutex
-	Pending   map[string]struct{}
+	Pending   map[string]time.Time
 }
 
 func (r *Watcher) markPendingOnce(key string) bool {
 	r.PendingMu.Lock()
 	defer r.PendingMu.Unlock()
 
-	if _, ok := r.Pending[key]; ok {
+	lastRequeue, exists := r.Pending[key]
+	if exists && time.Since(lastRequeue) < defaultRequeueAfter {
 		return false
 	}
 
-	r.Pending[key] = struct{}{}
+	r.Pending[key] = time.Now()
 	return true
 }
 
@@ -58,7 +59,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	// Add a small delay before processing the event to wait for the cache sync since it lags behind by definition.
 	time.Sleep(200 * time.Millisecond)
 	eventTime := time.Now().UTC()
-	requeueAfter := defaultRequeueAfter
+	requeueAfter := time.Duration(0)
 
 	obj, err := r.GetTypedObject()
 	if err != nil {
@@ -76,18 +77,16 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	switch err := r.Get(ctx, req.NamespacedName, obj); {
 	case errors.IsNotFound(err):
 		eventType = models.DeletedEventType
-		requeueAfter = 0 // no need to requeue deleted objects
 		r.clearPending(objectID)
 	case err != nil:
 		r.Logger.ReportError(ctx, err, "error getting object", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
 	default:
 		eventType = models.ModifiedEventType
-	}
-
-	// If the object is already pending for processing, skip re-queuing it
-	if v := r.markPendingOnce(objectID); !v {
-		requeueAfter = 0
+		// Only requeue once per object every 12 hours (defaultRequeueAfter)
+		if r.markPendingOnce(objectID) {
+			requeueAfter = defaultRequeueAfter
+		}
 	}
 
 	metadata, err := json.Marshal(obj)
