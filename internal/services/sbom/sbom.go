@@ -57,6 +57,6 @@ func (s *Service) HandleSetImageProcessingStatus(_ context.Context, imageStatus 
 }
 
 func (s *Service) HandleReportCollectorError(ctx context.Context, error models.AgentError) error {
-	s.logger.ReportError(ctx, fmt.Errorf("%s", error.Error), "SBOM collector error", error.ErrorType)
+	s.logger.SendError(ctx, fmt.Errorf("%s", error.Error), error.ErrorType)
 	return nil
 }
