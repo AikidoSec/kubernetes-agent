@@ -3,6 +3,8 @@ package models
 import (
 	"sync"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 type AgentState struct {
@@ -23,6 +25,7 @@ type AgentState struct {
 	sbomCollectorName           string
 	chartsSBOMCollectorEnabled  bool
 	autoUpdateEnabled           bool
+	sbomCollectorServiceAccount *corev1.ServiceAccount
 
 	mu sync.Mutex
 }
@@ -143,6 +146,12 @@ func (a *AgentState) GetSBOMCollectorName() string {
 	return a.sbomCollectorName
 }
 
+func (a *AgentState) GetSBOMCollectorServiceAccount() *corev1.ServiceAccount {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sbomCollectorServiceAccount
+}
+
 func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -237,4 +246,10 @@ func (a *AgentState) IsChartsSBOMCollectorEnabled() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.chartsSBOMCollectorEnabled
+}
+
+func (a *AgentState) SetSBOMCollectorServiceAccount(sa *corev1.ServiceAccount) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sbomCollectorServiceAccount = sa
 }

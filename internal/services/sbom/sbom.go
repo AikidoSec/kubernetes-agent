@@ -30,11 +30,20 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 	copy(excludedNamespaces, s.GetExcludedNamespaces())
 	excludedNamespaces = append(excludedNamespaces, s.GetAgentNamespace())
 
+	sa := s.GetSBOMCollectorServiceAccount()
+	imagePullSecrets := make([]string, len(sa.ImagePullSecrets))
+	for i, secret := range sa.ImagePullSecrets {
+		imagePullSecrets[i] = secret.Name
+	}
+
 	return models.CollectorConfig{
 		APIHost:                    s.GetAPIEndpoint(),
 		ExcludedNamespaces:         excludedNamespaces,
 		ControllerCacheSyncTimeout: s.GetControllerCacheSyncTimeout(),
 		APIToken:                   s.GetAPIToken(),
+		Namespace:                  s.GetAgentNamespace(),
+		ServiceAccountName:         sa.Name,
+		ServiceAccountPullSecrets:  imagePullSecrets,
 	}, nil
 }
 
