@@ -1162,10 +1162,6 @@ func (s *Service) getDaemonsetServiceAccount(ctx context.Context, dsName string)
 		return nil, fmt.Errorf("error getting SBOM collector daemonset: %w", err)
 	}
 
-	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, ds, v1.UpdateOptions{}); err != nil {
-		return nil, fmt.Errorf("error updating SBOM collector daemonset: %w", err)
-	}
-
 	return s.GetServiceAccountByName(ctx, ds.Spec.Template.Spec.ServiceAccountName)
 }
 

@@ -30,10 +30,15 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 	copy(excludedNamespaces, s.GetExcludedNamespaces())
 	excludedNamespaces = append(excludedNamespaces, s.GetAgentNamespace())
 
-	sa := s.GetSBOMCollectorServiceAccount()
-	imagePullSecrets := make([]string, len(sa.ImagePullSecrets))
-	for i, secret := range sa.ImagePullSecrets {
-		imagePullSecrets[i] = secret.Name
+	var serviceAccountName string
+	var imagePullSecrets []string
+	if sa := s.GetSBOMCollectorServiceAccount(); sa != nil {
+		serviceAccountName = sa.Name
+
+		imagePullSecrets = make([]string, len(sa.ImagePullSecrets))
+		for i, secret := range sa.ImagePullSecrets {
+			imagePullSecrets[i] = secret.Name
+		}
 	}
 
 	return models.CollectorConfig{
@@ -42,7 +47,7 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 		ControllerCacheSyncTimeout: s.GetControllerCacheSyncTimeout(),
 		APIToken:                   s.GetAPIToken(),
 		Namespace:                  s.GetAgentNamespace(),
-		ServiceAccountName:         sa.Name,
+		ServiceAccountName:         serviceAccountName,
 		ServiceAccountPullSecrets:  imagePullSecrets,
 	}, nil
 }
