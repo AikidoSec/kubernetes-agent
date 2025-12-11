@@ -1162,6 +1162,10 @@ func (s *Service) getDaemonsetServiceAccount(ctx context.Context, dsName string)
 		return nil, fmt.Errorf("error getting SBOM collector daemonset: %w", err)
 	}
 
+	if ds.Spec.Template.Spec.ServiceAccountName == "" {
+		return nil, nil
+	}
+
 	return s.GetServiceAccountByName(ctx, ds.Spec.Template.Spec.ServiceAccountName)
 }
 
@@ -1169,6 +1173,10 @@ func (s *Service) getDeploymentServiceAccount(ctx context.Context, depName strin
 	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, depName, v1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error getting SBOM collector deployment: %w", err)
+	}
+
+	if dep.Spec.Template.Spec.ServiceAccountName == "" {
+		return nil, nil
 	}
 
 	return s.GetServiceAccountByName(ctx, dep.Spec.Template.Spec.ServiceAccountName)
