@@ -45,8 +45,6 @@ var noHostErrorMessage = "no such host"
 
 const (
 	defaultAgentVersion = "1.0.0"
-
-	openshiftImageContentSourcePolicyGVK = "operator.openshift.io/v1alpha1, Kind=ImageContentSourcePolicy"
 )
 
 var ignoredEventsReasons = []string{
