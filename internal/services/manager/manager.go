@@ -497,6 +497,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			OutputClient: assetsClient,
 			PendingMu:    sync.Mutex{},
 			Pending:      make(map[string]time.Time),
+			AgentState:   s.AgentState,
 		}).SetupWithManager(runtimeManager, watcherOptions); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new watcher", "managerError")
 			return fmt.Errorf("error creating watcher (%s): %w", v.String(), err)

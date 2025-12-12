@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"aikidoSec.kubernetesAgent/internal/format"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
@@ -26,6 +27,7 @@ const defaultRequeueAfter = 12 * time.Hour
 // Watcher reconciles a kubernetes resource
 type Watcher struct {
 	client.Client
+	*models.AgentState
 	Logger       *logger.Service
 	Scheme       *runtime.Scheme
 	Watched      models.WatcherSelector
@@ -92,6 +94,10 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		if r.shouldRequeue(objectID) {
 			requeueAfter = defaultRequeueAfter
 		}
+	}
+
+	if eventType != models.ModifiedEventType {
+		obj = format.FormatObject(obj, r.Watched.GroupVersionKind.String(), r.AgentState)
 	}
 
 	metadata, err := json.Marshal(obj)
