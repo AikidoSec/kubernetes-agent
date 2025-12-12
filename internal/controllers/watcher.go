@@ -96,7 +96,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		}
 	}
 
-	if eventType != models.ModifiedEventType {
+	if eventType == models.ModifiedEventType {
 		obj = format.FormatObject(obj, r.Watched.String(), r.AgentState)
 	}
 
