@@ -24,6 +24,7 @@ func NewService(logger *slog.Logger, outputClient *batchclient.BatchClient) *Ser
 	}
 }
 
+// ReportError sends an error to the output client and logs it as well
 func (s *Service) ReportError(ctx context.Context, err error, message string, errorType string, args ...any) {
 	if err == nil {
 		return
@@ -36,6 +37,11 @@ func (s *Service) ReportError(ctx context.Context, err error, message string, er
 
 	s.logger.Error(fmt.Sprintf("%s: %s", message, err.Error()), args...)
 
+	s.SendError(ctx, err, errorType, args...)
+}
+
+// SendError sends an error to the output client
+func (s *Service) SendError(ctx context.Context, err error, errorType string, args ...any) {
 	// Build error message as JSON
 	builder := strings.Builder{}
 	builder.WriteString("{\"message\":")

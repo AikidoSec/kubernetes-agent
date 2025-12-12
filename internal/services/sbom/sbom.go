@@ -30,11 +30,25 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 	copy(excludedNamespaces, s.GetExcludedNamespaces())
 	excludedNamespaces = append(excludedNamespaces, s.GetAgentNamespace())
 
+	var serviceAccountName string
+	var imagePullSecrets []string
+	if sa := s.GetSBOMCollectorServiceAccount(); sa != nil {
+		serviceAccountName = sa.Name
+
+		imagePullSecrets = make([]string, len(sa.ImagePullSecrets))
+		for i, secret := range sa.ImagePullSecrets {
+			imagePullSecrets[i] = secret.Name
+		}
+	}
+
 	return models.CollectorConfig{
 		APIHost:                    s.GetAPIEndpoint(),
 		ExcludedNamespaces:         excludedNamespaces,
 		ControllerCacheSyncTimeout: s.GetControllerCacheSyncTimeout(),
 		APIToken:                   s.GetAPIToken(),
+		Namespace:                  s.GetAgentNamespace(),
+		ServiceAccountName:         serviceAccountName,
+		ServiceAccountPullSecrets:  imagePullSecrets,
 	}, nil
 }
 
@@ -48,6 +62,6 @@ func (s *Service) HandleSetImageProcessingStatus(_ context.Context, imageStatus 
 }
 
 func (s *Service) HandleReportCollectorError(ctx context.Context, error models.AgentError) error {
-	s.logger.ReportError(ctx, fmt.Errorf("%s", error.Error), "SBOM collector error", error.ErrorType)
+	s.logger.SendError(ctx, fmt.Errorf("%s", error.Error), error.ErrorType)
 	return nil
 }
