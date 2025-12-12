@@ -1,8 +1,8 @@
 package models
 
 type CollectorImageStatus struct {
-	Image        string `json:"image"`
-	Digest       string `json:"digest"`
-	IsProcessed  bool   `json:"isProcessed"`
-	MirrorSource string `json:"mirrorSource"`
+	Image            string `json:"image"`
+	Digest           string `json:"digest"`
+	IsProcessed      bool   `json:"isProcessed"`
+	MirrorRepository string `json:"mirrorRepository"`
 }
