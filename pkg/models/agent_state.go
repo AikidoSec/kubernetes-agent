@@ -3,6 +3,8 @@ package models
 import (
 	"sync"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 type AgentState struct {
@@ -25,6 +27,8 @@ type AgentState struct {
 	autoUpdateEnabled           bool
 	isImageMappingEnabled       bool
 	imageMirrorMappings         map[string]string
+	sbomCollectorServiceAccount *corev1.ServiceAccount
+
 
 	mu sync.Mutex
 }
@@ -144,6 +148,12 @@ func (a *AgentState) GetSBOMCollectorName() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.sbomCollectorName
+}
+
+func (a *AgentState) GetSBOMCollectorServiceAccount() *corev1.ServiceAccount {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sbomCollectorServiceAccount
 }
 
 func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
@@ -273,4 +283,10 @@ func (a *AgentState) SetImageMirrorMapping(image, mirror string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.imageMirrorMappings[image] = mirror
+}
+
+func (a *AgentState) SetSBOMCollectorServiceAccount(sa *corev1.ServiceAccount) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sbomCollectorServiceAccount = sa
 }

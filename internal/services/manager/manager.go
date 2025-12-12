@@ -437,6 +437,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 		s.SetSBOMCollectorVersion(sbomCollectorVersion)
 
+		// Load the scanned images cache
 		collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
@@ -445,6 +446,13 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		if len(collectorScannedImages) > 0 {
 			s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
 		}
+
+		// Load the SBOM collector service account
+		sa, err := s.GetSBOMCollectorServiceAccount(ctx)
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading sbom collector service account from context", "managerError")
+		}
+		s.SetSBOMCollectorServiceAccount(sa)
 	}
 
 	watcherOptions := controller.Options{
@@ -1145,6 +1153,49 @@ func (s *Service) GetPodByName(ctx context.Context, name string) (*corev1.Pod, e
 	}
 
 	return pod, nil
+}
+
+func (s *Service) GetSBOMCollectorServiceAccount(ctx context.Context) (*corev1.ServiceAccount, error) {
+	if s.GetRunSBOMCollectorAsDaemonSet() {
+		return s.getDaemonsetServiceAccount(ctx, s.GetSBOMCollectorName())
+	}
+
+	return s.getDeploymentServiceAccount(ctx, s.GetSBOMCollectorName())
+}
+
+func (s *Service) GetServiceAccountByName(ctx context.Context, name string) (*corev1.ServiceAccount, error) {
+	sa, err := s.kubernetesClientSet.CoreV1().ServiceAccounts(s.GetAgentNamespace()).Get(ctx, name, v1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error getting service account by name: %w", err)
+	}
+
+	return sa, nil
+}
+
+func (s *Service) getDaemonsetServiceAccount(ctx context.Context, dsName string) (*corev1.ServiceAccount, error) {
+	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, dsName, v1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error getting SBOM collector daemonset: %w", err)
+	}
+
+	if ds.Spec.Template.Spec.ServiceAccountName == "" {
+		return nil, nil
+	}
+
+	return s.GetServiceAccountByName(ctx, ds.Spec.Template.Spec.ServiceAccountName)
+}
+
+func (s *Service) getDeploymentServiceAccount(ctx context.Context, depName string) (*corev1.ServiceAccount, error) {
+	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, depName, v1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error getting SBOM collector deployment: %w", err)
+	}
+
+	if dep.Spec.Template.Spec.ServiceAccountName == "" {
+		return nil, nil
+	}
+
+	return s.GetServiceAccountByName(ctx, dep.Spec.Template.Spec.ServiceAccountName)
 }
 
 func BuildLocalConfig() (*rest.Config, error) {
