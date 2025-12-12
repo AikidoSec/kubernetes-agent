@@ -23,15 +23,18 @@ type AgentState struct {
 	sbomCollectorName           string
 	chartsSBOMCollectorEnabled  bool
 	autoUpdateEnabled           bool
+	isImageMappingEnabled       bool
+	imageMirrorMappings         map[string]string
 
 	mu sync.Mutex
 }
 
 func NewEmptyAgentState() *AgentState {
 	return &AgentState{
-		excludedNamespaces: make([]string, 0),
-		monitoredResources: make([]string, 0),
-		mu:                 sync.Mutex{},
+		excludedNamespaces:  make([]string, 0),
+		monitoredResources:  make([]string, 0),
+		imageMirrorMappings: make(map[string]string),
+		mu:                  sync.Mutex{},
 	}
 }
 
@@ -237,4 +240,37 @@ func (a *AgentState) IsChartsSBOMCollectorEnabled() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.chartsSBOMCollectorEnabled
+}
+
+func (a *AgentState) IsImageMappingEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.isImageMappingEnabled
+}
+
+func (a *AgentState) SetImageMappingEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.isImageMappingEnabled = enabled
+}
+
+func (a *AgentState) GetImageMirrorMapping(image string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.imageMirrorMappings[image]
+}
+
+func (a *AgentState) SetImageMirrorMappings(mappings map[string]string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.imageMirrorMappings = map[string]string{}
+	for k, v := range mappings {
+		a.imageMirrorMappings[k] = v
+	}
+}
+
+func (a *AgentState) SetImageMirrorMapping(image, mirror string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.imageMirrorMappings[image] = mirror
 }

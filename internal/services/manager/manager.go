@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
+	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
 	internalhttp "aikidoSec.kubernetesAgent/internal/http"
 	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
@@ -44,6 +45,8 @@ var noHostErrorMessage = "no such host"
 
 const (
 	defaultAgentVersion = "1.0.0"
+
+	openshiftImageContentSourcePolicyGVK = "operator.openshift.io/v1alpha1, Kind=ImageContentSourcePolicy"
 )
 
 var ignoredEventsReasons = []string{
@@ -497,6 +500,18 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}).SetupWithManager(runtimeManager, watcherOptions); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new watcher", "managerError")
 			return fmt.Errorf("error creating watcher (%s): %w", v.String(), err)
+		}
+	}
+
+	if _, exists := serverResourcesGVKs[openshift.ImageContentSourcePolicyGVK.String()]; exists {
+		s.SetImageMappingEnabled(true)
+		// Create an ImageContentSourcePolicy controller that will watch for policy changes and update the agent internal registry mappings.
+		if err = (&openshift.ImageContentSourcePolicyController{
+			AgentState: s.AgentState,
+			Logger:     s.logger,
+			Client:     runtimeManager.GetClient(),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageContentSourcePolicy controller", "managerError")
 		}
 	}
 
