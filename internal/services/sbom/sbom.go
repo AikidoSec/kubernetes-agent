@@ -25,11 +25,6 @@ func NewService(logger *logger.Service, agentState *models.AgentState, cache *im
 }
 
 func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorConfig, error) {
-	// Include the agent namespace in the excluded namespaces to prevent scanning itself
-	excludedNamespaces := make([]string, len(s.GetExcludedNamespaces()))
-	copy(excludedNamespaces, s.GetExcludedNamespaces())
-	excludedNamespaces = append(excludedNamespaces, s.GetAgentNamespace())
-
 	var serviceAccountName string
 	var imagePullSecrets []string
 	if sa := s.GetSBOMCollectorServiceAccount(); sa != nil {
@@ -43,7 +38,7 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 
 	return models.CollectorConfig{
 		APIHost:                    s.GetAPIEndpoint(),
-		ExcludedNamespaces:         excludedNamespaces,
+		ExcludedNamespaces:         s.GetExcludedNamespaces(),
 		ControllerCacheSyncTimeout: s.GetControllerCacheSyncTimeout(),
 		APIToken:                   s.GetAPIToken(),
 		Namespace:                  s.GetAgentNamespace(),
