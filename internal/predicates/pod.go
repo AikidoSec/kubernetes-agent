@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
+func NewPodPredicate(nsExclusions *NamespaceExclusions) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			// Pods that were not part of the initial snapshot that was received when the informer was created are
@@ -20,7 +20,7 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 				return false
 			}
 
-			if IsObjectFromExcludedNamespace(e.Object, excludedNamespaces) {
+			if nsExclusions.IsObjectExcluded(e.Object) {
 				return false
 			}
 
@@ -42,7 +42,7 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 			return ArePodImagesResolved(pod)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			if IsObjectFromExcludedNamespace(e.ObjectNew, excludedNamespaces) {
+			if nsExclusions.IsObjectExcluded(e.ObjectNew) {
 				return false
 			}
 
@@ -81,7 +81,7 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 			return false
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+			return !nsExclusions.IsObjectExcluded(e.Object)
 		},
 	}
 }

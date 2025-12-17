@@ -16,6 +16,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	internalhttp "aikidoSec.kubernetesAgent/internal/http"
 	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
+	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/sbom"
@@ -491,7 +492,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 		watcherSelector := models.WatcherSelector{
 			GroupVersionKind:   v,
-			ExcludedNamespaces: excludedNamespaces,
+			NamespaceExclusions: predicates.NewNamespaceExclusions(s.logger, excludedNamespaces),
 		}
 
 		if err = (&controllers.Watcher{

@@ -8,13 +8,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-func NewEndpointSlicePredicates(excludedNamespaces []string) predicate.Predicate {
+func NewEndpointSlicePredicates(nsExclusions *NamespaceExclusions) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+			return !nsExclusions.IsObjectExcluded(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			if IsObjectFromExcludedNamespace(e.ObjectNew, excludedNamespaces) {
+			if nsExclusions.IsObjectExcluded(e.ObjectNew) {
 				return false
 			}
 
@@ -40,7 +40,7 @@ func NewEndpointSlicePredicates(excludedNamespaces []string) predicate.Predicate
 			return false
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+			return !nsExclusions.IsObjectExcluded(e.Object)
 		},
 	}
 }

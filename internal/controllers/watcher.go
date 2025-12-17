@@ -122,7 +122,7 @@ func (r *Watcher) SetupWithManager(mgr ctrl.Manager, opts controller.Options) er
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("AikidoSecurityWatcher_"+r.Watched.GroupVersionKind.String()+"_"+uuid.NewString()).
-		For(obj, builder.WithPredicates(predicates.GetPredicatesForGVK(obj.GroupVersionKind().String(), r.Watched.ExcludedNamespaces))).
+		For(obj, builder.WithPredicates(predicates.GetPredicatesForGVK(obj.GroupVersionKind().String(), r.Watched.NamespaceExclusions))).
 		WithOptions(opts).
 		Complete(r)
 }
