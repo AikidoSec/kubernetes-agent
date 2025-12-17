@@ -397,9 +397,6 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 	s.assetsOutputClient = assetsClient
 
-	// Append the agent namespace to the excluded namespaces to avoid watching its own resources
-	excludedNamespaces := append(hb.Cluster.ExcludedNamespaces, s.GetAgentNamespace())
-
 	monitoredResourcesGVKs := make([]string, 0, len(hb.MonitoredResources))
 	for _, gvk := range hb.MonitoredResources {
 		monitoredResourcesGVKs = append(monitoredResourcesGVKs, gvk.String())
@@ -492,7 +489,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 		watcherSelector := models.WatcherSelector{
 			GroupVersionKind:   v,
-			NamespaceExclusions: predicates.NewNamespaceExclusions(s.logger, excludedNamespaces),
+			NamespaceExclusions: predicates.NewNamespaceExclusions(s.logger, hb.Cluster.ExcludedNamespaces),
 		}
 
 		if err = (&controllers.Watcher{
@@ -511,7 +508,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	s.StartHeartbeat()
 
-	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", excludedNamespaces)
+	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", hb.Cluster.ExcludedNamespaces)
 
 	return nil
 }
