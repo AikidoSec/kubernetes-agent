@@ -22,7 +22,7 @@ var ImageDigestMirrorSetGVK = schema.GroupVersionKind{
 	Kind:    "ImageDigestMirrorSet",
 }
 
-// ImageDigestMirrorSetController reconciles an OpenShift ImageContentSourcePolicy object.
+// ImageDigestMirrorSetController reconciles an OpenShift ImageDigestMirrorSet object.
 type ImageDigestMirrorSetController struct {
 	client.Client
 	*models.AgentState

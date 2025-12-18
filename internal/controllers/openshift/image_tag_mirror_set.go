@@ -22,7 +22,7 @@ var ImageTagMirrorSetGVK = schema.GroupVersionKind{
 	Kind:    "ImageTagMirrorSet",
 }
 
-// ImageTagMirrorSetController reconciles an OpenShift ImageContentSourcePolicy object.
+// ImageTagMirrorSetController reconciles an OpenShift ImageTagMirrorSet object.
 type ImageTagMirrorSetController struct {
 	client.Client
 	*models.AgentState

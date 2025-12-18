@@ -37,13 +37,7 @@ func GetMirrorRepositoryForImage(image string, state *models.AgentState) (string
 		return "", ""
 	}
 
-	var repository string
-	switch r := imageRef.(type) {
-	case name.Tag:
-		repository = r.Repository.Name()
-	case name.Digest:
-		repository = r.Repository.Name()
-	}
+	repository := imageRef.Context().Name()
 
 	mirrorRepository := state.GetImageMirrorMapping(repository)
 
