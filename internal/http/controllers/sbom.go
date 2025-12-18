@@ -69,7 +69,7 @@ func (c *SBOMController) GetImageProcessingStatus(rw http.ResponseWriter, r *htt
 		return
 	}
 
-	isProcessed, err := c.service.HandleGetImageProcessingStatus(r.Context(), image, digest)
+	imageStatus, err := c.service.HandleGetImageProcessingStatus(r.Context(), image, digest)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("error getting image processing status: %s", err.Error()), http.StatusInternalServerError)
 		return
@@ -77,10 +77,7 @@ func (c *SBOMController) GetImageProcessingStatus(rw http.ResponseWriter, r *htt
 
 	rw.Header().Set("Content-Type", "application/json")
 
-	if err := json.NewEncoder(rw).Encode(models.CollectorImageStatus{
-		Image:       image,
-		IsProcessed: isProcessed,
-	}); err != nil {
+	if err := json.NewEncoder(rw).Encode(imageStatus); err != nil {
 		http.Error(rw, fmt.Sprintf("error encoding response: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}

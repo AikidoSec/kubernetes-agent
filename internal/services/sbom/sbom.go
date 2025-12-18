@@ -47,8 +47,15 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 	}, nil
 }
 
-func (s *Service) HandleGetImageProcessingStatus(_ context.Context, image, digest string) (bool, error) {
-	return s.imagesCache.IsImageProcessed(fmt.Sprintf("%s:%s", image, digest)), nil
+func (s *Service) HandleGetImageProcessingStatus(_ context.Context, image, digest string) (models.CollectorImageStatus, error) {
+	isProcessed := s.imagesCache.IsImageProcessed(fmt.Sprintf("%s:%s", image, digest))
+	mirrorRepository := s.GetImageMirrorMapping(image)
+
+	return models.CollectorImageStatus{
+		Image:            image,
+		IsProcessed:      isProcessed,
+		MirrorRepository: mirrorRepository,
+	}, nil
 }
 
 func (s *Service) HandleSetImageProcessingStatus(_ context.Context, imageStatus models.CollectorImageStatus) error {
