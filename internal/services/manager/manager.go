@@ -510,7 +510,9 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 	}
 
+	// Check if ImageContentSourcePolicy is available in the cluster
 	if _, exists := serverResourcesGVKs[openshift.ImageContentSourcePolicyGVK.String()]; exists {
+		s.logger.LogInfo("ImageContentSourcePolicy is available in the cluster")
 		s.SetImageMappingEnabled(true)
 		// Create an ImageContentSourcePolicy controller that will watch for policy changes and update the agent internal registry mappings.
 		if err = (&openshift.ImageContentSourcePolicyController{
@@ -519,6 +521,34 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			Client:     runtimeManager.GetClient(),
 		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageContentSourcePolicy controller", "managerError")
+		}
+	}
+
+	// Check if ImageDigestMirrorSet is available in the cluster
+	if _, exists := serverResourcesGVKs[openshift.ImageDigestMirrorSetGVK.String()]; exists {
+		s.logger.LogInfo("ImageDigestMirrorSet is available in the cluster")
+		s.SetImageMappingEnabled(true)
+		// Create an ImageDigestMirrorSet controller that will watch for policy changes and update the agent internal registry mappings.
+		if err = (&openshift.ImageDigestMirrorSetController{
+			AgentState: s.AgentState,
+			Logger:     s.logger,
+			Client:     runtimeManager.GetClient(),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageDigestMirrorSet controller", "managerError")
+		}
+	}
+
+	// Check if ImageTagMirrorSet is available in the cluster
+	if _, exists := serverResourcesGVKs[openshift.ImageTagMirrorSetGVK.String()]; exists {
+		s.logger.LogInfo("ImageTagMirrorSet is available in the cluster")
+		s.SetImageMappingEnabled(true)
+		// Create an ImageTagMirrorSet controller that will watch for policy changes and update the agent internal registry mappings.
+		if err = (&openshift.ImageTagMirrorSetController{
+			AgentState: s.AgentState,
+			Logger:     s.logger,
+			Client:     runtimeManager.GetClient(),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageTagMirrorSet controller", "managerError")
 		}
 	}
 

@@ -14,9 +14,10 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/config"
 	"aikidoSec.kubernetesAgent/pkg/models"
-	operatorv1alpha1 "github.com/openshift/api/operator/v1alpha1"
 
 	"github.com/go-logr/logr"
+	openshiftconfigv1 "github.com/openshift/api/config/v1"
+	operatorv1alpha1 "github.com/openshift/api/operator/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -41,6 +42,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(operatorv1alpha1.Install(scheme))
+	utilruntime.Must(openshiftconfigv1.Install(scheme))
 }
 
 // nolint:gocyclo

@@ -29,7 +29,6 @@ type AgentState struct {
 	imageMirrorMappings         map[string]string
 	sbomCollectorServiceAccount *corev1.ServiceAccount
 
-
 	mu sync.Mutex
 }
 
@@ -270,10 +269,15 @@ func (a *AgentState) GetImageMirrorMapping(image string) string {
 	return a.imageMirrorMappings[image]
 }
 
+func (a *AgentState) GetImageMirrorMappings() map[string]string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.imageMirrorMappings
+}
+
 func (a *AgentState) SetImageMirrorMappings(mappings map[string]string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.imageMirrorMappings = map[string]string{}
 	for k, v := range mappings {
 		a.imageMirrorMappings[k] = v
 	}
