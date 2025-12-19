@@ -384,10 +384,10 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// Exclude the agent namespace if the environment flag is set
 	excludedNamespaces := hb.Cluster.ExcludedNamespaces
+	s.SetExcludedNamespaces(excludedNamespaces)
 	if environmentConfig.IgnoreAikidoNamespace {
 		excludedNamespaces = append(excludedNamespaces, s.GetAgentNamespace())
 	}
-	s.SetExcludedNamespaces(excludedNamespaces)
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
