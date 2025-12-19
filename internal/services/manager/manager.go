@@ -381,7 +381,13 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
 		return fmt.Errorf("error sending initial heartbeat: %w", err)
 	}
-	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
+
+	// Exclude the agent namespace if the environment flag is set
+	excludedNamespaces := hb.Cluster.ExcludedNamespaces
+	s.SetExcludedNamespaces(excludedNamespaces)
+	if environmentConfig.IgnoreAikidoNamespace {
+		excludedNamespaces = append(excludedNamespaces, s.GetAgentNamespace())
+	}
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
@@ -489,8 +495,8 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 
 		watcherSelector := models.WatcherSelector{
-			GroupVersionKind:   v,
-			NamespaceExclusions: predicates.NewNamespaceExclusions(s.logger, hb.Cluster.ExcludedNamespaces),
+			GroupVersionKind:    v,
+			NamespaceExclusions: predicates.NewNamespaceExclusions(s.logger, excludedNamespaces),
 		}
 
 		if err = (&controllers.Watcher{
@@ -552,7 +558,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	s.StartHeartbeat()
 
-	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", hb.Cluster.ExcludedNamespaces)
+	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", excludedNamespaces)
 
 	return nil
 }
