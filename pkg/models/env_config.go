@@ -13,4 +13,5 @@ type EnvironmentConfig struct {
 	AgentPodName                string
 	SBOMCollectorEnabled        *bool
 	AutoUpdateEnabled           bool
+	IgnoreAikidoNamespace       bool
 }
