@@ -121,17 +121,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		}
 	}
 
-	ignoreAikidoNamespace := true
-	ignoreAikidoNamespaceStr, exists := os.LookupEnv("IGNORE_AIKIDO_NAMESPACE")
-	if exists {
-		namespaceIgnored, err := strconv.ParseBool(ignoreAikidoNamespaceStr)
-		if err != nil {
-			errs = multierr.Append(errs, fmt.Errorf("invalid IGNORE_AIKIDO_NAMESPACE value: %w", err))
-		} else {
-			ignoreAikidoNamespace = namespaceIgnored
-		}
-	}
-
 	return models.EnvironmentConfig{
 		Namespace:                   namespace,
 		AgentName:                   agentName,
@@ -143,6 +132,5 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		MetricsPort:                 metricsPort,
 		SBOMCollectorEnabled:        sbomCollectorEnabled,
 		AutoUpdateEnabled:           autoUpdateEnabled,
-		IgnoreAikidoNamespace:       ignoreAikidoNamespace,
 	}, errs
 }
