@@ -24,11 +24,13 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/imagescache"
 	"aikidoSec.kubernetesAgent/pkg/models"
+	"k8s.io/apimachinery/pkg/api/meta"
 
 	"github.com/google/uuid"
 	"go.uber.org/multierr"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -481,11 +483,23 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 	}
 
+	agentClusterRole, err := s.kubernetesClientSet.RbacV1().ClusterRoles().Get(ctx, s.GetAgentName(), v1.GetOptions{})
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error getting agent cluster role", "managerError")
+		return fmt.Errorf("error getting agent cluster role: %w", err)
+	}
+
+	restMapper := runtimeManager.GetRESTMapper()
+
 	// Set up the resource watchers based on the monitored resources from the heartbeat
 	for _, v := range hb.MonitoredResources {
-		// Skip the GVK if it's not available in the cluster
-		if _, found := serverResourcesGVKs[v.String()]; len(serverResourcesGVKs) > 0 && !found {
-			s.logger.LogWarning(fmt.Errorf("GVK %s not found in cluster", v.String()), "skipping watcher setup")
+		createController, err := s.ShouldCreateController(serverResourcesGVKs, v, restMapper, agentClusterRole)
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+			return fmt.Errorf("error checking if controller should be created: %w", err)
+		}
+
+		if !createController {
 			continue
 		}
 
@@ -510,7 +524,12 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Check if ImageContentSourcePolicy is available in the cluster
-	if _, exists := serverResourcesGVKs[openshift.ImageContentSourcePolicyGVK.String()]; exists {
+	createICSPController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageContentSourcePolicyGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createICSPController {
 		s.logger.LogInfo("ImageContentSourcePolicy is available in the cluster")
 		s.SetImageMappingEnabled(true)
 		// Create an ImageContentSourcePolicy controller that will watch for policy changes and update the agent internal registry mappings.
@@ -524,7 +543,12 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Check if ImageDigestMirrorSet is available in the cluster
-	if _, exists := serverResourcesGVKs[openshift.ImageDigestMirrorSetGVK.String()]; exists {
+	createIDMSController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageDigestMirrorSetGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createIDMSController {
 		s.logger.LogInfo("ImageDigestMirrorSet is available in the cluster")
 		s.SetImageMappingEnabled(true)
 		// Create an ImageDigestMirrorSet controller that will watch for policy changes and update the agent internal registry mappings.
@@ -538,7 +562,12 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Check if ImageTagMirrorSet is available in the cluster
-	if _, exists := serverResourcesGVKs[openshift.ImageTagMirrorSetGVK.String()]; exists {
+	createITMSController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageTagMirrorSetGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createITMSController {
 		s.logger.LogInfo("ImageTagMirrorSet is available in the cluster")
 		s.SetImageMappingEnabled(true)
 		// Create an ImageTagMirrorSet controller that will watch for policy changes and update the agent internal registry mappings.
@@ -1225,6 +1254,85 @@ func (s *Service) getDeploymentServiceAccount(ctx context.Context, depName strin
 	return s.GetServiceAccountByName(ctx, dep.Spec.Template.Spec.ServiceAccountName)
 }
 
+func (s *Service) ShouldCreateController(serverResourcesGVKs map[string]struct{}, gvk schema.GroupVersionKind, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole) (bool, error) {
+	// Skip the GVK if it's not available in the cluster
+	if _, found := serverResourcesGVKs[gvk.String()]; len(serverResourcesGVKs) > 0 && !found {
+		s.logger.LogWarning(fmt.Errorf("GVK %s not found in cluster", gvk.String()), "skipping watcher setup")
+		return false, nil
+	}
+
+	// Get the REST mapping for the GVK
+	mapping, err := restMapper.RESTMapping(
+		gvk.GroupKind(),
+		gvk.Version,
+	)
+	if err != nil {
+		return false, fmt.Errorf("error getting REST mapping for GVK (`%s`): %w", gvk.String(), err)
+	}
+
+	// Skip the GVK if the agent does not have the required permissions to watch it
+	if !clusterRoleAllowsWatch(agentClusterRole, gvk.Group, mapping.Resource.Resource) {
+		s.logger.LogWarning(fmt.Errorf("agent does not have permissions to watch resource %s", mapping.Resource.Resource), "skipping watcher setup")
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func clusterRoleAllowsWatch(role *rbacv1.ClusterRole, apiGroup, resource string) bool {
+	if role == nil {
+		return false
+	}
+
+	neededVerbs := map[string]bool{
+		"get":   false,
+		"list":  false,
+		"watch": false,
+	}
+
+	for _, rule := range role.Rules {
+		if !listMatchesValues(rule.APIGroups, apiGroup) {
+			continue
+		}
+
+		if !listMatchesValues(rule.Resources, resource) {
+			continue
+		}
+
+		isWildcardVerb := false
+		for _, verb := range rule.Verbs {
+			if verb == "*" {
+				isWildcardVerb = true
+				break
+			}
+
+			if _, ok := neededVerbs[verb]; ok {
+				neededVerbs[verb] = true
+			}
+		}
+
+		if isWildcardVerb {
+			return true
+		}
+
+		verbsAllowed := true
+		for _, hasVerb := range neededVerbs {
+			if hasVerb {
+				continue
+			}
+
+			verbsAllowed = false
+			break
+		}
+
+		if verbsAllowed {
+			return true
+		}
+	}
+
+	return false
+}
+
 func BuildLocalConfig() (*rest.Config, error) {
 	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
@@ -1236,5 +1344,14 @@ func IsLocalEnvironment() bool {
 		return true
 	}
 
+	return false
+}
+
+func listMatchesValues(list []string, val string) bool {
+	for _, v := range list {
+		if v == "*" || v == val {
+			return true
+		}
+	}
 	return false
 }
