@@ -1267,12 +1267,12 @@ func (s *Service) ShouldCreateController(serverResourcesGVKs map[string]struct{}
 		gvk.Version,
 	)
 	if err != nil {
-		return false, fmt.Errorf("error getting REST mapping for GVK: %w", err)
+		return false, fmt.Errorf("error getting REST mapping for GVK (`%s`): %w", gvk.String(), err)
 	}
 
 	// Skip the GVK if the agent does not have the required permissions to watch it
 	if !clusterRoleAllowsWatch(agentClusterRole, gvk.Group, mapping.Resource.Resource) {
-		s.logger.LogWarning(fmt.Errorf("agent does not have permissions to watch GVK %s", mapping.Resource.Resource), "skipping watcher setup")
+		s.logger.LogWarning(fmt.Errorf("agent does not have permissions to watch resource %s", mapping.Resource.Resource), "skipping watcher setup")
 		return false, nil
 	}
 
@@ -1316,8 +1316,8 @@ func clusterRoleAllowsWatch(role *rbacv1.ClusterRole, apiGroup, resource string)
 		}
 
 		verbsAllowed := true
-		for _, neededVerb := range neededVerbs {
-			if neededVerb {
+		for _, hasVerb := range neededVerbs {
+			if hasVerb {
 				continue
 			}
 
