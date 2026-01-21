@@ -218,11 +218,13 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	resp, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
-		AgentVersion:       agentVersion,
-		CollectorVersion:   sbomCollectorVersion,
-		IsInitialHeartbeat: false,
-		Metrics:            string(metricsPayload),
-		HelmChartsVersion:  helmChartsVersion,
+		AgentVersion:        agentVersion,
+		CollectorVersion:    sbomCollectorVersion,
+		IsInitialHeartbeat:  false,
+		Metrics:             string(metricsPayload),
+		HelmChartsVersion:   helmChartsVersion,
+		AgentDeploymentName: s.GetAgentName(),
+		AgentNamespace:      s.GetAgentNamespace(),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending heartbeat", "managerError")
@@ -372,12 +374,14 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// Send the initial heartbeat to get the monitored resources and agent configuration
 	hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
-		AgentVersion:       s.GetAgentVersion(),
-		CollectorVersion:   s.GetSBOMCollectorVersion(),
-		IsInitialHeartbeat: true,
-		ClusterIdentifier:  clusterIdentifier,
-		NamespaceEvents:    string(namespaceEventsPayload),
-		HelmChartsVersion:  helmChartsVersion,
+		AgentVersion:        s.GetAgentVersion(),
+		CollectorVersion:    s.GetSBOMCollectorVersion(),
+		IsInitialHeartbeat:  true,
+		ClusterIdentifier:   clusterIdentifier,
+		NamespaceEvents:     string(namespaceEventsPayload),
+		HelmChartsVersion:   helmChartsVersion,
+		AgentDeploymentName: s.GetAgentName(),
+		AgentNamespace:      s.GetAgentNamespace(),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
