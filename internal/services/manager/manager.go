@@ -223,6 +223,8 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		IsInitialHeartbeat: false,
 		Metrics:            string(metricsPayload),
 		HelmChartsVersion:  helmChartsVersion,
+		AgentPodName:       s.GetAgentPodName(),
+		AgentNamespace:     s.GetAgentNamespace(),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending heartbeat", "managerError")
@@ -378,6 +380,8 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		ClusterIdentifier:  clusterIdentifier,
 		NamespaceEvents:    string(namespaceEventsPayload),
 		HelmChartsVersion:  helmChartsVersion,
+		AgentPodName:       s.GetAgentPodName(),
+		AgentNamespace:     s.GetAgentNamespace(),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
