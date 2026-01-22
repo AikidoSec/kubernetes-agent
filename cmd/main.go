@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
@@ -174,9 +176,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		loggerService.ReportError(ctx, err, "error starting manager", "agentSetupError")
-		os.Exit(1)
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
+	// Start manager in a goroutine
+	mgrErrChan := make(chan error, 1)
+	go func() {
+		mgrErrChan <- mgr.Start(ctrl.SetupSignalHandler())
+	}()
+
+	// Wait for either manager error or shutdown signal
+	select {
+	case <-sigChan:
+		l.Info("received shutdown signal, sending agent pod deletion event")
+		// Create a context with timeout for cleanup operations
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		agentService.Close(cleanupCtx)
+		loggerService.Close(cleanupCtx)
+	case err := <-mgrErrChan:
+		if err != nil {
+			loggerService.ReportError(ctx, err, "error starting manager", "agentSetupError")
+			os.Exit(1)
+		}
+		agentService.Close(ctx)
 	}
-	agentService.Close(ctx)
 }

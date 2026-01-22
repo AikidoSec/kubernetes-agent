@@ -4,6 +4,7 @@ go 1.25
 
 require (
 	github.com/go-logr/logr v1.4.3
+	github.com/gobwas/glob v0.2.3
 	github.com/google/go-containerregistry v0.20.7
 	github.com/google/uuid v1.6.0
 	github.com/openshift/api v0.0.0-20251208101024-c2a41ea924bd
@@ -27,7 +28,6 @@ require (
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
-	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect

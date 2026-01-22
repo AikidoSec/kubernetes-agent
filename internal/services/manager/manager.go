@@ -180,8 +180,37 @@ func (s *Service) StopHeartbeat() {
 func (s *Service) Close(ctx context.Context) {
 	s.StopHeartbeat()
 
+	// Send a pod deletion event to notify the server that the agent is shutting down
+	s.sendAgentPodDeletionEvent(ctx)
+
 	if err := s.assetsOutputClient.Close(ctx); err != nil {
 		s.logger.ReportError(ctx, err, "error closing assets output client", "managerError")
+	}
+}
+
+// sendAgentPodDeletionEvent sends a pod deletion event for the agent pod
+func (s *Service) sendAgentPodDeletionEvent(ctx context.Context) {
+	agentPod, err := s.GetPodByName(ctx, s.GetAgentPodName())
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error getting agent pod for deletion event", "managerError")
+		return
+	}
+
+	metadata, err := json.Marshal(agentPod)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error marshalling agent pod for deletion event", "managerError")
+		return
+	}
+
+	payload := models.AssetPayload{
+		ObjectUID: string(agentPod.UID),
+		Metadata:  string(metadata),
+		EventType: models.DeletedEventType,
+		EventTime: time.Now(),
+	}
+
+	if err := s.assetsOutputClient.SendContext(ctx, payload); err != nil {
+		s.logger.ReportError(ctx, err, "error sending agent pod deletion event", "managerError")
 	}
 }
 
