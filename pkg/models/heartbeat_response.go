@@ -11,6 +11,7 @@ type HeartbeatResponse struct {
 	Cluster            Cluster                   `json:"cluster"`
 	Token              string                    `json:"token"`
 	MonitoredResources []schema.GroupVersionKind `json:"monitoredResources"`
+	ImageCacheHash     *int64                    `json:"imageCacheHash,omitempty"`
 }
 
 func (h *HeartbeatResponse) FromJSON(r io.Reader) error {

@@ -327,6 +327,21 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
+	// In case no hash is being received through the heartbeat, assume the cache has not changed to prevent pulling the cache from the cloud after every heartbeat
+	if s.IsSBOMCollectorEnabled() && resp.ImageCacheHash != nil {
+		if hash, err := s.scannedImagesCache.CalculateHash(); err != nil {
+				s.logger.ReportError(ctx, err, "error calculating cache hash", "managerError")
+		} else if hash != *resp.ImageCacheHash {
+			collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+			if err != nil {
+				s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
+			} else {
+				s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
+			}
+
+		}
+	}
+
 	return resp, nil
 }
 
