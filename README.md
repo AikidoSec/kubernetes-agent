@@ -4,6 +4,14 @@ The **Kubernetes Agent** runs inside your cluster and listens for Kubernetes res
 It uses the controller-runtime library to create controllers that watch for changes in resources (e.g., Pods, Deployments, Jobs).  
 Whenever an event occurs, the agent forwards the details to our backend service for further processing and analysis.
 
+## pre-commit hook set-up
+
+To enforce the commit message format, you should install the [pre-commit](https://pre-commit.com/) tool with pip or homebrew. For every clone (i.e., worktree) of the code, the install command of pre-commit needs to be run to set up the hook correctly.
+```bash
+brew install pre-commit
+pre-commit install
+```
+
 ---
 
 ## Features
