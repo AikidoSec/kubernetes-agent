@@ -21,6 +21,30 @@ jobs:
       - run:
           name: Run linter
           command: golangci-lint run
+  
+  commitmsglint:
+    docker:
+      - image: cimg/python:3.13
+    steps:
+      - checkout
+      - run:
+          name: Install pre-commit
+          command: pip install pre-commit
+      - run:
+          name: Validate Commit Messages
+          command: |
+            git fetch origin main
+
+            # Loop through every commit from main to HEAD
+            for commit_hash in $(git log origin/main..HEAD --no-merges --pretty=format:"%H"); do
+              git log -1 --pretty=%B $commit_hash > .git/COMMIT_EDITMSG
+              pre-commit run conventional-pre-commit --hook-stage commit-msg --commit-msg-filename .git/COMMIT_EDITMSG
+                
+              if [ $? -ne 0 ]; then
+                echo "Commit message for $commit_hash does not conform"
+                exit 1
+              fi
+            done
 
   build-amd64:
     docker:
@@ -97,6 +121,10 @@ workflows:
   pull-request:
     jobs:
       - verification:
+          filters:
+            branches:
+              ignore: main
+      - commitmsglint:
           filters:
             branches:
               ignore: main
