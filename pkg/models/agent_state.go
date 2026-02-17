@@ -14,6 +14,7 @@ type AgentState struct {
 	apiToken                   string
 	apiEndpoint                string
 	excludedNamespaces         []string
+	includedNamespaces         []string
 	monitoredResources         []string
 	controllerCacheSyncTimeout time.Duration
 	configSecretName           string
@@ -35,6 +36,7 @@ type AgentState struct {
 func NewEmptyAgentState() *AgentState {
 	return &AgentState{
 		excludedNamespaces:  make([]string, 0),
+		includedNamespaces:  make([]string, 0),
 		monitoredResources:  make([]string, 0),
 		imageMirrorMappings: make(map[string]string),
 		mu:                  sync.Mutex{},
@@ -87,6 +89,12 @@ func (a *AgentState) GetExcludedNamespaces() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.excludedNamespaces
+}
+
+func (a *AgentState) GetIncludedNamespaces() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.includedNamespaces
 }
 
 func (a *AgentState) GetMonitoredResources() []string {
@@ -189,6 +197,12 @@ func (a *AgentState) SetExcludedNamespaces(namespaces []string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.excludedNamespaces = namespaces
+}
+
+func (a *AgentState) SetIncludedNamespaces(namespaces []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.includedNamespaces = namespaces
 }
 
 func (a *AgentState) SetMonitoredResources(resources []string) {
