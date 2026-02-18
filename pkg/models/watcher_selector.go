@@ -7,5 +7,5 @@ import (
 
 type WatcherSelector struct {
 	schema.GroupVersionKind
-	NamespaceExclusions *predicates.NamespaceExclusions
+	NamespaceFilter *predicates.NamespaceFilter
 }

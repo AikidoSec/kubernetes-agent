@@ -252,21 +252,24 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	// If the excluded namespaces have changed, restart the agent to re-create the watchers with the new namespaces filters
-	if !slices.Equal(s.GetExcludedNamespaces(), resp.Cluster.ExcludedNamespaces) {
+	// If the namespace filter has changed, restart the agent to re-create the watchers with the new filters
+	excludedChanged := !slices.Equal(s.GetExcludedNamespaces(), resp.Cluster.ExcludedNamespaces)
+	includedChanged := !slices.Equal(s.GetIncludedNamespaces(), resp.Cluster.IncludedNamespaces)
+	if excludedChanged || includedChanged {
 		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
-			s.logger.LogInfo("excluded namespaces changed, restarting sbom collector")
+			s.logger.LogInfo("namespace filter changed, restarting sbom collector")
 			if err := s.RestartSBOMCollector(ctx); err != nil {
 				s.logger.ReportError(ctx, err, "error restarting sbom collector", "managerError")
 			}
 		}
 
-		s.logger.LogInfo("excluded namespaces changed, restarting agent")
+		s.logger.LogInfo("namespace filter changed, restarting agent")
 		if err := s.RestartDeployment(ctx, s.GetAgentName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
 		s.SetExcludedNamespaces(resp.Cluster.ExcludedNamespaces)
+		s.SetIncludedNamespaces(resp.Cluster.IncludedNamespaces)
 	}
 
 	monitoredResourcesGVKs := make([]string, 0, len(resp.MonitoredResources))
@@ -404,6 +407,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
+	s.SetIncludedNamespaces(hb.Cluster.IncludedNamespaces)
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
@@ -524,7 +528,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 		watcherSelector := models.WatcherSelector{
 			GroupVersionKind:    v,
-			NamespaceExclusions: predicates.NewNamespaceExclusions(s.logger, hb.Cluster.ExcludedNamespaces),
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
 		}
 
 		if err = (&controllers.Watcher{
@@ -601,7 +605,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	s.StartHeartbeat()
 
-	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", hb.Cluster.ExcludedNamespaces)
+	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", hb.Cluster.ExcludedNamespaces, "included_namespaces", hb.Cluster.IncludedNamespaces)
 
 	return nil
 }

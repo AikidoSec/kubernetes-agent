@@ -8,16 +8,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-func NewServicePredicate(nsExclusions *NamespaceExclusions) predicate.Predicate {
+func NewServicePredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			return !nsExclusions.IsObjectExcluded(e.Object)
+			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return !nsExclusions.IsObjectExcluded(e.ObjectNew) && (HasStatusChanged(e) || IsSpecModified(e))
+			return !nsFilter.IsObjectExcluded(e.ObjectNew) && (HasStatusChanged(e) || IsSpecModified(e))
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			return !nsExclusions.IsObjectExcluded(e.Object)
+			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 	}
 }
