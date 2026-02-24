@@ -31,7 +31,7 @@ func (s *Service) SendHeartbeat(ctx context.Context, heartbeatPayload models.Hea
 	heartbeatResponse, err := s.sendHeartbeatRequest(ctx, heartbeatPayload)
 	if err != nil {
 		s.isServerActive = false
-		return models.HeartbeatResponse{}, fmt.Errorf("error sending heartbeat: %w", err)
+		return models.HeartbeatResponse{}, err
 	}
 
 	s.isServerActive = true
