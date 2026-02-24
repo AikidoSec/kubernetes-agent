@@ -223,7 +223,7 @@ func (c *BatchClient) send(events []any, attempt int) {
 	} else {
 		_, err := buf.Write(raw)
 		if err != nil {
-			c.logger.Error("error compressing events", "error", err)
+			c.logger.Error("error writing events", "error", err)
 			return
 		}
 	}
@@ -246,13 +246,12 @@ func (c *BatchClient) send(events []any, attempt int) {
 		c.logger.Error("error sending request", "error", err)
 		return
 	}
-	defer func() {
+
+	if resp.StatusCode != http.StatusOK {
 		if err := resp.Body.Close(); err != nil {
 			c.logger.Error("error closing response body", "error", err)
 		}
-	}()
 
-	if resp.StatusCode != http.StatusOK {
 		if attempt == 1 {
 			c.logger.Error("error sending request", "attempt", attempt, "error", resp.Status)
 		}
@@ -265,6 +264,11 @@ func (c *BatchClient) send(events []any, attempt int) {
 		// If the request failed, we'll retry sending the same batch after a delay until we succeed
 		time.Sleep(delay)
 		c.send(events, attempt)
+		return
+	}
+
+	if err := resp.Body.Close(); err != nil {
+		c.logger.Error("error closing response body", "error", err)
 	}
 }
 
