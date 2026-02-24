@@ -61,7 +61,7 @@ func (s *Service) sendHeartbeatRequest(ctx context.Context, heartbeatPayload mod
 	}
 	payloadBody := strings.NewReader(string(payloadBytes))
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/api/heartbeat", s.APIEndpoint), payloadBody)
 
 	if err != nil {
