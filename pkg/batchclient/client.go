@@ -184,7 +184,7 @@ func (c *BatchClient) flush() {
 			break
 		}
 
-		time.Sleep(c.heartbeatService.GetSendInterval() * time.Second)
+		time.Sleep(c.heartbeatService.GetSendInterval())
 	}
 
 	go func() {
