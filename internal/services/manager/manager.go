@@ -161,9 +161,7 @@ func (s *Service) StartHeartbeat() {
 			select {
 			case <-ticker.C:
 				ctx := context.Background()
-				if _, err := s.SendHeartbeat(ctx); err != nil {
-					s.logger.LogError(err, "error sending heartbeat")
-				}
+				_, _ = s.SendHeartbeat(ctx)
 			case <-s.heartbeatStopChan:
 				close(s.heartbeatStopChan)
 				ticker.Stop()
