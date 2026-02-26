@@ -50,7 +50,7 @@ func NewProxyServer(logger *logger.Service, listenPort int, agentState *models.A
 // Start integrates with controller-runtime manager
 func (p *Proxy) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/tdr", p.handleRequest)
+	mux.HandleFunc("/detection", p.handleRequest)
 
 	p.server = &http.Server{
 		Addr:    ":" + strconv.Itoa(p.listenPort),
