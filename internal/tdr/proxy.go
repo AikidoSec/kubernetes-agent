@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -135,8 +136,10 @@ func (p *Proxy) deliveryManager(ctx context.Context) {
 	}
 }
 
-// ShouldFilterOutEvent checks if the event should be filtered out.
-// For example, events from the agent namespace should not be forwarded.
+// ShouldFilterOutEvent checks if the event should be filtered out based on namespace.
+// Host-level events with no namespace field pass through unconditionally.
+// Events from the agent namespace are always dropped.
+// Customer-configured excluded/included namespace lists are also applied.
 func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetectionFinding) bool {
 	var falcoEvent FalcoPayload
 	err := json.Unmarshal(body, &falcoEvent)
@@ -159,6 +162,15 @@ func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetectionFind
 	}
 
 	if ns == p.GetAgentNamespace() {
+		return true
+	}
+
+	if slices.Contains(p.GetExcludedNamespaces(), ns) {
+		return true
+	}
+
+	includedNamespaces := p.GetIncludedNamespaces()
+	if len(includedNamespaces) > 0 && !slices.Contains(includedNamespaces, ns) {
 		return true
 	}
 
