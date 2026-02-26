@@ -12,7 +12,7 @@ type HeartbeatResponse struct {
 	Token              string                    `json:"token"`
 	MonitoredResources []schema.GroupVersionKind `json:"monitoredResources"`
 	ImageCacheHash     *int64                    `json:"imageCacheHash,omitempty"`
-	TDRCustomRules     []ThreatCustomRule        `json:"tdrCustomRules"`
+	TDRCustomRules     []TDRCustomRule        `json:"tdrCustomRules"`
 	TDRDisabledRules   []string                  `json:"tdrDisabledRules"`
 }
 

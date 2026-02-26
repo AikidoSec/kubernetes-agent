@@ -385,16 +385,16 @@ func (s *Service) UpdateDisabledThreatDetectionRules(ctx context.Context, disabl
 		return fmt.Errorf("error unmarshalling TDR rules: %w", err)
 	}
 
-	rulesActions := make([]models.ThreatDetectionRuleAction, len(disabledRules))
+	rulesActions := make([]models.TDRRuleAction, len(disabledRules))
 	for i, rule := range disabledRules {
 		if strings.HasPrefix(rule, "name:") {
-			rulesActions[i] = models.ThreatDetectionRuleAction{Disable: models.ThreatDetectionRuleSelector{
+			rulesActions[i] = models.TDRRuleAction{Disable: models.TDRRuleSelector{
 				Rule: strings.TrimPrefix(rule, "name:"),
 			}}
 			continue
 		}
 
-		rulesActions[i] = models.ThreatDetectionRuleAction{Disable: models.ThreatDetectionRuleSelector{
+		rulesActions[i] = models.TDRRuleAction{Disable: models.TDRRuleSelector{
 			Tag: strings.TrimPrefix(rule, "tag:"),
 		}}
 	}
@@ -415,7 +415,7 @@ func (s *Service) UpdateDisabledThreatDetectionRules(ctx context.Context, disabl
 	return nil
 }
 
-func (s *Service) UpdateThreatDetectionCustomRules(ctx context.Context, rules []models.ThreatCustomRule) error {
+func (s *Service) UpdateThreatDetectionCustomRules(ctx context.Context, rules []models.TDRCustomRule) error {
 	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, fmt.Sprintf("%s-custom-rules", s.GetTDRDaemonSetName()), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting TDR configmap: %w", err)

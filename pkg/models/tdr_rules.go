@@ -1,11 +1,11 @@
 package models
 
-type ThreatDetectionRuleAction struct {
-	Disable ThreatDetectionRuleSelector `yaml:"disable,omitempty"`
-	Enable  ThreatDetectionRuleSelector `yaml:"enable,omitempty"`
+type TDRRuleAction struct {
+	Disable TDRRuleSelector `yaml:"disable,omitempty"`
+	Enable  TDRRuleSelector `yaml:"enable,omitempty"`
 }
 
-type ThreatDetectionRuleSelector struct {
+type TDRRuleSelector struct {
 	Rule string `yaml:"rule,omitempty"`
 	Tag  string `yaml:"tag,omitempty"`
 }
