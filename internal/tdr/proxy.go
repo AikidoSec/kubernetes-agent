@@ -170,7 +170,7 @@ func (p *Proxy) deliverWithRetry(ctx context.Context, body threatDetectionFindin
 	// later we can try to share the client
 	client := &http.Client{Timeout: 10 * time.Second}
 	for {
-		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/tdr/web_hook", p.GetAPIEndpoint()), bytes.NewReader(body))
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/tdr/detection", p.GetAPIEndpoint()), bytes.NewReader(body))
 		if err != nil {
 			p.LogError(err, "failed to create request")
 			return
