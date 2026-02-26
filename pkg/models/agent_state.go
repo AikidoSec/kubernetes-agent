@@ -30,7 +30,7 @@ type AgentState struct {
 	imageMirrorMappings         map[string]string
 	sbomCollectorServiceAccount *corev1.ServiceAccount
 
-	threatDetectionName    string
+	tdrDaemonSetName string
 	threatDetectionEnabled bool
 	disabledThreatRules    []string
 	threatCustomRules      []ThreatCustomRule
@@ -50,7 +50,7 @@ func NewEmptyAgentState() *AgentState {
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool, threatDetectionName string) *AgentState {
+func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool, tdrDaemonSetName string) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -64,7 +64,7 @@ func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, a
 	a.agentPodName = agentPodName
 	a.sbomCollectorName = sbomCollectorName
 	a.autoUpdateEnabled = autoUpdate
-	a.threatDetectionName = threatDetectionName
+	a.tdrDaemonSetName = tdrDaemonSetName
 	return a
 }
 
@@ -188,10 +188,10 @@ func (a *AgentState) GetDisabledThreatRules() []string {
 	return a.disabledThreatRules
 }
 
-func (a *AgentState) GetThreatDetectionName() string {
+func (a *AgentState) GetTDRDaemonSetName() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.threatDetectionName
+	return a.tdrDaemonSetName
 }
 
 func (a *AgentState) SetThreatCustomRules(rules []ThreatCustomRule) {

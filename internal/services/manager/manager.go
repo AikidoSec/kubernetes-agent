@@ -366,7 +366,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 
 	if shouldRestartTDR {
 		// Restart the TDR daemonset to apply the new rules
-		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectionName()); err != nil {
+		if err := s.RestartDaemonSet(ctx, s.GetTDRDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
 		}
 	}
@@ -375,7 +375,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 }
 
 func (s *Service) UpdateDisabledThreatDetectionRules(ctx context.Context, disabledRules []string) error {
-	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, s.GetThreatDetectionName(), v1.GetOptions{})
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, s.GetTDRDaemonSetName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting TDR configmap: %w", err)
 	}
@@ -416,7 +416,7 @@ func (s *Service) UpdateDisabledThreatDetectionRules(ctx context.Context, disabl
 }
 
 func (s *Service) UpdateThreatDetectionCustomRules(ctx context.Context, rules []models.ThreatCustomRule) error {
-	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, fmt.Sprintf("%s-custom-rules", s.GetThreatDetectionName()), v1.GetOptions{})
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, fmt.Sprintf("%s-custom-rules", s.GetTDRDaemonSetName()), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting TDR configmap: %w", err)
 	}
@@ -716,7 +716,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
 		}
 
-		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectionName()); err != nil {
+		if err := s.RestartDaemonSet(ctx, s.GetTDRDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
 		}
 	}
