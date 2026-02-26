@@ -342,24 +342,25 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			} else {
 				s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
 			}
-
 		}
 	}
 
 	shouldRestartTDR := false
 	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetDisabledThreatRules(), resp.Cluster.DisabledThreatRules) {
-		shouldRestartTDR = true
 		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetDisabledThreatRules(), "new rules", resp.Cluster.DisabledThreatRules)
 		if err := s.UpdateDisabledThreatDetectionRules(ctx, resp.Cluster.DisabledThreatRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
+		} else {
+			shouldRestartTDR = true
 		}
 	}
 
 	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetThreatCustomRules(), resp.ThreatCustomRules) {
-		shouldRestartTDR = true
 		s.logger.LogInfo("threat detection custom rules changed from heartbeat response", "current rules", s.GetThreatCustomRules(), "new rules", resp.ThreatCustomRules)
 		if err := s.UpdateThreatDetectionCustomRules(ctx, resp.ThreatCustomRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
+		} else {
+			shouldRestartTDR = true
 		}
 	}
 
@@ -795,7 +796,6 @@ func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
 	s.logger.SetAPIToken(s.GetAPIToken())
 
 	// Set the heartbeat service token
-	s.heartbeatService.SetAPIToken(s.GetAPIToken())
 	s.heartbeatService.SetAPIToken(s.GetAPIToken())
 
 	return nil

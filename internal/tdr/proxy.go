@@ -145,7 +145,10 @@ func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetectionFind
 		return true
 	}
 
-	nsI, ok := falcoEvent.OutputFields["k8s.ns.name"]
+	nsI, ok := falcoEvent.OutputFields["k8smeta.ns.name"]
+	if !ok {
+		nsI, ok = falcoEvent.OutputFields["k8s.ns.name"]
+	}
 	if !ok {
 		return false
 	}
