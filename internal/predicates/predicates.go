@@ -2,46 +2,42 @@ package predicates
 
 import (
 	"encoding/json"
-	"slices"
 
+	"github.com/gobwas/glob"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-func NewGenericPredicate(excludedNamespaces []string) predicate.Predicate {
+func NewGenericPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			if IsObjectFromExcludedNamespace(e.ObjectNew, excludedNamespaces) {
-				return false
-			}
-
-			return IsSpecModified(e)
+			return !nsFilter.IsObjectExcluded(e.ObjectNew) && IsSpecModified(e)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 	}
 }
 
-func GetPredicatesForGVK(gvk string, excludedNamespaces []string) predicate.Predicate {
+func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predicate {
 	switch gvk {
 	case "/v1, Kind=Pod":
-		return NewPodPredicate(excludedNamespaces)
+		return NewPodPredicate(nsFilter)
 	case "/v1, Kind=ServiceAccount":
-		return NewServiceAccountPredicate(excludedNamespaces)
+		return NewServiceAccountPredicate(nsFilter)
 	case "/v1, Kind=Service", "networking.k8s.io/v1, Kind=Ingress":
-		return NewServicePredicate(excludedNamespaces)
+		return NewServicePredicate(nsFilter)
 	case "/v1, Kind=Endpoints":
-		return NewEndpointsPredicates(excludedNamespaces)
+		return NewEndpointsPredicates(nsFilter)
 	case "discovery.k8s.io/v1, Kind=EndpointSlice":
-		return NewEndpointSlicePredicates(excludedNamespaces)
+		return NewEndpointSlicePredicates(nsFilter)
 	default:
-		return NewGenericPredicate(excludedNamespaces)
+		return NewGenericPredicate(nsFilter)
 	}
 }
 
@@ -80,12 +76,56 @@ func IsSpecModified(e event.UpdateEvent) bool {
 	return string(oldSpec) != string(newSpec)
 }
 
-// IsObjectFromExcludedNamespace checks if the object is from an excluded namespace
-func IsObjectFromExcludedNamespace(o client.Object, excludedNamespaces []string) bool {
+type NamespaceFilter struct {
+	excludePatterns []glob.Glob
+	includePatterns []glob.Glob
+}
+
+type logger interface {
+	LogWarning(err error, message string, args ...any)
+}
+
+func NewNamespaceFilter(logger logger, excludedNamespaces, includedNamespaces []string) *NamespaceFilter {
+	excludePatterns := compilePatterns(logger, excludedNamespaces, "exclusion")
+	includePatterns := compilePatterns(logger, includedNamespaces, "inclusion")
+	return &NamespaceFilter{excludePatterns: excludePatterns, includePatterns: includePatterns}
+}
+
+func compilePatterns(logger logger, namespaces []string, label string) []glob.Glob {
+	patterns := make([]glob.Glob, 0, len(namespaces))
+	for _, pattern := range namespaces {
+		compiled, err := glob.Compile(pattern)
+		if err != nil {
+			logger.LogWarning(err, "Namespace %s could not be parsed and will be ignored: %q", label, pattern)
+		} else {
+			patterns = append(patterns, compiled)
+		}
+	}
+	return patterns
+}
+
+func (n *NamespaceFilter) IsObjectExcluded(o client.Object) bool {
 	ns := o.GetNamespace()
 	if ns == "" {
 		return false
 	}
+	return n.IsExcluded(ns)
+}
 
-	return slices.Contains(excludedNamespaces, ns)
+func (n *NamespaceFilter) IsExcluded(namespace string) bool {
+	if len(n.includePatterns) > 0 {
+		for _, pattern := range n.includePatterns {
+			if pattern.Match(namespace) {
+				return false
+			}
+		}
+		return true
+	}
+
+	for _, pattern := range n.excludePatterns {
+		if pattern.Match(namespace) {
+			return true
+		}
+	}
+	return false
 }

@@ -110,6 +110,17 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		}
 	}
 
+	autoUpdateEnabled := true
+	autoUpdateStr, exists := os.LookupEnv("AUTO_UPDATE_ENABLED")
+	if exists {
+		enabled, err := strconv.ParseBool(autoUpdateStr)
+		if err != nil {
+			errs = multierr.Append(errs, fmt.Errorf("invalid AUTO_UPDATE_ENABLED value: %w", err))
+		} else {
+			autoUpdateEnabled = enabled
+		}
+	}
+
 	tdrEnabledStr, exists := os.LookupEnv("TDR_ENABLED")
 	if !exists {
 		tdrEnabledStr = "false"
@@ -139,6 +150,7 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		AgentPodName:                podName,
 		MetricsPort:                 metricsPort,
 		SBOMCollectorEnabled:        sbomCollectorEnabled,
+		AutoUpdateEnabled:           autoUpdateEnabled,
 		TDREnabled:                  tdrEnabled,
 		TDRPort:                     tdrPort,
 	}, errs

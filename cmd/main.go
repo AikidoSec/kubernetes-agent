@@ -17,12 +17,15 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 
 	"github.com/go-logr/logr"
+	openshiftconfigv1 "github.com/openshift/api/config/v1"
+	operatorv1alpha1 "github.com/openshift/api/operator/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -39,6 +42,8 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(operatorv1alpha1.Install(scheme))
+	utilruntime.Must(openshiftconfigv1.Install(scheme))
 }
 
 // nolint:gocyclo
@@ -98,12 +103,14 @@ func main() {
 		HeartbeatService:                  heartbeatService,
 		ControllerCacheSyncTimeout:        envCfg.ControllerCacheSyncTimeout,
 		IsSBOMCollectorRunningAsDaemonSet: envCfg.RunSBOMCollectorAsDaemonSet,
+		AutoUpdateEnabled:                 envCfg.AutoUpdateEnabled,
 	})
 	if err != nil {
 		loggerService.ReportError(ctx, err, "error creating agent service", "agentSetupError")
 		os.Exit(1)
 	}
 
+	agentStartTime := time.Now()
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		HealthProbeBindAddress: probeAddr,
@@ -134,14 +141,14 @@ func main() {
 
 				// Skip caching Jobs older than 5 days
 				if job, ok := obj.(*batchv1.Job); ok {
-					if job.CreationTimestamp.Time.Before(time.Now().AddDate(0, 0, -5)) {
+					if job.CreationTimestamp.Time.Before(agentStartTime.AddDate(0, 0, -5)) {
 						return nil, nil
 					}
 				}
 
 				if pod, ok := obj.(*corev1.Pod); ok {
 					// Skip caching Pods that are in Succeeded or Failed phase
-					if (pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed) && pod.DeletionTimestamp.IsZero() {
+					if (pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed) && pod.DeletionTimestamp.IsZero() && pod.CreationTimestamp.Time.Before(agentStartTime) {
 						return nil, nil
 					}
 				}

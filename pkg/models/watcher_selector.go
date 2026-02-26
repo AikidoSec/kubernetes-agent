@@ -1,8 +1,11 @@
 package models
 
-import "k8s.io/apimachinery/pkg/runtime/schema"
+import (
+	"aikidoSec.kubernetesAgent/internal/predicates"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+)
 
 type WatcherSelector struct {
 	schema.GroupVersionKind
-	ExcludedNamespaces []string
+	NamespaceFilter *predicates.NamespaceFilter
 }

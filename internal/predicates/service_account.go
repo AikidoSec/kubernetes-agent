@@ -8,20 +8,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-func NewServiceAccountPredicate(excludedNamespaces []string) predicate.Predicate {
+func NewServiceAccountPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			if IsObjectFromExcludedNamespace(e.ObjectNew, excludedNamespaces) {
-				return false
-			}
-
-			return AreAnnotationsChanged(e)
+			return !nsFilter.IsObjectExcluded(e.ObjectNew) && AreAnnotationsChanged(e)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 	}
 }

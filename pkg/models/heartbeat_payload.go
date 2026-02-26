@@ -13,6 +13,8 @@ type HeartbeatPayload struct {
 	Metrics            string `json:"metrics"`
 	NamespaceEvents    string `json:"namespace_events"`
 	HelmChartsVersion  string `json:"helm_charts_version"`
+	AgentPodName       string `json:"agent_pod_name"`
+	AgentNamespace     string `json:"agent_namespace"`
 }
 
 func (p *HeartbeatPayload) FromJSON(r io.Reader) error {

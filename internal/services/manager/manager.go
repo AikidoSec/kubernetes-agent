@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
+	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
 	internalhttp "aikidoSec.kubernetesAgent/internal/http"
 	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
+	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/sbom"
@@ -23,11 +25,13 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/imagescache"
 	"aikidoSec.kubernetesAgent/pkg/models"
+	"k8s.io/apimachinery/pkg/api/meta"
 
 	"github.com/google/uuid"
 	"go.uber.org/multierr"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -70,6 +74,7 @@ type Options struct {
 	Logger                            *logger.Service
 	ControllerCacheSyncTimeout        time.Duration
 	IsSBOMCollectorRunningAsDaemonSet bool
+	AutoUpdateEnabled                 bool
 }
 type Service struct {
 	*models.AgentState
@@ -98,7 +103,19 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}
 
 	// Initialize the agent state with all values from options and context
-	agentState.SetInitialValues(o.AgentPodName, o.AgentNamespace, o.AgentName, o.APIToken, o.APIEndpoint, o.ConfigSecretName, o.ControllerCacheSyncTimeout, o.IsSBOMCollectorRunningAsDaemonSet, fmt.Sprintf("%s-sbom-collector", o.AgentName), fmt.Sprintf("%s-threat-detection", o.AgentName))
+	agentState.SetInitialValues(
+		o.AgentPodName,
+		o.AgentNamespace,
+		o.AgentName,
+		o.APIToken,
+		o.APIEndpoint,
+		o.ConfigSecretName,
+		o.ControllerCacheSyncTimeout,
+		o.IsSBOMCollectorRunningAsDaemonSet,
+		fmt.Sprintf("%s-sbom-collector", o.AgentName),
+		o.AutoUpdateEnabled,
+		fmt.Sprintf("%s-threat-detection", o.AgentName),
+	)
 
 	// Build the cluster configuration based on the environment.
 	var cfg *rest.Config
@@ -147,9 +164,7 @@ func (s *Service) StartHeartbeat() {
 			select {
 			case <-ticker.C:
 				ctx := context.Background()
-				if _, err := s.SendHeartbeat(ctx); err != nil {
-					s.logger.LogError(err, "error sending heartbeat")
-				}
+				_, _ = s.SendHeartbeat(ctx)
 			case <-s.heartbeatStopChan:
 				close(s.heartbeatStopChan)
 				ticker.Stop()
@@ -209,6 +224,8 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		IsInitialHeartbeat: false,
 		Metrics:            string(metricsPayload),
 		HelmChartsVersion:  helmChartsVersion,
+		AgentPodName:       s.GetAgentPodName(),
+		AgentNamespace:     s.GetAgentNamespace(),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending heartbeat", "managerError")
@@ -224,31 +241,36 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	// If the agent version has changed, update the deployment with the new image version which will also trigger a restart
-	if s.GetAgentVersion() != resp.Cluster.DesiredAgentVersion {
-		s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.GetAgentVersion(), "new version", resp.Cluster.DesiredAgentVersion)
-		if err := s.UpdateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
-			s.logger.ReportError(ctx, err, "error updating agent version", "managerError")
-			return resp, err
+	if s.GetAutoUpdateEnabled() {
+		// If the agent version has changed, update the deployment with the new image version which will also trigger a restart
+		if s.GetAgentVersion() != resp.Cluster.DesiredAgentVersion {
+			s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.GetAgentVersion(), "new version", resp.Cluster.DesiredAgentVersion)
+			if err := s.UpdateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
+				s.logger.ReportError(ctx, err, "error updating agent version", "managerError")
+				return resp, err
+			}
+			s.SetAgentVersion(resp.Cluster.DesiredAgentVersion)
 		}
-		s.SetAgentVersion(resp.Cluster.DesiredAgentVersion)
 	}
 
-	// If the excluded namespaces have changed, restart the agent to re-create the watchers with the new namespaces filters
-	if !slices.Equal(s.GetExcludedNamespaces(), resp.Cluster.ExcludedNamespaces) {
+	// If the namespace filter has changed, restart the agent to re-create the watchers with the new filters
+	excludedChanged := !slices.Equal(s.GetExcludedNamespaces(), resp.Cluster.ExcludedNamespaces)
+	includedChanged := !slices.Equal(s.GetIncludedNamespaces(), resp.Cluster.IncludedNamespaces)
+	if excludedChanged || includedChanged {
 		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
-			s.logger.LogInfo("excluded namespaces changed, restarting sbom collector")
+			s.logger.LogInfo("namespace filter changed, restarting sbom collector")
 			if err := s.RestartSBOMCollector(ctx); err != nil {
 				s.logger.ReportError(ctx, err, "error restarting sbom collector", "managerError")
 			}
 		}
 
-		s.logger.LogInfo("excluded namespaces changed, restarting agent")
+		s.logger.LogInfo("namespace filter changed, restarting agent")
 		if err := s.RestartDeployment(ctx, s.GetAgentName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
 		s.SetExcludedNamespaces(resp.Cluster.ExcludedNamespaces)
+		s.SetIncludedNamespaces(resp.Cluster.IncludedNamespaces)
 	}
 
 	monitoredResourcesGVKs := make([]string, 0, len(resp.MonitoredResources))
@@ -298,13 +320,30 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	// If the SBOM collector version has changed, update it in the service state
-	if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
-		s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
-		if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
-			s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
+	if s.GetAutoUpdateEnabled() {
+		// If the SBOM collector version has changed, update it in the service state
+		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
+			s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
+			if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
+				s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
+			}
+			s.SetSBOMCollectorVersion(resp.Cluster.DesiredSBOMCollectorVersion)
 		}
-		s.SetSBOMCollectorVersion(resp.Cluster.DesiredSBOMCollectorVersion)
+	}
+
+	// In case no hash is being received through the heartbeat, assume the cache has not changed to prevent pulling the cache from the cloud after every heartbeat
+	if s.IsSBOMCollectorEnabled() && resp.ImageCacheHash != nil {
+		if hash, err := s.scannedImagesCache.CalculateHash(); err != nil {
+			s.logger.ReportError(ctx, err, "error calculating cache hash", "managerError")
+		} else if hash != *resp.ImageCacheHash {
+			collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+			if err != nil {
+				s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
+			} else {
+				s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
+			}
+
+		}
 	}
 
 	shouldRestartTDR := false
@@ -457,12 +496,16 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		ClusterIdentifier:  clusterIdentifier,
 		NamespaceEvents:    string(namespaceEventsPayload),
 		HelmChartsVersion:  helmChartsVersion,
+		AgentPodName:       s.GetAgentPodName(),
+		AgentNamespace:     s.GetAgentNamespace(),
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
 		return fmt.Errorf("error sending initial heartbeat: %w", err)
 	}
+
 	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
+	s.SetIncludedNamespaces(hb.Cluster.IncludedNamespaces)
 	s.SetThreatDetectionEnabled(environmentConfig.TDREnabled)
 	s.SetDisabledThreatRules(hb.Cluster.DisabledThreatRules)
 	s.SetThreatCustomRules(hb.ThreatCustomRules)
@@ -481,9 +524,6 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		return fmt.Errorf("error creating assets batch client: %w", err)
 	}
 	s.assetsOutputClient = assetsClient
-
-	// Append the agent namespace to the excluded namespaces to avoid watching its own resources
-	excludedNamespaces := append(hb.Cluster.ExcludedNamespaces, s.GetAgentNamespace())
 
 	monitoredResourcesGVKs := make([]string, 0, len(hb.MonitoredResources))
 	for _, gvk := range hb.MonitoredResources {
@@ -520,6 +560,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 		s.SetSBOMCollectorVersion(sbomCollectorVersion)
 
+		// Load the scanned images cache
 		collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
@@ -528,6 +569,13 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		if len(collectorScannedImages) > 0 {
 			s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
 		}
+
+		// Load the SBOM collector service account
+		sa, err := s.GetSBOMCollectorServiceAccount(ctx)
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading sbom collector service account from context", "managerError")
+		}
+		s.SetSBOMCollectorServiceAccount(sa)
 	}
 
 	watcherOptions := controller.Options{
@@ -559,17 +607,29 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 	}
 
+	agentClusterRole, err := s.kubernetesClientSet.RbacV1().ClusterRoles().Get(ctx, s.GetAgentName(), v1.GetOptions{})
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error getting agent cluster role", "managerError")
+		return fmt.Errorf("error getting agent cluster role: %w", err)
+	}
+
+	restMapper := runtimeManager.GetRESTMapper()
+
 	// Set up the resource watchers based on the monitored resources from the heartbeat
 	for _, v := range hb.MonitoredResources {
-		// Skip the GVK if it's not available in the cluster
-		if _, found := serverResourcesGVKs[v.String()]; len(serverResourcesGVKs) > 0 && !found {
-			s.logger.LogWarning(fmt.Errorf("GVK %s not found in cluster", v.String()), "skipping watcher setup")
+		createController, err := s.ShouldCreateController(serverResourcesGVKs, v, restMapper, agentClusterRole)
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+			return fmt.Errorf("error checking if controller should be created: %w", err)
+		}
+
+		if !createController {
 			continue
 		}
 
 		watcherSelector := models.WatcherSelector{
-			GroupVersionKind:   v,
-			ExcludedNamespaces: excludedNamespaces,
+			GroupVersionKind: v,
+			NamespaceFilter:  predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
 		}
 
 		if err = (&controllers.Watcher{
@@ -579,10 +639,68 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			Watched:      watcherSelector,
 			OutputClient: assetsClient,
 			PendingMu:    sync.Mutex{},
-			Pending:      make(map[string]struct{}),
+			Pending:      make(map[string]time.Time),
+			AgentState:   s.AgentState,
 		}).SetupWithManager(runtimeManager, watcherOptions); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new watcher", "managerError")
 			return fmt.Errorf("error creating watcher (%s): %w", v.String(), err)
+		}
+	}
+
+	// Check if ImageContentSourcePolicy is available in the cluster
+	createICSPController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageContentSourcePolicyGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createICSPController {
+		s.logger.LogInfo("ImageContentSourcePolicy is available in the cluster")
+		s.SetImageMappingEnabled(true)
+		// Create an ImageContentSourcePolicy controller that will watch for policy changes and update the agent internal registry mappings.
+		if err = (&openshift.ImageContentSourcePolicyController{
+			AgentState: s.AgentState,
+			Logger:     s.logger,
+			Client:     runtimeManager.GetClient(),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageContentSourcePolicy controller", "managerError")
+		}
+	}
+
+	// Check if ImageDigestMirrorSet is available in the cluster
+	createIDMSController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageDigestMirrorSetGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createIDMSController {
+		s.logger.LogInfo("ImageDigestMirrorSet is available in the cluster")
+		s.SetImageMappingEnabled(true)
+		// Create an ImageDigestMirrorSet controller that will watch for policy changes and update the agent internal registry mappings.
+		if err = (&openshift.ImageDigestMirrorSetController{
+			AgentState: s.AgentState,
+			Logger:     s.logger,
+			Client:     runtimeManager.GetClient(),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageDigestMirrorSet controller", "managerError")
+		}
+	}
+
+	// Check if ImageTagMirrorSet is available in the cluster
+	createITMSController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageTagMirrorSetGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createITMSController {
+		s.logger.LogInfo("ImageTagMirrorSet is available in the cluster")
+		s.SetImageMappingEnabled(true)
+		// Create an ImageTagMirrorSet controller that will watch for policy changes and update the agent internal registry mappings.
+		if err = (&openshift.ImageTagMirrorSetController{
+			AgentState: s.AgentState,
+			Logger:     s.logger,
+			Client:     runtimeManager.GetClient(),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageTagMirrorSet controller", "managerError")
 		}
 	}
 
@@ -604,7 +722,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	s.StartHeartbeat()
 
-	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", excludedNamespaces)
+	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", hb.Cluster.ExcludedNamespaces, "included_namespaces", hb.Cluster.IncludedNamespaces)
 
 	return nil
 }
@@ -1239,6 +1357,128 @@ func (s *Service) GetPodByName(ctx context.Context, name string) (*corev1.Pod, e
 	return pod, nil
 }
 
+func (s *Service) GetSBOMCollectorServiceAccount(ctx context.Context) (*corev1.ServiceAccount, error) {
+	if s.GetRunSBOMCollectorAsDaemonSet() {
+		return s.getDaemonsetServiceAccount(ctx, s.GetSBOMCollectorName())
+	}
+
+	return s.getDeploymentServiceAccount(ctx, s.GetSBOMCollectorName())
+}
+
+func (s *Service) GetServiceAccountByName(ctx context.Context, name string) (*corev1.ServiceAccount, error) {
+	sa, err := s.kubernetesClientSet.CoreV1().ServiceAccounts(s.GetAgentNamespace()).Get(ctx, name, v1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error getting service account by name: %w", err)
+	}
+
+	return sa, nil
+}
+
+func (s *Service) getDaemonsetServiceAccount(ctx context.Context, dsName string) (*corev1.ServiceAccount, error) {
+	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, dsName, v1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error getting SBOM collector daemonset: %w", err)
+	}
+
+	if ds.Spec.Template.Spec.ServiceAccountName == "" {
+		return nil, nil
+	}
+
+	return s.GetServiceAccountByName(ctx, ds.Spec.Template.Spec.ServiceAccountName)
+}
+
+func (s *Service) getDeploymentServiceAccount(ctx context.Context, depName string) (*corev1.ServiceAccount, error) {
+	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, depName, v1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error getting SBOM collector deployment: %w", err)
+	}
+
+	if dep.Spec.Template.Spec.ServiceAccountName == "" {
+		return nil, nil
+	}
+
+	return s.GetServiceAccountByName(ctx, dep.Spec.Template.Spec.ServiceAccountName)
+}
+
+func (s *Service) ShouldCreateController(serverResourcesGVKs map[string]struct{}, gvk schema.GroupVersionKind, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole) (bool, error) {
+	// Skip the GVK if it's not available in the cluster
+	if _, found := serverResourcesGVKs[gvk.String()]; len(serverResourcesGVKs) > 0 && !found {
+		s.logger.LogWarning(fmt.Errorf("GVK %s not found in cluster", gvk.String()), "skipping watcher setup")
+		return false, nil
+	}
+
+	// Get the REST mapping for the GVK
+	mapping, err := restMapper.RESTMapping(
+		gvk.GroupKind(),
+		gvk.Version,
+	)
+	if err != nil {
+		return false, fmt.Errorf("error getting REST mapping for GVK (`%s`): %w", gvk.String(), err)
+	}
+
+	// Skip the GVK if the agent does not have the required permissions to watch it
+	if !clusterRoleAllowsWatch(agentClusterRole, gvk.Group, mapping.Resource.Resource) {
+		s.logger.LogWarning(fmt.Errorf("agent does not have permissions to watch resource %s", mapping.Resource.Resource), "skipping watcher setup")
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func clusterRoleAllowsWatch(role *rbacv1.ClusterRole, apiGroup, resource string) bool {
+	if role == nil {
+		return false
+	}
+
+	neededVerbs := map[string]bool{
+		"get":   false,
+		"list":  false,
+		"watch": false,
+	}
+
+	for _, rule := range role.Rules {
+		if !listMatchesValues(rule.APIGroups, apiGroup) {
+			continue
+		}
+
+		if !listMatchesValues(rule.Resources, resource) {
+			continue
+		}
+
+		isWildcardVerb := false
+		for _, verb := range rule.Verbs {
+			if verb == "*" {
+				isWildcardVerb = true
+				break
+			}
+
+			if _, ok := neededVerbs[verb]; ok {
+				neededVerbs[verb] = true
+			}
+		}
+
+		if isWildcardVerb {
+			return true
+		}
+
+		verbsAllowed := true
+		for _, hasVerb := range neededVerbs {
+			if hasVerb {
+				continue
+			}
+
+			verbsAllowed = false
+			break
+		}
+
+		if verbsAllowed {
+			return true
+		}
+	}
+
+	return false
+}
+
 func BuildLocalConfig() (*rest.Config, error) {
 	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
@@ -1250,5 +1490,14 @@ func IsLocalEnvironment() bool {
 		return true
 	}
 
+	return false
+}
+
+func listMatchesValues(list []string, val string) bool {
+	for _, v := range list {
+		if v == "*" || v == val {
+			return true
+		}
+	}
 	return false
 }

@@ -3,6 +3,8 @@ package models
 import (
 	"sync"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 type AgentState struct {
@@ -12,6 +14,7 @@ type AgentState struct {
 	apiToken                   string
 	apiEndpoint                string
 	excludedNamespaces         []string
+	includedNamespaces         []string
 	monitoredResources         []string
 	controllerCacheSyncTimeout time.Duration
 	configSecretName           string
@@ -22,6 +25,10 @@ type AgentState struct {
 	sbomCollectorVersion        string
 	sbomCollectorName           string
 	chartsSBOMCollectorEnabled  bool
+	autoUpdateEnabled           bool
+	isImageMappingEnabled       bool
+	imageMirrorMappings         map[string]string
+	sbomCollectorServiceAccount *corev1.ServiceAccount
 
 	threatDetectionName    string
 	threatDetectionEnabled bool
@@ -34,14 +41,16 @@ type AgentState struct {
 func NewEmptyAgentState() *AgentState {
 	return &AgentState{
 		excludedNamespaces:  make([]string, 0),
+		includedNamespaces:  make([]string, 0),
 		monitoredResources:  make([]string, 0),
+		imageMirrorMappings: make(map[string]string),
 		disabledThreatRules: make([]string, 0),
 		threatCustomRules:   make([]ThreatCustomRule, 0),
 		mu:                  sync.Mutex{},
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, threatDetectionName string) *AgentState {
+func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool, threatDetectionName string) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -54,6 +63,7 @@ func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, a
 	a.configSecretName = configSecretName
 	a.agentPodName = agentPodName
 	a.sbomCollectorName = sbomCollectorName
+	a.autoUpdateEnabled = autoUpdate
 	a.threatDetectionName = threatDetectionName
 	return a
 }
@@ -88,6 +98,12 @@ func (a *AgentState) GetExcludedNamespaces() []string {
 	return a.excludedNamespaces
 }
 
+func (a *AgentState) GetIncludedNamespaces() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.includedNamespaces
+}
+
 func (a *AgentState) GetMonitoredResources() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -118,6 +134,12 @@ func (a *AgentState) GetRunSBOMCollectorAsDaemonSet() bool {
 	return a.runSBOMCollectorAsDaemonSet
 }
 
+func (a *AgentState) GetAutoUpdateEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.autoUpdateEnabled
+}
+
 func (a *AgentState) GetSBOMCollectorVersion() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -142,6 +164,18 @@ func (a *AgentState) GetSBOMCollectorName() string {
 	return a.sbomCollectorName
 }
 
+func (a *AgentState) GetSBOMCollectorServiceAccount() *corev1.ServiceAccount {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sbomCollectorServiceAccount
+}
+
+func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.chartsSBOMCollectorEnabled = enabled
+}
+
 func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -164,12 +198,6 @@ func (a *AgentState) SetThreatCustomRules(rules []ThreatCustomRule) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.threatCustomRules = rules
-}
-
-func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.chartsSBOMCollectorEnabled = enabled
 }
 
 func (a *AgentState) SetAgentVersion(version string) {
@@ -200,6 +228,12 @@ func (a *AgentState) SetExcludedNamespaces(namespaces []string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.excludedNamespaces = namespaces
+}
+
+func (a *AgentState) SetIncludedNamespaces(namespaces []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.includedNamespaces = namespaces
 }
 
 func (a *AgentState) SetMonitoredResources(resources []string) {
@@ -260,6 +294,50 @@ func (a *AgentState) IsChartsSBOMCollectorEnabled() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.chartsSBOMCollectorEnabled
+}
+
+func (a *AgentState) IsImageMappingEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.isImageMappingEnabled
+}
+
+func (a *AgentState) SetImageMappingEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.isImageMappingEnabled = enabled
+}
+
+func (a *AgentState) GetImageMirrorMapping(image string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.imageMirrorMappings[image]
+}
+
+func (a *AgentState) GetImageMirrorMappings() map[string]string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.imageMirrorMappings
+}
+
+func (a *AgentState) SetImageMirrorMappings(mappings map[string]string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for k, v := range mappings {
+		a.imageMirrorMappings[k] = v
+	}
+}
+
+func (a *AgentState) SetImageMirrorMapping(image, mirror string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.imageMirrorMappings[image] = mirror
+}
+
+func (a *AgentState) SetSBOMCollectorServiceAccount(sa *corev1.ServiceAccount) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sbomCollectorServiceAccount = sa
 }
 
 func (a *AgentState) IsThreatDetectionEnabled() bool {

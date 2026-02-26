@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
+func NewPodPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			// Pods that were not part of the initial snapshot that was received when the informer was created are
@@ -20,7 +20,7 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 				return false
 			}
 
-			if IsObjectFromExcludedNamespace(e.Object, excludedNamespaces) {
+			if nsFilter.IsObjectExcluded(e.Object) {
 				return false
 			}
 
@@ -42,7 +42,7 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 			return ArePodImagesResolved(pod)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			if IsObjectFromExcludedNamespace(e.ObjectNew, excludedNamespaces) {
+			if nsFilter.IsObjectExcluded(e.ObjectNew) {
 				return false
 			}
 
@@ -58,28 +58,30 @@ func NewPodPredicate(excludedNamespaces []string) predicate.Predicate {
 				return false
 			}
 
-			// Check if the Pod is in ready state or if the pod has failed
-			// We need to check failed pods as well because they can still execute partially before failing
+			// Skip pods not yet in a final/running phase
 			if newPod.Status.Phase != v1.PodRunning && newPod.Status.Phase != v1.PodSucceeded && newPod.Status.Phase != v1.PodFailed {
 				return false
 			}
 
-			// We want to reconcile the pod only after all images are resolved.
+			// If images are not resolved yet, skip
 			if !ArePodImagesResolved(newPod) {
 				return false
 			}
 
-			// If the Pod status changed to 'Running' from 'Pending', trigger reconciliation
-			// In this case the spec did not change but the Pod is now ready, and we want to capture that event
-			if newPod.Status.Phase == v1.PodRunning && oldPod.Status.Phase == v1.PodPending {
+			// Reconcile if any of the following conditions are met:
+			// - Pod transitioned to Running
+			// - container status changed (phase or condition change, or images got resolved)
+			// - spec changed
+			if (oldPod.Status.Phase == v1.PodPending && newPod.Status.Phase == v1.PodRunning) ||
+				PodContainerStatusChanged(oldPod, newPod) ||
+				IsSpecModified(e) {
 				return true
 			}
 
-			// Trigger reconciliation if the spec changed or if the container status changed
-			return IsSpecModified(e) || PodContainerStatusChanged(oldPod, newPod)
+			return false
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			return !IsObjectFromExcludedNamespace(e.Object, excludedNamespaces)
+			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 	}
 }
@@ -100,6 +102,17 @@ func podFromUnstructured(obj client.Object) (v1.Pod, error) {
 }
 
 func PodContainerStatusChanged(oldPod, newPod v1.Pod) bool {
+	// Phase change (e.g., from Pending to Running)
+	if oldPod.Status.Phase != newPod.Status.Phase {
+		return true
+	}
+
+	// Condition changes
+	if ConditionsChanged(oldPod.Status.Conditions, newPod.Status.Conditions) {
+		return true
+	}
+
+	// ImageID changes
 	// Check regular containers
 	if ContainerImageIDChanged(oldPod.Status.ContainerStatuses, newPod.Status.ContainerStatuses) {
 		return true
@@ -115,6 +128,24 @@ func PodContainerStatusChanged(oldPod, newPod v1.Pod) bool {
 		return true
 	}
 
+	return false
+}
+
+func ConditionsChanged(oldConds, newConds []v1.PodCondition) bool {
+	if len(oldConds) != len(newConds) {
+		return true
+	}
+
+	oldMap := make(map[v1.PodConditionType]v1.ConditionStatus, len(oldConds))
+	for _, c := range oldConds {
+		oldMap[c.Type] = c.Status
+	}
+
+	for _, c := range newConds {
+		if oldStatus, ok := oldMap[c.Type]; !ok || oldStatus != c.Status {
+			return true
+		}
+	}
 	return false
 }
 

@@ -184,7 +184,7 @@ func (c *BatchClient) flush() {
 			break
 		}
 
-		time.Sleep(c.heartbeatService.GetSendInterval() * time.Second)
+		time.Sleep(c.heartbeatService.GetSendInterval())
 	}
 
 	go func() {
@@ -193,11 +193,23 @@ func (c *BatchClient) flush() {
 			c.sendWG.Done()
 		}()
 
-		c.send(payload, 1)
+		for attempt := 1; ; attempt++ {
+			if err := c.send(payload); err == nil {
+				return
+			} else {
+				if attempt == 1 {
+					c.logger.Error("error sending request", "attempt", attempt, "error", err)
+				}
+
+				// Exponential backoff with jitter
+				d := rand.IntN(min(5, attempt)) * 5
+				time.Sleep(time.Duration(d) * time.Second)
+			}
+		}
 	}()
 }
 
-func (c *BatchClient) send(events []any, attempt int) {
+func (c *BatchClient) send(events []any) error {
 	c.mu.Lock()
 	token := c.apiToken
 	c.mu.Unlock()
@@ -205,34 +217,29 @@ func (c *BatchClient) send(events []any, attempt int) {
 	// Marshal JSON
 	raw, err := json.Marshal(events)
 	if err != nil {
-		c.logger.Error("error marshaling events", "error", err)
-		return
+		return fmt.Errorf("error marshaling events: %w", err)
 	}
 
 	var buf bytes.Buffer
 	if c.compressionEnabled {
 		gz := gzip.NewWriter(&buf)
 		if _, err := gz.Write(raw); err != nil {
-			c.logger.Error("error compressing events", "error", err)
-			return
+			return fmt.Errorf("error compressing events: %w", err)
 		}
 		if err := gz.Close(); err != nil {
-			c.logger.Error("error closing gzip writer", "error", err)
-			return
+			return fmt.Errorf("error closing gzip writer: %w", err)
 		}
 	} else {
 		_, err := buf.Write(raw)
 		if err != nil {
-			c.logger.Error("error compressing events", "error", err)
-			return
+			return fmt.Errorf("error writing events: %w", err)
 		}
 	}
 
 	r := bytes.NewReader(buf.Bytes())
 	req, err := http.NewRequest(http.MethodPost, c.endpoint, r)
 	if err != nil {
-		c.logger.Error("error creating request", "error", err)
-		return
+		return fmt.Errorf("error creating request: %w", err)
 	}
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+token)
@@ -243,8 +250,7 @@ func (c *BatchClient) send(events []any, attempt int) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.logger.Error("error sending request", "error", err)
-		return
+		return fmt.Errorf("error sending request: %w", err)
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -253,19 +259,10 @@ func (c *BatchClient) send(events []any, attempt int) {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		if attempt == 1 {
-			c.logger.Error("error sending request", "attempt", attempt, "error", resp.Status)
-		}
-
-		// Exponential backoff with jitter
-		d := rand.IntN(min(5, attempt)) * 5
-		delay := time.Duration(d) * time.Second
-		attempt++
-
-		// If the request failed, we'll retry sending the same batch after a delay until we succeed
-		time.Sleep(delay)
-		c.send(events, attempt)
+		return fmt.Errorf("received non-200 response: %s", resp.Status)
 	}
+
+	return nil
 }
 
 func (c *BatchClient) SetAPIToken(token string) {

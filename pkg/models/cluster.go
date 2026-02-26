@@ -10,6 +10,7 @@ type Cluster struct {
 	SysGroupID                  int      `json:"sys_group_id"`
 	Name                        string   `json:"name"`
 	ExcludedNamespaces          []string `json:"excluded_namespaces"`
+	IncludedNamespaces          []string `json:"included_namespaces"`
 	DesiredAgentVersion         string   `json:"desired_agent_version"`
 	DesiredSBOMCollectorVersion string   `json:"desired_sbom_collector_version"`
 	SBOMCollectorEnabled        bool     `json:"sbom_collector_enabled"`
