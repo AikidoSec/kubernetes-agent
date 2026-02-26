@@ -31,7 +31,7 @@ type AgentState struct {
 	sbomCollectorServiceAccount *corev1.ServiceAccount
 
 	tdrDaemonSetName string
-	threatDetectionEnabled bool
+	tdrEnabled bool
 	tdrDisabledRules []string
 	tdrCustomRules   []ThreatCustomRule
 
@@ -176,10 +176,10 @@ func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
 	a.chartsSBOMCollectorEnabled = enabled
 }
 
-func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {
+func (a *AgentState) SetTDREnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.threatDetectionEnabled = enabled
+	a.tdrEnabled = enabled
 }
 
 func (a *AgentState) GetTDRDisabledRules() []string {
@@ -340,10 +340,10 @@ func (a *AgentState) SetSBOMCollectorServiceAccount(sa *corev1.ServiceAccount) {
 	a.sbomCollectorServiceAccount = sa
 }
 
-func (a *AgentState) IsThreatDetectionEnabled() bool {
+func (a *AgentState) IsTDREnabled() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.threatDetectionEnabled
+	return a.tdrEnabled
 }
 
 func (a *AgentState) SetTDRDisabledRules(rules []string) {

@@ -346,7 +346,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	shouldRestartTDR := false
-	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetTDRDisabledRules(), resp.TDRDisabledRules) {
+	if s.IsTDREnabled() && !slices.Equal(s.GetTDRDisabledRules(), resp.TDRDisabledRules) {
 		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetTDRDisabledRules(), "new rules", resp.TDRDisabledRules)
 		if err := s.UpdateDisabledThreatDetectionRules(ctx, resp.TDRDisabledRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
@@ -355,7 +355,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetTDRCustomRules(), resp.TDRCustomRules) {
+	if s.IsTDREnabled() && !slices.Equal(s.GetTDRCustomRules(), resp.TDRCustomRules) {
 		s.logger.LogInfo("threat detection custom rules changed from heartbeat response", "current rules", s.GetTDRCustomRules(), "new rules", resp.TDRCustomRules)
 		if err := s.UpdateThreatDetectionCustomRules(ctx, resp.TDRCustomRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
@@ -507,7 +507,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
 	s.SetIncludedNamespaces(hb.Cluster.IncludedNamespaces)
-	s.SetThreatDetectionEnabled(environmentConfig.TDREnabled)
+	s.SetTDREnabled(environmentConfig.TDREnabled)
 	s.SetTDRDisabledRules(hb.TDRDisabledRules)
 	s.SetTDRCustomRules(hb.TDRCustomRules)
 
@@ -707,7 +707,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// TODO: Init container on Falco ds
 	// If the TDR is enabled, update the rules configmaps and restart the daemonset.
-	if s.IsThreatDetectionEnabled() {
+	if s.IsTDREnabled() {
 		if err := s.UpdateDisabledThreatDetectionRules(ctx, s.GetTDRDisabledRules()); err != nil {
 			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
 		}
