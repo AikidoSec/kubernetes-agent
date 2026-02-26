@@ -346,18 +346,18 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	shouldRestartTDR := false
-	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetDisabledThreatRules(), resp.Cluster.DisabledThreatRules) {
-		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetDisabledThreatRules(), "new rules", resp.Cluster.DisabledThreatRules)
-		if err := s.UpdateDisabledThreatDetectionRules(ctx, resp.Cluster.DisabledThreatRules); err != nil {
+	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetTDRDisabledRules(), resp.TDRDisabledRules) {
+		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetTDRDisabledRules(), "new rules", resp.TDRDisabledRules)
+		if err := s.UpdateDisabledThreatDetectionRules(ctx, resp.TDRDisabledRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
 		} else {
 			shouldRestartTDR = true
 		}
 	}
 
-	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetThreatCustomRules(), resp.ThreatCustomRules) {
-		s.logger.LogInfo("threat detection custom rules changed from heartbeat response", "current rules", s.GetThreatCustomRules(), "new rules", resp.ThreatCustomRules)
-		if err := s.UpdateThreatDetectionCustomRules(ctx, resp.ThreatCustomRules); err != nil {
+	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetTDRCustomRules(), resp.TDRCustomRules) {
+		s.logger.LogInfo("threat detection custom rules changed from heartbeat response", "current rules", s.GetTDRCustomRules(), "new rules", resp.TDRCustomRules)
+		if err := s.UpdateThreatDetectionCustomRules(ctx, resp.TDRCustomRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
 		} else {
 			shouldRestartTDR = true
@@ -411,7 +411,7 @@ func (s *Service) UpdateDisabledThreatDetectionRules(ctx context.Context, disabl
 	}
 
 	// Store the new disabled rules in the agent state.
-	s.SetDisabledThreatRules(disabledRules)
+	s.SetTDRDisabledRules(disabledRules)
 	return nil
 }
 
@@ -443,7 +443,7 @@ func (s *Service) UpdateThreatDetectionCustomRules(ctx context.Context, rules []
 	}
 
 	// Store the new custom rules in the agent state.
-	s.SetThreatCustomRules(rules)
+	s.SetTDRCustomRules(rules)
 	return nil
 }
 
@@ -508,8 +508,8 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
 	s.SetIncludedNamespaces(hb.Cluster.IncludedNamespaces)
 	s.SetThreatDetectionEnabled(environmentConfig.TDREnabled)
-	s.SetDisabledThreatRules(hb.Cluster.DisabledThreatRules)
-	s.SetThreatCustomRules(hb.ThreatCustomRules)
+	s.SetTDRDisabledRules(hb.TDRDisabledRules)
+	s.SetTDRCustomRules(hb.TDRCustomRules)
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
@@ -708,11 +708,11 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	// TODO: Init container on Falco ds
 	// If the TDR is enabled, update the rules configmaps and restart the daemonset.
 	if s.IsThreatDetectionEnabled() {
-		if err := s.UpdateDisabledThreatDetectionRules(ctx, s.GetDisabledThreatRules()); err != nil {
+		if err := s.UpdateDisabledThreatDetectionRules(ctx, s.GetTDRDisabledRules()); err != nil {
 			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
 		}
 
-		if err := s.UpdateThreatDetectionCustomRules(ctx, s.GetThreatCustomRules()); err != nil {
+		if err := s.UpdateThreatDetectionCustomRules(ctx, s.GetTDRCustomRules()); err != nil {
 			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
 		}
 

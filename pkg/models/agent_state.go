@@ -32,8 +32,8 @@ type AgentState struct {
 
 	tdrDaemonSetName string
 	threatDetectionEnabled bool
-	disabledThreatRules    []string
-	threatCustomRules      []ThreatCustomRule
+	tdrDisabledRules []string
+	tdrCustomRules   []ThreatCustomRule
 
 	mu sync.Mutex
 }
@@ -44,8 +44,8 @@ func NewEmptyAgentState() *AgentState {
 		includedNamespaces:  make([]string, 0),
 		monitoredResources:  make([]string, 0),
 		imageMirrorMappings: make(map[string]string),
-		disabledThreatRules: make([]string, 0),
-		threatCustomRules:   make([]ThreatCustomRule, 0),
+		tdrDisabledRules: make([]string, 0),
+		tdrCustomRules:   make([]ThreatCustomRule, 0),
 		mu:                  sync.Mutex{},
 	}
 }
@@ -182,10 +182,10 @@ func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {
 	a.threatDetectionEnabled = enabled
 }
 
-func (a *AgentState) GetDisabledThreatRules() []string {
+func (a *AgentState) GetTDRDisabledRules() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.disabledThreatRules
+	return a.tdrDisabledRules
 }
 
 func (a *AgentState) GetTDRDaemonSetName() string {
@@ -194,10 +194,10 @@ func (a *AgentState) GetTDRDaemonSetName() string {
 	return a.tdrDaemonSetName
 }
 
-func (a *AgentState) SetThreatCustomRules(rules []ThreatCustomRule) {
+func (a *AgentState) SetTDRCustomRules(rules []ThreatCustomRule) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.threatCustomRules = rules
+	a.tdrCustomRules = rules
 }
 
 func (a *AgentState) SetAgentVersion(version string) {
@@ -346,14 +346,14 @@ func (a *AgentState) IsThreatDetectionEnabled() bool {
 	return a.threatDetectionEnabled
 }
 
-func (a *AgentState) SetDisabledThreatRules(rules []string) {
+func (a *AgentState) SetTDRDisabledRules(rules []string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.disabledThreatRules = rules
+	a.tdrDisabledRules = rules
 }
 
-func (a *AgentState) GetThreatCustomRules() []ThreatCustomRule {
+func (a *AgentState) GetTDRCustomRules() []ThreatCustomRule {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.threatCustomRules
+	return a.tdrCustomRules
 }

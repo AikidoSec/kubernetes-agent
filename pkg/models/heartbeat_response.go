@@ -12,7 +12,8 @@ type HeartbeatResponse struct {
 	Token              string                    `json:"token"`
 	MonitoredResources []schema.GroupVersionKind `json:"monitoredResources"`
 	ImageCacheHash     *int64                    `json:"imageCacheHash,omitempty"`
-	ThreatCustomRules  []ThreatCustomRule        `json:"threatCustomRules"`
+	TDRCustomRules     []ThreatCustomRule        `json:"tdrCustomRules"`
+	TDRDisabledRules   []string                  `json:"tdrDisabledRules"`
 }
 
 func (h *HeartbeatResponse) FromJSON(r io.Reader) error {
