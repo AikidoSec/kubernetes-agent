@@ -127,6 +127,9 @@ func (p *Proxy) deliveryManager(ctx context.Context) {
 			// Stop the
 			return
 		case body := <-p.queue:
+			if !p.IsThreatDetectionEnabled() {
+				continue
+			}
 			if p.ShouldFilterOutEvent(ctx, body) {
 				p.LogInfo("filtered out event", "event_body", string(body))
 				continue
