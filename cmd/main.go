@@ -11,7 +11,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
-	"aikidoSec.kubernetesAgent/internal/tdr"
+	"aikidoSec.kubernetesAgent/internal/threat"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/config"
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -166,13 +166,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if envCfg.TDREnabled {
-		proxy := tdr.NewProxyServer(
+	if envCfg.ThreatDetectionEnabled {
+		proxy := threat.NewProxyServer(
 			loggerService,
-			envCfg.TDRPort,
+			envCfg.ThreatProxyPort,
 			agentState,
 		)
-		agentService.RegisterTdrProxy(proxy)
+		agentService.RegisterThreatProxy(proxy)
 		if err := mgr.Add(proxy); err != nil {
 			l.Error("Unable to add threat detection proxy to manager", "error", err)
 			os.Exit(1)

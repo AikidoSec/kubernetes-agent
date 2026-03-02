@@ -1,6 +1,6 @@
 package models
 
-type TDRCustomRule struct {
+type CustomThreatRule struct {
 	Name           string `json:"name"`
 	RuleDefinition string `json:"rule_definition"`
 }

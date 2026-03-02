@@ -1,4 +1,4 @@
-package tdr
+package threat
 
 import (
 	"bytes"
@@ -32,18 +32,18 @@ type Proxy struct {
 
 	listenPort int
 	server     *http.Server
-	queue      chan threatDetectionFinding
+	queue      chan threatDetection
 }
 
 // JSON representation as received from falco and as forwarded to Aikido Cloud
-type threatDetectionFinding []byte
+type threatDetection []byte
 
 func NewProxyServer(logger *logger.Service, listenPort int, agentState *models.AgentState) *Proxy {
 	return &Proxy{
 		AgentState: agentState,
 		Service:    logger,
 		listenPort: listenPort,
-		queue:      make(chan threatDetectionFinding, 1000), // buffered queue
+		queue:      make(chan threatDetection, 1000), // buffered queue
 	}
 }
 
@@ -140,7 +140,7 @@ func (p *Proxy) deliveryManager(ctx context.Context) {
 // Host-level events with no namespace field pass through unconditionally.
 // Events from the agent namespace are always dropped.
 // Customer-configured excluded/included namespace lists are also applied.
-func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetectionFinding) bool {
+func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetection) bool {
 	var falcoEvent FalcoPayload
 	err := json.Unmarshal(body, &falcoEvent)
 	if err != nil {
@@ -178,14 +178,14 @@ func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetectionFind
 }
 
 // deliverWithRetry tries to POST with exponential backoff until success or shutdown
-func (p *Proxy) deliverWithRetry(ctx context.Context, body threatDetectionFinding) {
+func (p *Proxy) deliverWithRetry(ctx context.Context, body threatDetection) {
 	backoff := 1 * time.Second
 	maxBackoff := 30 * time.Second
 
 	// later we can try to share the client
 	client := &http.Client{Timeout: 10 * time.Second}
 	for {
-		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/tdr/detection", p.GetAPIEndpoint()), bytes.NewReader(body))
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/threats/detection", p.GetAPIEndpoint()), bytes.NewReader(body))
 		if err != nil {
 			p.LogError(err, "failed to create request")
 			return

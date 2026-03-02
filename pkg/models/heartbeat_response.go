@@ -8,12 +8,12 @@ import (
 )
 
 type HeartbeatResponse struct {
-	Cluster            Cluster                   `json:"cluster"`
-	Token              string                    `json:"token"`
-	MonitoredResources []schema.GroupVersionKind `json:"monitoredResources"`
-	ImageCacheHash     *int64                    `json:"imageCacheHash,omitempty"`
-	TDRCustomRules     []TDRCustomRule        `json:"tdrCustomRules"`
-	TDRDisabledRules   []string                  `json:"tdrDisabledRules"`
+	Cluster             Cluster                   `json:"cluster"`
+	Token               string                    `json:"token"`
+	MonitoredResources  []schema.GroupVersionKind `json:"monitoredResources"`
+	ImageCacheHash      *int64                    `json:"imageCacheHash,omitempty"`
+	CustomThreatRules   []CustomThreatRule        `json:"customThreatRules"`
+	DisabledThreatRules []string                  `json:"disabledThreatRules"`
 }
 
 func (h *HeartbeatResponse) FromJSON(r io.Reader) error {

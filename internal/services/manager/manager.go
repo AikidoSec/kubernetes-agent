@@ -21,7 +21,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/sbom"
-	"aikidoSec.kubernetesAgent/internal/tdr"
+	"aikidoSec.kubernetesAgent/internal/threat"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/imagescache"
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -85,7 +85,7 @@ type Service struct {
 	kubernetesClientSet *kubernetes.Clientset
 	heartbeatService    *heartbeat.Service
 	assetsOutputClient  *batchclient.BatchClient
-	tdrProxy            *tdr.Proxy
+	threatProxy         *threat.Proxy
 	metricClient        *metricsclient.Clientset
 }
 
@@ -345,28 +345,28 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	shouldRestartTDR := false
-	if s.IsTDREnabled() && !slices.Equal(s.GetTDRDisabledRules(), resp.TDRDisabledRules) {
-		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetTDRDisabledRules(), "new rules", resp.TDRDisabledRules)
-		if err := s.UpdateDisabledThreatDetectionRules(ctx, resp.TDRDisabledRules); err != nil {
+	shouldRestartThreatDetector := false
+	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetDisabledThreatRules(), resp.DisabledThreatRules) {
+		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetDisabledThreatRules(), "new rules", resp.DisabledThreatRules)
+		if err := s.UpdateDisabledThreatRules(ctx, resp.DisabledThreatRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
 		} else {
-			shouldRestartTDR = true
+			shouldRestartThreatDetector = true
 		}
 	}
 
-	if s.IsTDREnabled() && !slices.Equal(s.GetTDRCustomRules(), resp.TDRCustomRules) {
-		s.logger.LogInfo("threat detection custom rules changed from heartbeat response", "current rules", s.GetTDRCustomRules(), "new rules", resp.TDRCustomRules)
-		if err := s.UpdateThreatDetectionCustomRules(ctx, resp.TDRCustomRules); err != nil {
+	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetCustomThreatRules(), resp.CustomThreatRules) {
+		s.logger.LogInfo("threat detection custom rules changed from heartbeat response", "current rules", s.GetCustomThreatRules(), "new rules", resp.CustomThreatRules)
+		if err := s.UpdateThreatCustomRules(ctx, resp.CustomThreatRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
 		} else {
-			shouldRestartTDR = true
+			shouldRestartThreatDetector = true
 		}
 	}
 
-	if shouldRestartTDR {
-		// Restart the TDR daemonset to apply the new rules
-		if err := s.RestartDaemonSet(ctx, s.GetTDRDaemonSetName()); err != nil {
+	if shouldRestartThreatDetector {
+		// Restart the Threat Detector daemonset to apply the new rules
+		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
 		}
 	}
@@ -374,27 +374,27 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	return resp, nil
 }
 
-func (s *Service) UpdateDisabledThreatDetectionRules(ctx context.Context, disabledRules []string) error {
-	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, s.GetTDRDaemonSetName(), v1.GetOptions{})
+func (s *Service) UpdateDisabledThreatRules(ctx context.Context, disabledRules []string) error {
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, s.GetThreatDetectorDaemonSetName(), v1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("error getting TDR configmap: %w", err)
+		return fmt.Errorf("error getting Threat Detector configmap: %w", err)
 	}
 
 	data := make(map[string]any)
 	if err := yaml.Unmarshal([]byte(cm.Data["falco.yaml"]), &data); err != nil {
-		return fmt.Errorf("error unmarshalling TDR rules: %w", err)
+		return fmt.Errorf("error unmarshalling Threat Detector rules: %w", err)
 	}
 
-	rulesActions := make([]models.TDRRuleAction, len(disabledRules))
+	rulesActions := make([]models.ThreatRuleAction, len(disabledRules))
 	for i, rule := range disabledRules {
 		if strings.HasPrefix(rule, "name:") {
-			rulesActions[i] = models.TDRRuleAction{Disable: models.TDRRuleSelector{
+			rulesActions[i] = models.ThreatRuleAction{Disable: models.ThreatRuleSelector{
 				Rule: strings.TrimPrefix(rule, "name:"),
 			}}
 			continue
 		}
 
-		rulesActions[i] = models.TDRRuleAction{Disable: models.TDRRuleSelector{
+		rulesActions[i] = models.ThreatRuleAction{Disable: models.ThreatRuleSelector{
 			Tag: strings.TrimPrefix(rule, "tag:"),
 		}}
 	}
@@ -402,30 +402,30 @@ func (s *Service) UpdateDisabledThreatDetectionRules(ctx context.Context, disabl
 	data["rules"] = rulesActions
 	newYaml, err := yaml.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("error marshalling TDR rules: %w", err)
+		return fmt.Errorf("error marshalling Threat Detector rules: %w", err)
 	}
 	cm.Data["falco.yaml"] = string(newYaml)
 
 	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating TDR configmap: %w", err)
+		return fmt.Errorf("error updating Threat Detector configmap: %w", err)
 	}
 
 	// Store the new disabled rules in the agent state.
-	s.SetTDRDisabledRules(disabledRules)
+	s.SetDisabledThreatRules(disabledRules)
 	return nil
 }
 
-func (s *Service) UpdateThreatDetectionCustomRules(ctx context.Context, rules []models.TDRCustomRule) error {
-	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, fmt.Sprintf("%s-custom-rules", s.GetTDRDaemonSetName()), v1.GetOptions{})
+func (s *Service) UpdateThreatCustomRules(ctx context.Context, rules []models.CustomThreatRule) error {
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, fmt.Sprintf("%s-custom-rules", s.GetThreatDetectorDaemonSetName()), v1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("error getting TDR configmap: %w", err)
+		return fmt.Errorf("error getting Threat Detector configmap: %w", err)
 	}
 
 	data := make([]any, 0)
 	for _, rule := range rules {
 		ruleDefinitions := make([]any, 0)
 		if err := yaml.Unmarshal([]byte(rule.RuleDefinition), &ruleDefinitions); err != nil {
-			s.logger.ReportError(ctx, err, "error unmarshalling TDR custom rule", "managerError")
+			s.logger.ReportError(ctx, err, "error unmarshalling Threat Detector custom rule", "managerError")
 			continue
 		}
 
@@ -434,16 +434,16 @@ func (s *Service) UpdateThreatDetectionCustomRules(ctx context.Context, rules []
 
 	newYaml, err := yaml.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("error marshalling TDR rules: %w", err)
+		return fmt.Errorf("error marshalling Threat Detector rules: %w", err)
 	}
 	cm.Data["aikido-custom-rules.yaml"] = string(newYaml)
 
 	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating TDR configmap: %w", err)
+		return fmt.Errorf("error updating Threat Detector configmap: %w", err)
 	}
 
 	// Store the new custom rules in the agent state.
-	s.SetTDRCustomRules(rules)
+	s.SetCustomThreatRules(rules)
 	return nil
 }
 
@@ -507,9 +507,9 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
 	s.SetIncludedNamespaces(hb.Cluster.IncludedNamespaces)
-	s.SetTDREnabled(environmentConfig.TDREnabled)
-	s.SetTDRDisabledRules(hb.TDRDisabledRules)
-	s.SetTDRCustomRules(hb.TDRCustomRules)
+	s.SetThreatDetectionEnabled(environmentConfig.ThreatDetectionEnabled)
+	s.SetDisabledThreatRules(hb.DisabledThreatRules)
+	s.SetCustomThreatRules(hb.CustomThreatRules)
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
@@ -706,17 +706,17 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// TODO: Init container on Falco ds
-	// If the TDR is enabled, update the rules configmaps and restart the daemonset.
-	if s.IsTDREnabled() {
-		if err := s.UpdateDisabledThreatDetectionRules(ctx, s.GetTDRDisabledRules()); err != nil {
+	// If threat detection is enabled, update the rules configmaps and restart the daemonset.
+	if s.IsThreatDetectionEnabled() {
+		if err := s.UpdateDisabledThreatRules(ctx, s.GetDisabledThreatRules()); err != nil {
 			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
 		}
 
-		if err := s.UpdateThreatDetectionCustomRules(ctx, s.GetTDRCustomRules()); err != nil {
+		if err := s.UpdateThreatCustomRules(ctx, s.GetCustomThreatRules()); err != nil {
 			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
 		}
 
-		if err := s.RestartDaemonSet(ctx, s.GetTDRDaemonSetName()); err != nil {
+		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
 		}
 	}
@@ -1061,9 +1061,9 @@ func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error)
 	return string(ns.UID), nil
 }
 
-// RegisterTdrProxy serves as dependency injection (if TDR is enabled) to the manager
-func (s *Service) RegisterTdrProxy(proxy *tdr.Proxy) {
-	s.tdrProxy = proxy
+// RegisterThreatProxy serves as dependency injection (if threat detection is enabled) to the manager
+func (s *Service) RegisterThreatProxy(proxy *threat.Proxy) {
+	s.threatProxy = proxy
 }
 
 func (s *Service) GetDeploymentAndChartsVersions(ctx context.Context, ns, deploymentName string) (string, string, error) {

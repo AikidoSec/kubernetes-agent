@@ -30,10 +30,10 @@ type AgentState struct {
 	imageMirrorMappings         map[string]string
 	sbomCollectorServiceAccount *corev1.ServiceAccount
 
-	tdrDaemonSetName string
-	tdrEnabled bool
-	tdrDisabledRules []string
-	tdrCustomRules   []TDRCustomRule
+	threatDaemonSetName    string
+	threatDetectionEnabled bool
+	disabledThreatRules    []string
+	customThreatRules      []CustomThreatRule
 
 	mu sync.Mutex
 }
@@ -44,13 +44,13 @@ func NewEmptyAgentState() *AgentState {
 		includedNamespaces:  make([]string, 0),
 		monitoredResources:  make([]string, 0),
 		imageMirrorMappings: make(map[string]string),
-		tdrDisabledRules: make([]string, 0),
-		tdrCustomRules:   make([]TDRCustomRule, 0),
+		disabledThreatRules: make([]string, 0),
+		customThreatRules:   make([]CustomThreatRule, 0),
 		mu:                  sync.Mutex{},
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool, tdrDaemonSetName string) *AgentState {
+func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool, threatDaemonSetName string) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -64,7 +64,7 @@ func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, a
 	a.agentPodName = agentPodName
 	a.sbomCollectorName = sbomCollectorName
 	a.autoUpdateEnabled = autoUpdate
-	a.tdrDaemonSetName = tdrDaemonSetName
+	a.threatDaemonSetName = threatDaemonSetName
 	return a
 }
 
@@ -176,28 +176,28 @@ func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
 	a.chartsSBOMCollectorEnabled = enabled
 }
 
-func (a *AgentState) SetTDREnabled(enabled bool) {
+func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.tdrEnabled = enabled
+	a.threatDetectionEnabled = enabled
 }
 
-func (a *AgentState) GetTDRDisabledRules() []string {
+func (a *AgentState) GetDisabledThreatRules() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.tdrDisabledRules
+	return a.disabledThreatRules
 }
 
-func (a *AgentState) GetTDRDaemonSetName() string {
+func (a *AgentState) GetThreatDetectorDaemonSetName() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.tdrDaemonSetName
+	return a.threatDaemonSetName
 }
 
-func (a *AgentState) SetTDRCustomRules(rules []TDRCustomRule) {
+func (a *AgentState) SetCustomThreatRules(rules []CustomThreatRule) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.tdrCustomRules = rules
+	a.customThreatRules = rules
 }
 
 func (a *AgentState) SetAgentVersion(version string) {
@@ -340,20 +340,20 @@ func (a *AgentState) SetSBOMCollectorServiceAccount(sa *corev1.ServiceAccount) {
 	a.sbomCollectorServiceAccount = sa
 }
 
-func (a *AgentState) IsTDREnabled() bool {
+func (a *AgentState) IsThreatDetectionEnabled() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.tdrEnabled
+	return a.threatDetectionEnabled
 }
 
-func (a *AgentState) SetTDRDisabledRules(rules []string) {
+func (a *AgentState) SetDisabledThreatRules(rules []string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.tdrDisabledRules = rules
+	a.disabledThreatRules = rules
 }
 
-func (a *AgentState) GetTDRCustomRules() []TDRCustomRule {
+func (a *AgentState) GetCustomThreatRules() []CustomThreatRule {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.tdrCustomRules
+	return a.customThreatRules
 }

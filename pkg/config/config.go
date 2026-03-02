@@ -121,23 +121,23 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		}
 	}
 
-	tdrEnabledStr, exists := os.LookupEnv("TDR_ENABLED")
+	threatDetectionEnabledStr, exists := os.LookupEnv("THREAT_DETECTION_ENABLED")
 	if !exists {
-		tdrEnabledStr = "false"
+		threatDetectionEnabledStr = "false"
 	}
-	tdrEnabled, err := strconv.ParseBool(tdrEnabledStr)
+	threatDetectionEnabled, err := strconv.ParseBool(threatDetectionEnabledStr)
 	if err != nil {
-		tdrEnabled = false
+		threatDetectionEnabled = false
 	}
 
-	tdrPortStr, exists := os.LookupEnv("TDR_PORT")
+	threatProxyPortStr, exists := os.LookupEnv("THREAT_PROXY_PORT")
 	if !exists {
-		tdrPortStr = "8241"
+		threatProxyPortStr = "8241"
 	}
 
-	tdrPort, err := strconv.Atoi(tdrPortStr)
+	threatProxyPort, err := strconv.Atoi(threatProxyPortStr)
 	if err != nil {
-		errs = multierr.Append(errs, fmt.Errorf("invalid TDR_PORT value: %s", tdrPortStr))
+		errs = multierr.Append(errs, fmt.Errorf("invalid THREAT_PROXY_PORT value: %s", threatProxyPortStr))
 	}
 
 	return models.EnvironmentConfig{
@@ -151,7 +151,7 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		MetricsPort:                 metricsPort,
 		SBOMCollectorEnabled:        sbomCollectorEnabled,
 		AutoUpdateEnabled:           autoUpdateEnabled,
-		TDREnabled:                  tdrEnabled,
-		TDRPort:                     tdrPort,
+		ThreatDetectionEnabled:      threatDetectionEnabled,
+		ThreatProxyPort:             threatProxyPort,
 	}, errs
 }

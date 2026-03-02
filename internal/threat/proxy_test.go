@@ -1,4 +1,4 @@
-package tdr
+package threat
 
 import (
 	"context"
@@ -56,11 +56,11 @@ func TestShouldFilterOutEvent(t *testing.T) {
 			want:           true,
 		},
 		{
-			name:           "k8smeta.ns.name takes precedence over k8s.ns.name",
-			agentNamespace: "aikido-system",
+			name:               "k8smeta.ns.name takes precedence over k8s.ns.name",
+			agentNamespace:     "aikido-system",
 			excludedNamespaces: []string{"excluded-ns"},
-			body:           `{"output_fields": {"k8smeta.ns.name": "excluded-ns", "k8s.ns.name": "default"}}`,
-			want:           true,
+			body:               `{"output_fields": {"k8smeta.ns.name": "excluded-ns", "k8s.ns.name": "default"}}`,
+			want:               true,
 		},
 		{
 			name:               "event from excluded namespace is filtered out",
@@ -102,7 +102,7 @@ func TestShouldFilterOutEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			proxy := newTestProxy(tt.agentNamespace, tt.excludedNamespaces, tt.includedNamespaces)
-			got := proxy.ShouldFilterOutEvent(context.Background(), threatDetectionFinding(tt.body))
+			got := proxy.ShouldFilterOutEvent(context.Background(), threatDetection(tt.body))
 			if got != tt.want {
 				t.Errorf("ShouldFilterOutEvent() = %v, want %v", got, tt.want)
 			}
