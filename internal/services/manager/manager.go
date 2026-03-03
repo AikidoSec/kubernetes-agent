@@ -351,9 +351,9 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	shouldRestartThreatDetector := false
-	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetDisabledThreatRules(), resp.DisabledThreatRules) {
-		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetDisabledThreatRules(), "new rules", resp.DisabledThreatRules)
-		if err := s.UpdateDisabledThreatRules(ctx, resp.DisabledThreatRules); err != nil {
+	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetDisabledThreatRules(), resp.Cluster.DisabledThreatRules) {
+		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetDisabledThreatRules(), "new rules", resp.Cluster.DisabledThreatRules)
+		if err := s.UpdateDisabledThreatRules(ctx, resp.Cluster.DisabledThreatRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
 		} else {
 			shouldRestartThreatDetector = true
@@ -472,7 +472,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
 	s.SetIncludedNamespaces(hb.Cluster.IncludedNamespaces)
 	s.SetThreatDetectionEnabled(hb.Cluster.ThreatDetectionEnabled)
-	s.SetDisabledThreatRules(hb.DisabledThreatRules)
+	s.SetDisabledThreatRules(hb.Cluster.DisabledThreatRules)
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
