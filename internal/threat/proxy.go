@@ -63,7 +63,7 @@ func (p *Proxy) Start(ctx context.Context) error {
 	// HTTP server goroutine
 	errCh := make(chan error, 1)
 	go func() {
-		p.LogInfo("Threat Detection Proxy listening")
+		p.LogInfo("threat detection proxy listening")
 		if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			p.LogError(err, "proxy server failed")
 			errCh <- fmt.Errorf("proxy server failed: %w", err)
@@ -74,7 +74,7 @@ func (p *Proxy) Start(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
-		p.LogInfo("Threat Detection Proxy shutting down...")
+		p.LogInfo("threat detection proxy shutting down...")
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -201,7 +201,7 @@ func (p *Proxy) deliverWithRetry(ctx context.Context, body threatDetection) {
 			if err := resp.Body.Close(); err != nil {
 				p.LogError(err, "proxy could not close body to upstream")
 			}
-			p.LogInfo("Successfully delivered object")
+			p.LogInfo("successfully delivered object")
 			return
 		}
 		if resp != nil {
@@ -213,7 +213,7 @@ func (p *Proxy) deliverWithRetry(ctx context.Context, body threatDetection) {
 		// Delivery failed, let's do backoff
 		select {
 		case <-ctx.Done():
-			p.LogInfo("Cancelled delivery retry due to shutdown")
+			p.LogInfo("cancelled delivery retry due to shutdown")
 			return
 		case <-time.After(backoff):
 			// Exponential backoff
