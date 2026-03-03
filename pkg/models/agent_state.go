@@ -33,7 +33,6 @@ type AgentState struct {
 	threatDaemonSetName    string
 	threatDetectionEnabled bool
 	disabledThreatRules    []string
-	customThreatRules      []CustomThreatRule
 
 	mu sync.Mutex
 }
@@ -45,7 +44,6 @@ func NewEmptyAgentState() *AgentState {
 		monitoredResources:  make([]string, 0),
 		imageMirrorMappings: make(map[string]string),
 		disabledThreatRules: make([]string, 0),
-		customThreatRules:   make([]CustomThreatRule, 0),
 		mu:                  sync.Mutex{},
 	}
 }
@@ -192,12 +190,6 @@ func (a *AgentState) GetThreatDetectorDaemonSetName() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.threatDaemonSetName
-}
-
-func (a *AgentState) SetCustomThreatRules(rules []CustomThreatRule) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.customThreatRules = rules
 }
 
 func (a *AgentState) SetAgentVersion(version string) {
@@ -352,8 +344,3 @@ func (a *AgentState) SetDisabledThreatRules(rules []string) {
 	a.disabledThreatRules = rules
 }
 
-func (a *AgentState) GetCustomThreatRules() []CustomThreatRule {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.customThreatRules
-}

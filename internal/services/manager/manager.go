@@ -360,15 +360,6 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetCustomThreatRules(), resp.CustomThreatRules) {
-		s.logger.LogInfo("threat detection custom rules changed from heartbeat response", "current rules", s.GetCustomThreatRules(), "new rules", resp.CustomThreatRules)
-		if err := s.UpdateThreatCustomRules(ctx, resp.CustomThreatRules); err != nil {
-			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
-		} else {
-			shouldRestartThreatDetector = true
-		}
-	}
-
 	if shouldRestartThreatDetector {
 		// Restart the Threat Detector daemonset to apply the new rules
 		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
@@ -417,38 +408,6 @@ func (s *Service) UpdateDisabledThreatRules(ctx context.Context, disabledRules [
 
 	// Store the new disabled rules in the agent state.
 	s.SetDisabledThreatRules(disabledRules)
-	return nil
-}
-
-func (s *Service) UpdateThreatCustomRules(ctx context.Context, rules []models.CustomThreatRule) error {
-	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, fmt.Sprintf("%s-custom-rules", s.GetThreatDetectorDaemonSetName()), v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("error getting Threat Detector configmap: %w", err)
-	}
-
-	data := make([]any, 0)
-	for _, rule := range rules {
-		ruleDefinitions := make([]any, 0)
-		if err := yaml.Unmarshal([]byte(rule.RuleDefinition), &ruleDefinitions); err != nil {
-			s.logger.ReportError(ctx, err, "error unmarshalling Threat Detector custom rule", "managerError")
-			continue
-		}
-
-		data = append(data, ruleDefinitions...)
-	}
-
-	newYaml, err := yaml.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("error marshalling Threat Detector rules: %w", err)
-	}
-	cm.Data["aikido-custom-rules.yaml"] = string(newYaml)
-
-	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating Threat Detector configmap: %w", err)
-	}
-
-	// Store the new custom rules in the agent state.
-	s.SetCustomThreatRules(rules)
 	return nil
 }
 
@@ -514,7 +473,6 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetIncludedNamespaces(hb.Cluster.IncludedNamespaces)
 	s.SetThreatDetectionEnabled(hb.Cluster.ThreatDetectionEnabled)
 	s.SetDisabledThreatRules(hb.DisabledThreatRules)
-	s.SetCustomThreatRules(hb.CustomThreatRules)
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
@@ -717,9 +675,6 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
 		}
 
-		if err := s.UpdateThreatCustomRules(ctx, s.GetCustomThreatRules()); err != nil {
-			s.logger.ReportError(ctx, err, "error updating threat detection custom rules", "managerError")
-		}
 
 		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
