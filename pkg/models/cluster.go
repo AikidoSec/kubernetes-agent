@@ -14,6 +14,7 @@ type Cluster struct {
 	DesiredAgentVersion         string   `json:"desired_agent_version"`
 	DesiredSBOMCollectorVersion string   `json:"desired_sbom_collector_version"`
 	SBOMCollectorEnabled        bool     `json:"sbom_collector_enabled"`
+	ThreatDetectionEnabled      bool     `json:"threat_detection_enabled"`
 }
 
 func (c *Cluster) FromJSON(r io.Reader) error {

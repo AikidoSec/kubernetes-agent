@@ -345,6 +345,11 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
+	if s.IsThreatDetectionEnabled() != resp.Cluster.ThreatDetectionEnabled {
+		s.logger.LogInfo("threat detection enabled changed from heartbeat response", "enabled", resp.Cluster.ThreatDetectionEnabled)
+		s.SetThreatDetectionEnabled(resp.Cluster.ThreatDetectionEnabled)
+	}
+
 	shouldRestartThreatDetector := false
 	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetDisabledThreatRules(), resp.DisabledThreatRules) {
 		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetDisabledThreatRules(), "new rules", resp.DisabledThreatRules)
@@ -507,7 +512,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
 	s.SetIncludedNamespaces(hb.Cluster.IncludedNamespaces)
-	s.SetThreatDetectionEnabled(environmentConfig.ThreatDetectionEnabled)
+	s.SetThreatDetectionEnabled(hb.Cluster.ThreatDetectionEnabled)
 	s.SetDisabledThreatRules(hb.DisabledThreatRules)
 	s.SetCustomThreatRules(hb.CustomThreatRules)
 
