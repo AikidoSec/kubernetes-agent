@@ -16,6 +16,7 @@ import (
 )
 
 type FalcoPayload struct {
+	Rule         string         `json:"rule"`
 	OutputFields map[string]any `json:"output_fields"`
 }
 
@@ -131,7 +132,8 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ShouldFilterOutEvent checks if the event should be filtered out based on namespace.
+// ShouldFilterOutEvent checks if the event should be filtered out.
+// Disabled rules are always dropped.
 // Host-level events with no namespace field pass through unconditionally.
 // Events from the agent namespace are always dropped.
 // Customer-configured excluded/included namespace lists are also applied.
@@ -140,6 +142,10 @@ func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetection) bo
 	err := json.Unmarshal(body, &falcoEvent)
 	if err != nil {
 		p.LogError(err, "failed to unmarshal falco event")
+		return true
+	}
+
+	if slices.Contains(p.GetDisabledThreatRules(), "name:"+falcoEvent.Rule) {
 		return true
 	}
 

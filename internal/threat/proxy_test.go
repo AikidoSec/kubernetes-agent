@@ -10,11 +10,12 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
-func newTestProxy(agentNamespace string, excludedNamespaces, includedNamespaces []string) *Proxy {
+func newTestProxy(agentNamespace string, excludedNamespaces, includedNamespaces, disabledRules []string) *Proxy {
 	agentState := models.NewEmptyAgentState()
 	agentState.SetAgentNamespace(agentNamespace)
 	agentState.SetExcludedNamespaces(excludedNamespaces)
 	agentState.SetIncludedNamespaces(includedNamespaces)
+	agentState.SetDisabledThreatRules(disabledRules)
 
 	return &Proxy{
 		Service:    logger.NewService(slog.New(slog.NewTextHandler(io.Discard, nil)), nil),
@@ -28,9 +29,24 @@ func TestShouldFilterOutEvent(t *testing.T) {
 		agentNamespace     string
 		excludedNamespaces []string
 		includedNamespaces []string
+		disabledRules      []string
 		body               string
 		want               bool
 	}{
+		{
+			name:           "event for a disabled rule is filtered out",
+			agentNamespace: "aikido-system",
+			disabledRules:  []string{"name:Write below etc"},
+			body:           `{"rule": "Write below etc", "output_fields": {"k8smeta.ns.name": "default"}}`,
+			want:           true,
+		},
+		{
+			name:           "event for a non-disabled rule passes through",
+			agentNamespace: "aikido-system",
+			disabledRules:  []string{"name:Write below etc"},
+			body:           `{"rule": "Terminal shell in container", "output_fields": {"k8smeta.ns.name": "default"}}`,
+			want:           false,
+		},
 		{
 			name:           "invalid JSON is filtered out",
 			agentNamespace: "aikido-system",
@@ -101,7 +117,7 @@ func TestShouldFilterOutEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proxy := newTestProxy(tt.agentNamespace, tt.excludedNamespaces, tt.includedNamespaces)
+			proxy := newTestProxy(tt.agentNamespace, tt.excludedNamespaces, tt.includedNamespaces, tt.disabledRules)
 			got := proxy.ShouldFilterOutEvent(context.Background(), threatDetection(tt.body))
 			if got != tt.want {
 				t.Errorf("ShouldFilterOutEvent() = %v, want %v", got, tt.want)
