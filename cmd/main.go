@@ -167,10 +167,24 @@ func main() {
 	}
 
 	if envCfg.ThreatDetectionEnabled {
+		threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
+			Endpoint:              cfg.APIEndpoint + "/api/threats/events",
+			MaxBatch:              1000,
+			FlushEvery:            time.Second * 10,
+			MaxConcurrentRequests: 5,
+			CompressionEnabled:    true,
+			Token:                 cfg.APIToken,
+			HeartbeatService:      heartbeatService,
+		})
+		if err != nil {
+			loggerService.ReportError(ctx, err, "error creating threat batch client", "agentSetupError")
+			os.Exit(1)
+		}
 		proxy := threat.NewProxyServer(
 			loggerService,
 			envCfg.ThreatProxyPort,
 			agentState,
+			threatBatchClient,
 		)
 		agentService.RegisterThreatProxy(proxy)
 		if err := mgr.Add(proxy); err != nil {

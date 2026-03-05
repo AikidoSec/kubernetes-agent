@@ -755,6 +755,10 @@ func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
 	s.assetsOutputClient.SetAPIToken(s.GetAPIToken())
 	s.logger.SetAPIToken(s.GetAPIToken())
 
+	if s.threatProxy != nil {
+		s.threatProxy.SetAPIToken(s.GetAPIToken())
+	}
+
 	// Set the heartbeat service token
 	s.heartbeatService.SetAPIToken(s.GetAPIToken())
 

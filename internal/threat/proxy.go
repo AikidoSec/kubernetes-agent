@@ -1,7 +1,6 @@
 package threat
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
@@ -21,7 +21,7 @@ type FalcoPayload struct {
 
 // This is how it works from a high-level
 //   - Falco sends a JSON object to the proxy via HTTP POST.
-//   - Falco doesn’t need an immediate success/failure response from the final target.
+//   - Falco doesn't need an immediate success/failure response from the final target.
 //   - The proxy must ensure eventual delivery to Aikido HTTP endpoint (with retries).
 //   - The proxy adds a cluster token to authenticate itself against Aikido cloud
 //
@@ -30,21 +30,25 @@ type Proxy struct {
 	*logger.Service
 	*models.AgentState
 
-	listenPort int
-	server     *http.Server
-	queue      chan threatDetection
+	listenPort  int
+	server      *http.Server
+	batchClient *batchclient.BatchClient
 }
 
 // JSON representation as received from falco and as forwarded to Aikido Cloud
 type threatDetection []byte
 
-func NewProxyServer(logger *logger.Service, listenPort int, agentState *models.AgentState) *Proxy {
+func NewProxyServer(logger *logger.Service, listenPort int, agentState *models.AgentState, batchClient *batchclient.BatchClient) *Proxy {
 	return &Proxy{
-		AgentState: agentState,
-		Service:    logger,
-		listenPort: listenPort,
-		queue:      make(chan threatDetection, 1000), // buffered queue
+		AgentState:  agentState,
+		Service:     logger,
+		listenPort:  listenPort,
+		batchClient: batchClient,
 	}
+}
+
+func (p *Proxy) SetAPIToken(token string) {
+	p.batchClient.SetAPIToken(token)
 }
 
 // Start integrates with controller-runtime manager
@@ -57,10 +61,6 @@ func (p *Proxy) Start(ctx context.Context) error {
 		Handler: mux,
 	}
 
-	// Worker goroutine for delivering queued events
-	go p.deliveryManager(ctx)
-
-	// HTTP server goroutine
 	errCh := make(chan error, 1)
 	go func() {
 		p.LogInfo("threat detection proxy listening")
@@ -81,11 +81,14 @@ func (p *Proxy) Start(ctx context.Context) error {
 		if err := p.server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("proxy shutdown error: %w", err)
 		}
-		return nil
+
+		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return p.batchClient.Close(closeCtx)
 	}
 }
 
-// handleRequest: receive data from falco agent, enqueue for delivery, and return immediately
+// handleRequest: receive data from falco agent, filter, enqueue for batched delivery, and return immediately
 func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is supported", http.StatusMethodNotAllowed)
@@ -95,8 +98,7 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
 	body, err := io.ReadAll(r.Body)
 	defer func() {
-		err := r.Body.Close()
-		if err != nil {
+		if err := r.Body.Close(); err != nil {
 			p.LogError(err, "proxy could not close body")
 		}
 	}()
@@ -106,36 +108,26 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	select {
-	case p.queue <- body:
+	if !p.IsThreatDetectionEnabled() {
 		w.WriteHeader(http.StatusAccepted)
-		_, err := w.Write([]byte(`{"status":"queued"}`))
-		if err != nil {
-			p.LogError(err, "proxy could not respond to the client")
-		}
-	default:
-		// This will show up in Falco logs, should we ever overflow
-		http.Error(w, "Aikido Kubernetes Agent Queue Full", http.StatusServiceUnavailable)
+		return
 	}
-}
 
-// deliveryManager continuously retries sending events to the target endpoint
-func (p *Proxy) deliveryManager(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			// Stop the
-			return
-		case body := <-p.queue:
-			if !p.IsThreatDetectionEnabled() {
-				continue
-			}
-			if p.ShouldFilterOutEvent(ctx, body) {
-				p.LogInfo("filtered out event", "event_body", string(body))
-				continue
-			}
-			p.deliverWithRetry(ctx, body)
-		}
+	if p.ShouldFilterOutEvent(r.Context(), body) {
+		p.LogInfo("filtered out event", "event_body", string(body))
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	if err := p.batchClient.SendContext(r.Context(), json.RawMessage(body)); err != nil {
+		p.LogError(err, "failed to enqueue threat event")
+		http.Error(w, "failed to enqueue threat event", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+	if _, err := w.Write([]byte(`{"status":"queued"}`)); err != nil {
+		p.LogError(err, "proxy could not respond to the client")
 	}
 }
 
@@ -178,51 +170,4 @@ func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetection) bo
 	}
 
 	return false
-}
-
-// deliverWithRetry tries to POST with exponential backoff until success or shutdown
-func (p *Proxy) deliverWithRetry(ctx context.Context, body threatDetection) {
-	backoff := 1 * time.Second
-	maxBackoff := 30 * time.Second
-
-	// later we can try to share the client
-	client := &http.Client{Timeout: 10 * time.Second}
-	for {
-		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/threats/event", p.GetAPIEndpoint()), bytes.NewReader(body))
-		if err != nil {
-			p.LogError(err, "failed to create request")
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Add("Authorization", "Bearer "+p.GetAPIToken())
-
-		resp, err := client.Do(req)
-		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			if err := resp.Body.Close(); err != nil {
-				p.LogError(err, "proxy could not close body to upstream")
-			}
-			p.LogInfo("successfully delivered object")
-			return
-		}
-		if resp != nil {
-			if err := resp.Body.Close(); err != nil {
-				p.LogError(err, "proxy could not close body to upstream")
-			}
-		}
-
-		// Delivery failed, let's do backoff
-		select {
-		case <-ctx.Done():
-			p.LogInfo("cancelled delivery retry due to shutdown")
-			return
-		case <-time.After(backoff):
-			// Exponential backoff
-			if backoff < maxBackoff {
-				backoff *= 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
-			}
-		}
-	}
 }
