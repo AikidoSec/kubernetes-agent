@@ -145,14 +145,11 @@ func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetection) bo
 		return true
 	}
 
-	if slices.Contains(p.GetDisabledThreatRules(), "name:"+falcoEvent.Rule) {
+	if slices.Contains(p.GetDisabledThreatRules(), falcoEvent.Rule) {
 		return true
 	}
 
-	nsI, ok := falcoEvent.OutputFields["k8smeta.ns.name"]
-	if !ok {
-		nsI, ok = falcoEvent.OutputFields["k8s.ns.name"]
-	}
+	nsI, ok := falcoEvent.OutputFields["k8s.ns.name"]
 	if !ok {
 		return false
 	}
