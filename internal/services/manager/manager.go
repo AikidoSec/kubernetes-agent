@@ -381,18 +381,11 @@ func (s *Service) UpdateDisabledThreatRules(ctx context.Context, disabledRules [
 		return fmt.Errorf("error unmarshalling Threat Detector rules: %w", err)
 	}
 
-	rulesActions := make([]models.ThreatRuleAction, len(disabledRules))
-	for i, rule := range disabledRules {
-		if strings.HasPrefix(rule, "name:") {
-			rulesActions[i] = models.ThreatRuleAction{Disable: models.ThreatRuleSelector{
-				Rule: strings.TrimPrefix(rule, "name:"),
-			}}
-			continue
-		}
-
-		rulesActions[i] = models.ThreatRuleAction{Disable: models.ThreatRuleSelector{
-			Tag: strings.TrimPrefix(rule, "tag:"),
-		}}
+	rulesActions := make([]models.ThreatRuleAction, 0, len(disabledRules))
+	for _, rule := range disabledRules {
+		rulesActions = append(rulesActions, models.ThreatRuleAction{Disable: models.ThreatRuleSelector{
+			Rule: rule,
+		}})
 	}
 
 	data["rules"] = rulesActions
