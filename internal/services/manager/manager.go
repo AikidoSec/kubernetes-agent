@@ -18,10 +18,10 @@ import (
 	internalhttp "aikidoSec.kubernetesAgent/internal/http"
 	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
 	"aikidoSec.kubernetesAgent/internal/predicates"
+	"aikidoSec.kubernetesAgent/internal/falco"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/sbom"
-	"aikidoSec.kubernetesAgent/internal/threat"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/imagescache"
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -85,7 +85,7 @@ type Service struct {
 	kubernetesClientSet *kubernetes.Clientset
 	heartbeatService    *heartbeat.Service
 	assetsOutputClient  *batchclient.BatchClient
-	threatProxy         *threat.Proxy
+	falcoProxy          *falco.Proxy
 	metricClient        *metricsclient.Clientset
 }
 
@@ -746,8 +746,8 @@ func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
 	s.assetsOutputClient.SetAPIToken(s.GetAPIToken())
 	s.logger.SetAPIToken(s.GetAPIToken())
 
-	if s.threatProxy != nil {
-		s.threatProxy.SetAPIToken(s.GetAPIToken())
+	if s.falcoProxy != nil {
+		s.falcoProxy.SetAPIToken(s.GetAPIToken())
 	}
 
 	// Set the heartbeat service token
@@ -1016,9 +1016,9 @@ func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error)
 	return string(ns.UID), nil
 }
 
-// RegisterThreatProxy serves as dependency injection (if threat detection is enabled) to the manager
-func (s *Service) RegisterThreatProxy(proxy *threat.Proxy) {
-	s.threatProxy = proxy
+// RegisterFalcoProxy injects the Falco event proxy into the manager (when threat detection is enabled).
+func (s *Service) RegisterFalcoProxy(proxy *falco.Proxy) {
+	s.falcoProxy = proxy
 }
 
 func (s *Service) GetDeploymentAndChartsVersions(ctx context.Context, ns, deploymentName string) (string, string, error) {

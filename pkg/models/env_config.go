@@ -14,5 +14,5 @@ type EnvironmentConfig struct {
 	SBOMCollectorEnabled        *bool
 	AutoUpdateEnabled           bool
 	ThreatDetectionEnabled      bool
-	ThreatProxyPort             int
+	FalcoProxyPort              int
 }

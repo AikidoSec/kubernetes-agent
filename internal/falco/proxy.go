@@ -1,8 +1,9 @@
-package threat
+package falco
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,44 +16,61 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
+// FalcoPayload represents a Falco event as received from the Falco agent.
 type FalcoPayload struct {
 	Rule         string         `json:"rule"`
+	Tags         []string       `json:"tags"`
 	OutputFields map[string]any `json:"output_fields"`
 }
 
-// This is how it works from a high-level
+// Route defines how events with a specific Falco tag are forwarded.
+type Route struct {
+	// Tag is the Falco event tag that triggers this route.
+	Tag string
+	// Client receives matched events.
+	Client *batchclient.BatchClient
+	// IsEnabled is called before routing; if it returns false the route is
+	// skipped. A nil IsEnabled means the route is always active.
+	IsEnabled func() bool
+	// ShouldSkip is an optional per-route filter applied after the common
+	// namespace filter. Return true to drop the event for this route.
+	ShouldSkip func(FalcoPayload) bool
+}
+
+// This is how it works from a high-level:
 //   - Falco sends a JSON object to the proxy via HTTP POST.
 //   - Falco doesn't need an immediate success/failure response from the final target.
 //   - The proxy must ensure eventual delivery to Aikido HTTP endpoint (with retries).
-//   - The proxy adds a cluster token to authenticate itself against Aikido cloud
+//   - The proxy adds a cluster token to authenticate itself against Aikido cloud.
+//   - Events are routed to the appropriate batch client based on their Falco tags.
 //
-// Proxy implements manager.Runnable for integration with controller-runtime
+// Proxy implements manager.Runnable for integration with controller-runtime.
 type Proxy struct {
 	*logger.Service
 	*models.AgentState
 
-	listenPort  int
-	server      *http.Server
-	batchClient *batchclient.BatchClient
+	listenPort int
+	server     *http.Server
+	routes     []Route
 }
 
-// JSON representation as received from falco and as forwarded to Aikido Cloud
-type threatDetection []byte
-
-func NewProxyServer(logger *logger.Service, listenPort int, agentState *models.AgentState, batchClient *batchclient.BatchClient) *Proxy {
+func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentState, routes []Route) *Proxy {
 	return &Proxy{
-		AgentState:  agentState,
-		Service:     logger,
-		listenPort:  listenPort,
-		batchClient: batchClient,
+		AgentState: agentState,
+		Service:    logger,
+		listenPort: listenPort,
+		routes:     routes,
 	}
 }
 
+// SetAPIToken propagates a new API token to all route clients.
 func (p *Proxy) SetAPIToken(token string) {
-	p.batchClient.SetAPIToken(token)
+	for _, r := range p.routes {
+		r.Client.SetAPIToken(token)
+	}
 }
 
-// Start integrates with controller-runtime manager
+// Start integrates with the controller-runtime manager.
 func (p *Proxy) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/detection", p.handleRequest)
@@ -64,7 +82,7 @@ func (p *Proxy) Start(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		p.LogInfo("threat detection proxy listening")
+		p.LogInfo("falco event proxy listening")
 		if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			p.LogError(err, "proxy server failed")
 			errCh <- fmt.Errorf("proxy server failed: %w", err)
@@ -75,7 +93,7 @@ func (p *Proxy) Start(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
-		p.LogInfo("threat detection proxy shutting down...")
+		p.LogInfo("falco event proxy shutting down...")
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -85,11 +103,16 @@ func (p *Proxy) Start(ctx context.Context) error {
 
 		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return p.batchClient.Close(closeCtx)
+		var errs []error
+		for _, r := range p.routes {
+			if err := r.Client.Close(closeCtx); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
 	}
 }
 
-// handleRequest: receive data from falco agent, filter, enqueue for batched delivery, and return immediately
 func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is supported", http.StatusMethodNotAllowed)
@@ -109,21 +132,28 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !p.IsThreatDetectionEnabled() {
+	event, drop := p.parseAndFilter(body)
+	if drop {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 
-	if p.ShouldFilterOutEvent(r.Context(), body) {
-		p.LogInfo("filtered out event", "event_body", string(body))
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-
-	if err := p.batchClient.SendContext(r.Context(), json.RawMessage(body)); err != nil {
-		p.LogError(err, "failed to enqueue threat event")
-		http.Error(w, "failed to enqueue threat event", http.StatusServiceUnavailable)
-		return
+	for _, route := range p.routes {
+		if !slices.Contains(event.Tags, route.Tag) {
+			continue
+		}
+		if route.IsEnabled != nil && !route.IsEnabled() {
+			continue
+		}
+		if route.ShouldSkip != nil && route.ShouldSkip(event) {
+			p.LogInfo("event filtered by route", "tag", route.Tag, "rule", event.Rule)
+			continue
+		}
+		if err := route.Client.SendContext(r.Context(), json.RawMessage(body)); err != nil {
+			p.LogError(err, "failed to enqueue event", "tag", route.Tag)
+			http.Error(w, "failed to enqueue event", http.StatusServiceUnavailable)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusAccepted)
@@ -132,45 +162,40 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ShouldFilterOutEvent checks if the event should be filtered out.
-// Only enabled rules pass through; all others are dropped.
+// parseAndFilter parses the event body and applies common namespace-based filtering.
 // Host-level events with no namespace field pass through unconditionally.
 // Events from the agent namespace are always dropped.
 // Customer-configured excluded/included namespace lists are also applied.
-func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetection) bool {
-	var falcoEvent FalcoPayload
-	err := json.Unmarshal(body, &falcoEvent)
-	if err != nil {
+// Returns the parsed event and true if the event should be dropped.
+func (p *Proxy) parseAndFilter(body []byte) (FalcoPayload, bool) {
+	var event FalcoPayload
+	if err := json.Unmarshal(body, &event); err != nil {
 		p.LogError(err, "failed to unmarshal falco event")
-		return true
+		return event, true
 	}
 
-	if !slices.Contains(p.GetEnabledThreatRules(), falcoEvent.Rule) {
-		return true
-	}
-
-	nsI, ok := falcoEvent.OutputFields["k8s.ns.name"]
+	nsI, ok := event.OutputFields["k8s.ns.name"]
 	if !ok {
-		return false
+		return event, false
 	}
 
 	ns, ok := nsI.(string)
 	if !ok {
-		return false
+		return event, false
 	}
 
 	if ns == p.GetAgentNamespace() {
-		return true
+		return event, true
 	}
 
 	if slices.Contains(p.GetExcludedNamespaces(), ns) {
-		return true
+		return event, true
 	}
 
 	includedNamespaces := p.GetIncludedNamespaces()
 	if len(includedNamespaces) > 0 && !slices.Contains(includedNamespaces, ns) {
-		return true
+		return event, true
 	}
 
-	return false
+	return event, false
 }

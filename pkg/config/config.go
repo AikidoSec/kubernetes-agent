@@ -130,14 +130,14 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		threatDetectionEnabled = false
 	}
 
-	threatProxyPortStr, exists := os.LookupEnv("THREAT_PROXY_PORT")
+	falcoProxyPortStr, exists := os.LookupEnv("FALCO_PROXY_PORT")
 	if !exists {
-		threatProxyPortStr = "8241"
+		falcoProxyPortStr = "8241"
 	}
 
-	threatProxyPort, err := strconv.Atoi(threatProxyPortStr)
+	falcoProxyPort, err := strconv.Atoi(falcoProxyPortStr)
 	if err != nil {
-		errs = multierr.Append(errs, fmt.Errorf("invalid THREAT_PROXY_PORT value: %s", threatProxyPortStr))
+		errs = multierr.Append(errs, fmt.Errorf("invalid FALCO_PROXY_PORT value: %s", falcoProxyPortStr))
 	}
 
 	return models.EnvironmentConfig{
@@ -152,6 +152,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		SBOMCollectorEnabled:        sbomCollectorEnabled,
 		AutoUpdateEnabled:           autoUpdateEnabled,
 		ThreatDetectionEnabled:      threatDetectionEnabled,
-		ThreatProxyPort:             threatProxyPort,
+		FalcoProxyPort:              falcoProxyPort,
 	}, errs
 }
