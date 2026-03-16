@@ -351,10 +351,10 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	shouldRestartThreatDetector := false
-	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetDisabledThreatRules(), resp.Cluster.DisabledThreatRules) {
-		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetDisabledThreatRules(), "new rules", resp.Cluster.DisabledThreatRules)
-		if err := s.UpdateDisabledThreatRules(ctx, resp.Cluster.DisabledThreatRules); err != nil {
-			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
+	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetEnabledThreatRules(), resp.EnabledThreatRules) {
+		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", resp.EnabledThreatRules)
+		if err := s.UpdateEnabledThreatRules(ctx, resp.EnabledThreatRules); err != nil {
+			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
 		} else {
 			shouldRestartThreatDetector = true
 		}
@@ -370,7 +370,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	return resp, nil
 }
 
-func (s *Service) UpdateDisabledThreatRules(ctx context.Context, disabledRules []string) error {
+func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []string) error {
 	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, s.GetThreatDetectorDaemonSetName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting Threat Detector configmap: %w", err)
@@ -381,11 +381,9 @@ func (s *Service) UpdateDisabledThreatRules(ctx context.Context, disabledRules [
 		return fmt.Errorf("error unmarshalling Threat Detector rules: %w", err)
 	}
 
-	rulesActions := make([]models.ThreatRuleAction, 0, len(disabledRules))
-	for _, rule := range disabledRules {
-		rulesActions = append(rulesActions, models.ThreatRuleAction{Disable: models.ThreatRuleSelector{
-			Rule: rule,
-		}})
+	rulesActions := []models.ThreatRuleAction{{Disable: models.ThreatRuleSelector{Rule: "*"}}}
+	for _, rule := range enabledRules {
+		rulesActions = append(rulesActions, models.ThreatRuleAction{Enable: models.ThreatRuleSelector{Rule: rule}})
 	}
 
 	data["rules"] = rulesActions
@@ -399,8 +397,7 @@ func (s *Service) UpdateDisabledThreatRules(ctx context.Context, disabledRules [
 		return fmt.Errorf("error updating Threat Detector configmap: %w", err)
 	}
 
-	// Store the new disabled rules in the agent state.
-	s.SetDisabledThreatRules(disabledRules)
+	s.SetEnabledThreatRules(enabledRules)
 	return nil
 }
 
@@ -465,7 +462,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetExcludedNamespaces(hb.Cluster.ExcludedNamespaces)
 	s.SetIncludedNamespaces(hb.Cluster.IncludedNamespaces)
 	s.SetThreatDetectionEnabled(hb.Cluster.ThreatDetectionEnabled)
-	s.SetDisabledThreatRules(hb.Cluster.DisabledThreatRules)
+	s.SetEnabledThreatRules(hb.EnabledThreatRules)
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
@@ -664,8 +661,8 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	// TODO: Init container on Falco ds
 	// If threat detection is enabled, update the rules configmaps and restart the daemonset.
 	if s.IsThreatDetectionEnabled() {
-		if err := s.UpdateDisabledThreatRules(ctx, s.GetDisabledThreatRules()); err != nil {
-			s.logger.ReportError(ctx, err, "error updating disabled threat detection rules", "managerError")
+		if err := s.UpdateEnabledThreatRules(ctx, s.GetEnabledThreatRules()); err != nil {
+			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
 		}
 
 

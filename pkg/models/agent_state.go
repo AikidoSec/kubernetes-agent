@@ -32,7 +32,7 @@ type AgentState struct {
 
 	threatDaemonSetName    string
 	threatDetectionEnabled bool
-	disabledThreatRules    []string
+	enabledThreatRules     []string
 
 	mu sync.Mutex
 }
@@ -43,7 +43,7 @@ func NewEmptyAgentState() *AgentState {
 		includedNamespaces:  make([]string, 0),
 		monitoredResources:  make([]string, 0),
 		imageMirrorMappings: make(map[string]string),
-		disabledThreatRules: make([]string, 0),
+		enabledThreatRules: make([]string, 0),
 		mu:                  sync.Mutex{},
 	}
 }
@@ -180,10 +180,10 @@ func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {
 	a.threatDetectionEnabled = enabled
 }
 
-func (a *AgentState) GetDisabledThreatRules() []string {
+func (a *AgentState) GetEnabledThreatRules() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.disabledThreatRules
+	return a.enabledThreatRules
 }
 
 func (a *AgentState) GetThreatDetectorDaemonSetName() string {
@@ -338,9 +338,9 @@ func (a *AgentState) IsThreatDetectionEnabled() bool {
 	return a.threatDetectionEnabled
 }
 
-func (a *AgentState) SetDisabledThreatRules(rules []string) {
+func (a *AgentState) SetEnabledThreatRules(rules []string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.disabledThreatRules = rules
+	a.enabledThreatRules = rules
 }
 

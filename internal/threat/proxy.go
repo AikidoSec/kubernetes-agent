@@ -133,7 +133,7 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // ShouldFilterOutEvent checks if the event should be filtered out.
-// Disabled rules are always dropped.
+// Only enabled rules pass through; all others are dropped.
 // Host-level events with no namespace field pass through unconditionally.
 // Events from the agent namespace are always dropped.
 // Customer-configured excluded/included namespace lists are also applied.
@@ -145,7 +145,7 @@ func (p *Proxy) ShouldFilterOutEvent(_ context.Context, body threatDetection) bo
 		return true
 	}
 
-	if slices.Contains(p.GetDisabledThreatRules(), falcoEvent.Rule) {
+	if !slices.Contains(p.GetEnabledThreatRules(), falcoEvent.Rule) {
 		return true
 	}
 
