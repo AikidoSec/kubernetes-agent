@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/logger"
@@ -138,18 +139,29 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sanitized, err := stripAikidoTags(body)
+	if err != nil {
+		p.LogError(err, "failed to sanitize event tags")
+		http.Error(w, "failed to process event", http.StatusInternalServerError)
+		return
+	}
+
+	p.LogInfo("event received", "rule", event.Rule, "tags", event.Tags)
+
 	for _, route := range p.routes {
 		if !slices.Contains(event.Tags, route.Tag) {
+			p.LogInfo("event skipped: tag not matched", "rule", event.Rule, "event_tags", event.Tags, "route_tag", route.Tag)
 			continue
 		}
 		if route.IsEnabled != nil && !route.IsEnabled() {
+			p.LogInfo("event skipped: route not enabled", "rule", event.Rule, "route_tag", route.Tag)
 			continue
 		}
 		if route.ShouldSkip != nil && route.ShouldSkip(event) {
-			p.LogInfo("event filtered by route", "tag", route.Tag, "rule", event.Rule)
+			p.LogInfo("event skipped: filtered by route", "rule", event.Rule, "route_tag", route.Tag)
 			continue
 		}
-		if err := route.Client.SendContext(r.Context(), json.RawMessage(body)); err != nil {
+		if err := route.Client.SendContext(r.Context(), sanitized); err != nil {
 			p.LogError(err, "failed to enqueue event", "tag", route.Tag)
 			http.Error(w, "failed to enqueue event", http.StatusServiceUnavailable)
 			return
@@ -198,4 +210,38 @@ func (p *Proxy) parseAndFilter(body []byte) (FalcoPayload, bool) {
 	}
 
 	return event, false
+}
+
+// stripAikidoTags removes all tags with the "aikido:" prefix from the event JSON.
+// These tags are internal routing markers and must not be forwarded to downstream consumers.
+func stripAikidoTags(body []byte) (json.RawMessage, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal event: %w", err)
+	}
+
+	tagsJSON, ok := raw["tags"]
+	if !ok {
+		return body, nil
+	}
+
+	var tags []string
+	if err := json.Unmarshal(tagsJSON, &tags); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tags: %w", err)
+	}
+
+	filtered := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if !strings.HasPrefix(tag, "aikido:") {
+			filtered = append(filtered, tag)
+		}
+	}
+
+	sanitizedTags, err := json.Marshal(filtered)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal sanitized tags: %w", err)
+	}
+	raw["tags"] = sanitizedTags
+
+	return json.Marshal(raw)
 }

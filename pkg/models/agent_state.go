@@ -192,6 +192,10 @@ func (a *AgentState) GetThreatDetectorDaemonSetName() string {
 	return a.threatDaemonSetName
 }
 
+func (a *AgentState) GetFalcoRulesConfigMapName() string {
+	return "kubernetes-agent-falco-rules"
+}
+
 func (a *AgentState) SetAgentVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

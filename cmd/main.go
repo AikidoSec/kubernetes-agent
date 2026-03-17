@@ -166,6 +166,11 @@ func main() {
 	}
 
 	if envCfg.ThreatDetectionEnabled {
+		if err := agentService.WriteEmbeddedRules(ctx); err != nil {
+			loggerService.ReportError(ctx, err, "error writing embedded threat rules to configmap", "agentSetupError")
+			os.Exit(1)
+		}
+
 		threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
 			Endpoint:              cfg.APIEndpoint + "/api/threats/events",
 			MaxBatch:              1000,
@@ -185,7 +190,7 @@ func main() {
 			agentState,
 			[]falco.Route{
 				{
-					Tag:       "threat-detection",
+					Tag:       "aikido:threat-detection",
 					Client:    threatBatchClient,
 					IsEnabled: agentState.IsThreatDetectionEnabled,
 					ShouldSkip: func(e falco.FalcoPayload) bool {

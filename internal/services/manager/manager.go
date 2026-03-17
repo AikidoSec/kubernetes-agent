@@ -402,6 +402,24 @@ func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []s
 	return nil
 }
 
+func (s *Service) WriteEmbeddedRules(ctx context.Context) error {
+	cmName := s.GetFalcoRulesConfigMapName()
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting falco rules configmap %q: %w", cmName, err)
+	}
+
+	if cm.Data == nil {
+		cm.Data = make(map[string]string)
+	}
+	cm.Data["threat-detection-rules.yaml"] = string(falco.EmbeddedThreatRules)
+
+	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating falco rules configmap %q: %w", cmName, err)
+	}
+	return nil
+}
+
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
 	// Load the agent and charts versions from the deployment labels
 	agentVersion, helmChartsVersion, err := s.GetDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
