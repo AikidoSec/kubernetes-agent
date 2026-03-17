@@ -345,13 +345,14 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	if s.IsThreatDetectionEnabled() != resp.Cluster.ThreatDetectionEnabled {
+	threatDetectionChanged := s.IsThreatDetectionEnabled() != resp.Cluster.ThreatDetectionEnabled
+	if threatDetectionChanged {
 		s.logger.LogInfo("threat detection enabled changed from heartbeat response", "enabled", resp.Cluster.ThreatDetectionEnabled)
 		s.SetThreatDetectionEnabled(resp.Cluster.ThreatDetectionEnabled)
 	}
 
 	shouldRestartThreatDetector := false
-	if s.IsThreatDetectionEnabled() && !slices.Equal(s.GetEnabledThreatRules(), resp.EnabledThreatRules) {
+	if s.IsThreatDetectionEnabled() && (threatDetectionChanged || !slices.Equal(s.GetEnabledThreatRules(), resp.EnabledThreatRules)) {
 		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", resp.EnabledThreatRules)
 		if err := s.UpdateEnabledThreatRules(ctx, resp.EnabledThreatRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
