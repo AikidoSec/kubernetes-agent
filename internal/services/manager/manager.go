@@ -218,9 +218,18 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
+	falcoVersion := s.GetFalcoVersion()
+	if s.IsThreatDetectionEnabled() {
+		falcoVersion, err = LoadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
+		}
+	}
+
 	resp, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
 		AgentVersion:       agentVersion,
 		CollectorVersion:   sbomCollectorVersion,
+		FalcoVersion:       falcoVersion,
 		IsInitialHeartbeat: false,
 		Metrics:            string(metricsPayload),
 		HelmChartsVersion:  helmChartsVersion,
@@ -345,6 +354,13 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
+	if s.GetAutoUpdateEnabled() && s.IsThreatDetectionEnabled() && resp.Cluster.DesiredFalcoVersion != "" && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
+		s.logger.LogInfo("falco version updated from heartbeat response", "current version", s.GetFalcoVersion(), "new version", resp.Cluster.DesiredFalcoVersion)
+		if err := s.UpdateFalcoVersion(ctx, resp.Cluster.DesiredFalcoVersion); err != nil {
+			s.logger.ReportError(ctx, err, "error updating falco version", "managerError")
+		}
+	}
+
 	threatDetectionChanged := s.IsThreatDetectionEnabled() != resp.Cluster.ThreatDetectionEnabled
 	if threatDetectionChanged {
 		s.logger.LogInfo("threat detection enabled changed from heartbeat response", "enabled", resp.Cluster.ThreatDetectionEnabled)
@@ -448,6 +464,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
 		AgentVersion:       s.GetAgentVersion(),
 		CollectorVersion:   s.GetSBOMCollectorVersion(),
+		FalcoVersion:       s.GetFalcoVersion(),
 		IsInitialHeartbeat: true,
 		ClusterIdentifier:  clusterIdentifier,
 		NamespaceEvents:    string(namespaceEventsPayload),
@@ -464,6 +481,14 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetIncludedNamespaces(hb.Cluster.IncludedNamespaces)
 	s.SetThreatDetectionEnabled(hb.Cluster.ThreatDetectionEnabled)
 	s.SetEnabledThreatRules(hb.EnabledThreatRules)
+
+	if hb.Cluster.ThreatDetectionEnabled {
+		falcoVersion, err := LoadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
+		}
+		s.SetFalcoVersion(falcoVersion)
+	}
 
 	assetsClient, err := batchclient.NewBatchClient(s.logger.GetLogger(), batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/assets",
@@ -1190,6 +1215,43 @@ func (s *Service) UpdateSBOMCollectorDaemonSetVersion(ctx context.Context, newVe
 	// We're setting the sbom collector version to prevent multiple updates of the deployment if the heartbeat interval is
 	// shorter than the time it takes for the deployment to roll out
 	s.SetSBOMCollectorVersion(newVersion)
+	return nil
+}
+
+// UpdateFalcoVersion updates all containers and init containers in the Falco DaemonSet to the new version.
+// Both are patched because some driver modes use an init container for driver loading.
+func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) error {
+	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
+		return nil
+	}
+
+	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetThreatDetectorDaemonSetName(), v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting falco daemonset: %w", err)
+	}
+
+	for i, container := range daemonSet.Spec.Template.Spec.Containers {
+		imageParts := strings.Split(container.Image, ":")
+		if len(imageParts) == 2 {
+			daemonSet.Spec.Template.Spec.Containers[i].Image = fmt.Sprintf("%s:%s", imageParts[0], newVersion)
+		}
+	}
+
+	for i, container := range daemonSet.Spec.Template.Spec.InitContainers {
+		imageParts := strings.Split(container.Image, ":")
+		if len(imageParts) == 2 {
+			daemonSet.Spec.Template.Spec.InitContainers[i].Image = fmt.Sprintf("%s:%s", imageParts[0], newVersion)
+		}
+	}
+
+	daemonSet.Labels["app.kubernetes.io/version"] = newVersion
+	daemonSet.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
+
+	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, daemonSet, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating falco daemonset: %w", err)
+	}
+
+	s.SetFalcoVersion(newVersion)
 	return nil
 }
 

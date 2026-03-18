@@ -33,6 +33,7 @@ type AgentState struct {
 	threatDaemonSetName    string
 	threatDetectionEnabled bool
 	enabledThreatRules     []string
+	falcoVersion           string
 
 	mu sync.Mutex
 }
@@ -342,5 +343,17 @@ func (a *AgentState) SetEnabledThreatRules(rules []string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.enabledThreatRules = rules
+}
+
+func (a *AgentState) GetFalcoVersion() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.falcoVersion
+}
+
+func (a *AgentState) SetFalcoVersion(version string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.falcoVersion = version
 }
 
