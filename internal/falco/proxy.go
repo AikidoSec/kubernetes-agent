@@ -148,6 +148,10 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	p.LogInfo("event received", "rule", event.Rule, "tags", event.Tags)
 
+	if !hasAikidoTag(event.Tags) {
+		p.LogWarning(fmt.Errorf("rule %q fired with no aikido: routing tag — event will not be forwarded", event.Rule), "misconfigured rule detected")
+	}
+
 	for _, route := range p.routes {
 		if !slices.Contains(event.Tags, route.Tag) {
 			p.LogInfo("event skipped: tag not matched", "rule", event.Rule, "event_tags", event.Tags, "route_tag", route.Tag)
@@ -210,6 +214,15 @@ func (p *Proxy) parseAndFilter(body []byte) (FalcoPayload, bool) {
 	}
 
 	return event, false
+}
+
+func hasAikidoTag(tags []string) bool {
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, "aikido:") {
+			return true
+		}
+	}
+	return false
 }
 
 // stripAikidoTags removes all tags with the "aikido:" prefix from the event JSON.

@@ -21,6 +21,29 @@ func newTestProxy(agentNamespace string, excludedNamespaces, includedNamespaces 
 	}
 }
 
+func TestHasAikidoTag(t *testing.T) {
+	tests := []struct {
+		name string
+		tags []string
+		want bool
+	}{
+		{"no tags", nil, false},
+		{"empty tags", []string{}, false},
+		{"unrelated tags only", []string{"network", "filesystem"}, false},
+		{"aikido routing tag present", []string{"network", "aikido:threat-detection"}, true},
+		{"multiple aikido tags", []string{"aikido:threat-detection", "aikido:sca"}, true},
+		{"aikido prefix without colon not matched", []string{"aikido"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasAikidoTag(tt.tags); got != tt.want {
+				t.Errorf("hasAikidoTag(%v) = %v, want %v", tt.tags, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseAndFilter(t *testing.T) {
 	tests := []struct {
 		name               string

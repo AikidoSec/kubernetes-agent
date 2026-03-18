@@ -370,7 +370,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	shouldRestartThreatDetector := false
 	if s.IsThreatDetectionEnabled() && (threatDetectionChanged || !slices.Equal(s.GetEnabledThreatRules(), resp.EnabledThreatRules)) {
 		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", resp.EnabledThreatRules)
-		if err := s.UpdateEnabledThreatRules(ctx, resp.EnabledThreatRules); err != nil {
+		if err := s.UpdateEnabledFalcoRules(ctx, resp.EnabledThreatRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
 		} else {
 			shouldRestartThreatDetector = true
@@ -387,7 +387,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	return resp, nil
 }
 
-func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []string) error {
+func (s *Service) UpdateEnabledFalcoRules(ctx context.Context, enabledRules []string) error {
 	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, s.GetThreatDetectorDaemonSetName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting Threat Detector configmap: %w", err)
@@ -398,6 +398,9 @@ func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []s
 		return fmt.Errorf("error unmarshalling Threat Detector rules: %w", err)
 	}
 
+	// Deny all rules by default; selectively enable only the rules the customer has turned on.
+	// To add a new ruleset (e.g. SCA), append {Enable: {Tag: "aikido:sca"}} here — no heartbeat
+	// plumbing needed since those rules are either all-on or all-off at the tag level.
 	rulesActions := []models.ThreatRuleAction{{Disable: models.ThreatRuleSelector{Rule: "*"}}}
 	for _, rule := range enabledRules {
 		rulesActions = append(rulesActions, models.ThreatRuleAction{Enable: models.ThreatRuleSelector{Rule: rule}})
@@ -705,7 +708,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	// TODO: Init container on Falco ds
 	// If threat detection is enabled, update the rules configmaps and restart the daemonset.
 	if s.IsThreatDetectionEnabled() {
-		if err := s.UpdateEnabledThreatRules(ctx, s.GetEnabledThreatRules()); err != nil {
+		if err := s.UpdateEnabledFalcoRules(ctx, s.GetEnabledThreatRules()); err != nil {
 			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
 		}
 
