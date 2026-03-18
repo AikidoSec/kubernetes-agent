@@ -66,6 +66,9 @@ BEGIN {
 { print }
 ' > "$RULES_FILE"
 
+# Stamp the Falco version at the top of the file so the CI sync check can read it.
+{ echo "# aikido-falco-version: ${VERSION}"; cat "$RULES_FILE"; } > "${RULES_FILE}.tmp" && mv "${RULES_FILE}.tmp" "$RULES_FILE"
+
 echo "Written: $RULES_FILE"
 
 # Report rules that had the routing tag but no longer exist in the new version.
