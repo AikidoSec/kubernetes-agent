@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"time"
 
+	"aikidoSec.kubernetesAgent/internal/falco"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
-	"aikidoSec.kubernetesAgent/internal/threat"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/config"
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -36,9 +37,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
-var (
-	scheme = runtime.NewScheme()
-)
+var scheme = runtime.NewScheme()
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -167,6 +166,11 @@ func main() {
 	}
 
 	if envCfg.ThreatDetectionEnabled {
+		if err := agentService.WriteEmbeddedRules(ctx); err != nil {
+			loggerService.ReportError(ctx, err, "error writing embedded threat rules to configmap", "agentSetupError")
+			os.Exit(1)
+		}
+
 		threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
 			Endpoint:              cfg.APIEndpoint + "/api/threats/events",
 			MaxBatch:              1000,
@@ -180,15 +184,24 @@ func main() {
 			loggerService.ReportError(ctx, err, "error creating threat batch client", "agentSetupError")
 			os.Exit(1)
 		}
-		proxy := threat.NewProxyServer(
+		proxy := falco.NewProxy(
 			loggerService,
-			envCfg.ThreatProxyPort,
+			envCfg.FalcoProxyPort,
 			agentState,
-			threatBatchClient,
+			[]falco.Route{
+				{
+					Tag:       "aikido:threat-detection",
+					Client:    threatBatchClient,
+					IsEnabled: agentState.IsThreatDetectionEnabled,
+					ShouldSkip: func(e falco.FalcoPayload) bool {
+						return !slices.Contains(agentState.GetEnabledThreatRules(), e.Rule)
+					},
+				},
+			},
 		)
-		agentService.RegisterThreatProxy(proxy)
+		agentService.RegisterFalcoProxy(proxy)
 		if err := mgr.Add(proxy); err != nil {
-			l.Error("Unable to add threat detection proxy to manager", "error", err)
+			l.Error("Unable to add falco event proxy to manager", "error", err)
 			os.Exit(1)
 		}
 	}
