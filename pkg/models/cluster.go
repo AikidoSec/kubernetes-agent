@@ -13,6 +13,7 @@ type Cluster struct {
 	IncludedNamespaces          []string `json:"included_namespaces"`
 	DesiredAgentVersion         string   `json:"desired_agent_version"`
 	DesiredSBOMCollectorVersion string   `json:"desired_sbom_collector_version"`
+	DesiredFalcoVersion         string   `json:"desired_falco_version"`
 	SBOMCollectorEnabled        bool     `json:"sbom_collector_enabled"`
 	ThreatDetectionEnabled      bool     `json:"threat_detection_enabled"`
 	DisabledThreatRules         []string `json:"disabled_threat_rules"`
