@@ -30,10 +30,11 @@ type AgentState struct {
 	imageMirrorMappings         map[string]string
 	sbomCollectorServiceAccount *corev1.ServiceAccount
 
-	threatDaemonSetName    string
-	threatDetectionEnabled bool
-	enabledThreatRules     []string
-	falcoVersion           string
+	threatDetectionEnabled       bool
+	chartsThreatDetectionEnabled bool
+	threatDaemonSetName          string
+	enabledThreatRules           []string
+	falcoVersion                 string
 
 	mu sync.Mutex
 }
@@ -44,7 +45,7 @@ func NewEmptyAgentState() *AgentState {
 		includedNamespaces:  make([]string, 0),
 		monitoredResources:  make([]string, 0),
 		imageMirrorMappings: make(map[string]string),
-		enabledThreatRules: make([]string, 0),
+		enabledThreatRules:  make([]string, 0),
 		mu:                  sync.Mutex{},
 	}
 }
@@ -173,6 +174,18 @@ func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.chartsSBOMCollectorEnabled = enabled
+}
+
+func (a *AgentState) IsChartsThreatDetectionEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.chartsThreatDetectionEnabled
+}
+
+func (a *AgentState) SetChartsThreatDetectionEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.chartsThreatDetectionEnabled = enabled
 }
 
 func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {
@@ -360,4 +373,3 @@ func (a *AgentState) SetFalcoVersion(version string) {
 	defer a.mu.Unlock()
 	a.falcoVersion = version
 }
-
