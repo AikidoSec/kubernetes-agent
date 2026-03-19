@@ -165,12 +165,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// ThreatDetectionEnabled is a static Helm flag that controls whether threat detection
+	// infrastructure is deployed (Falco DaemonSet subchart + proxy HTTP server). The per-cluster
+	// DB flag (resp.Cluster.ThreatDetectionEnabled) is a runtime on/off switch within an already
+	// deployed setup — it cannot activate threat detection if the Helm flag is false.
 	if envCfg.ThreatDetectionEnabled {
-		if err := agentService.WriteEmbeddedRules(ctx); err != nil {
-			loggerService.ReportError(ctx, err, "error writing embedded threat rules to configmap", "agentSetupError")
-			os.Exit(1)
-		}
-
 		threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
 			Endpoint:              cfg.APIEndpoint + "/api/threats/events",
 			MaxBatch:              1000,

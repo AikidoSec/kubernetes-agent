@@ -15,10 +15,10 @@ import (
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
+	"aikidoSec.kubernetesAgent/internal/falco"
 	internalhttp "aikidoSec.kubernetesAgent/internal/http"
 	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
 	"aikidoSec.kubernetesAgent/internal/predicates"
-	"aikidoSec.kubernetesAgent/internal/falco"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/sbom"
@@ -149,6 +149,8 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		scannedImagesCache:  imagescache.NewImagesCache(),
 	}, nil
 }
+
+const threatDetectionRulesKey = "threat-detection-rules.yaml"
 
 func (s *Service) StartHeartbeat() {
 	defer func() {
@@ -368,9 +370,29 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	shouldRestartThreatDetector := false
-	if s.IsThreatDetectionEnabled() && (threatDetectionChanged || !slices.Equal(s.GetEnabledThreatRules(), resp.EnabledThreatRules)) {
+	if threatDetectionChanged && s.IsThreatDetectionEnabled() {
+		if err := s.WriteEmbeddedThreatRules(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error writing embedded threat rules to configmap", "managerError")
+		}
+		if err := s.UpdateEnabledThreatRules(ctx, resp.EnabledThreatRules); err != nil {
+			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
+		} else {
+			shouldRestartThreatDetector = true
+		}
+	}
+	if threatDetectionChanged && !s.IsThreatDetectionEnabled() {
+		if err := s.ClearEmbeddedThreatRules(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error clearing embedded threat rules from configmap", "managerError")
+		}
+		if err := s.UpdateEnabledThreatRules(ctx, []string{}); err != nil {
+			s.logger.ReportError(ctx, err, "error disabling falco rules", "managerError")
+		} else {
+			shouldRestartThreatDetector = true
+		}
+	}
+	if s.IsThreatDetectionEnabled() && !threatDetectionChanged && !slices.Equal(s.GetEnabledThreatRules(), resp.EnabledThreatRules) {
 		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", resp.EnabledThreatRules)
-		if err := s.UpdateEnabledFalcoRules(ctx, resp.EnabledThreatRules); err != nil {
+		if err := s.UpdateEnabledThreatRules(ctx, resp.EnabledThreatRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
 		} else {
 			shouldRestartThreatDetector = true
@@ -387,7 +409,15 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	return resp, nil
 }
 
-func (s *Service) UpdateEnabledFalcoRules(ctx context.Context, enabledRules []string) error {
+func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []string) error {
+	s.SetEnabledThreatRules(enabledRules)
+	return s.rebuildFalcoRulesConfig(ctx)
+}
+
+// rebuildFalcoRulesConfig writes the complete rules override to the Falco ConfigMap from all
+// current ruleset states. All rulesets are denied by default; only explicitly enabled rules fire.
+// To add a new ruleset (e.g. SCA), read its state from agentState and append enables here.
+func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
 	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, s.GetThreatDetectorDaemonSetName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting Threat Detector configmap: %w", err)
@@ -395,21 +425,18 @@ func (s *Service) UpdateEnabledFalcoRules(ctx context.Context, enabledRules []st
 
 	data := make(map[string]any)
 	if err := yaml.Unmarshal([]byte(cm.Data["falco.yaml"]), &data); err != nil {
-		return fmt.Errorf("error unmarshalling Threat Detector rules: %w", err)
+		return fmt.Errorf("error unmarshalling Threat Detector configmap: %w", err)
 	}
 
-	// Deny all rules by default; selectively enable only the rules the customer has turned on.
-	// To add a new ruleset (e.g. SCA), append {Enable: {Tag: "aikido:sca"}} here — no heartbeat
-	// plumbing needed since those rules are either all-on or all-off at the tag level.
 	rulesActions := []models.ThreatRuleAction{{Disable: models.ThreatRuleSelector{Rule: "*"}}}
-	for _, rule := range enabledRules {
+	for _, rule := range s.GetEnabledThreatRules() {
 		rulesActions = append(rulesActions, models.ThreatRuleAction{Enable: models.ThreatRuleSelector{Rule: rule}})
 	}
 
 	data["rules"] = rulesActions
 	newYaml, err := yaml.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("error marshalling Threat Detector rules: %w", err)
+		return fmt.Errorf("error marshalling Threat Detector configmap: %w", err)
 	}
 	cm.Data["falco.yaml"] = string(newYaml)
 
@@ -417,11 +444,10 @@ func (s *Service) UpdateEnabledFalcoRules(ctx context.Context, enabledRules []st
 		return fmt.Errorf("error updating Threat Detector configmap: %w", err)
 	}
 
-	s.SetEnabledThreatRules(enabledRules)
 	return nil
 }
 
-func (s *Service) WriteEmbeddedRules(ctx context.Context) error {
+func (s *Service) WriteEmbeddedThreatRules(ctx context.Context) error {
 	cmName := s.GetFalcoRulesConfigMapName()
 	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
 	if err != nil {
@@ -431,7 +457,25 @@ func (s *Service) WriteEmbeddedRules(ctx context.Context) error {
 	if cm.Data == nil {
 		cm.Data = make(map[string]string)
 	}
-	cm.Data["threat-detection-rules.yaml"] = string(falco.EmbeddedThreatRules)
+	cm.Data[threatDetectionRulesKey] = string(falco.EmbeddedThreatRules)
+
+	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating falco rules configmap %q: %w", cmName, err)
+	}
+	return nil
+}
+
+func (s *Service) ClearEmbeddedThreatRules(ctx context.Context) error {
+	cmName := s.GetFalcoRulesConfigMapName()
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting falco rules configmap %q: %w", cmName, err)
+	}
+
+	if cm.Data == nil {
+		cm.Data = make(map[string]string)
+	}
+	cm.Data[threatDetectionRulesKey] = ""
 
 	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("error updating falco rules configmap %q: %w", cmName, err)
@@ -706,12 +750,15 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// TODO: Init container on Falco ds
-	// If threat detection is enabled, update the rules configmaps and restart the daemonset.
+	// If threat detection is enabled, write embedded rules and apply the enabled-rules config.
 	if s.IsThreatDetectionEnabled() {
-		if err := s.UpdateEnabledFalcoRules(ctx, s.GetEnabledThreatRules()); err != nil {
-			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
+		if err := s.WriteEmbeddedThreatRules(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error writing embedded threat rules to configmap", "managerError")
 		}
 
+		if err := s.rebuildFalcoRulesConfig(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
+		}
 
 		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
