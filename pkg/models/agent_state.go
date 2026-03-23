@@ -43,6 +43,8 @@ type AgentState struct {
 
 	collectorImageReservations map[string]time.Time
 
+	runtimeSCAEnabled bool
+
 	mu sync.Mutex
 }
 
@@ -484,4 +486,16 @@ func (a *AgentState) CleanupCollectorReservedImages() {
 			delete(a.collectorImageReservations, imageKey)
 		}
 	}
+}
+
+func (a *AgentState) IsRuntimeSCAEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.runtimeSCAEnabled
+}
+
+func (a *AgentState) SetRuntimeSCAEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.runtimeSCAEnabled = enabled
 }
