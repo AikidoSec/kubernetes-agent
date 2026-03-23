@@ -1,0 +1,27 @@
+- rule: Node Modules File Open
+  desc: >
+    Detects when a file is opened inside a node_modules directory, indicating
+    a Node.js package is being used at runtime. Used for runtime SCA analysis.
+  condition: >
+    (evt.type in (open, openat, openat2))
+    and fd.typechar='f'
+    and fd.num>=0
+    and fd.name contains "/node_modules/"
+    and container
+  output: Node.js package used at runtime | file=%fd.name process=%proc.name container=%container.name image=%container.image.repository k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name
+  priority: INFORMATIONAL
+  tags: [container, aikido:runtime-sca]
+
+- rule: Python Site Packages File Open
+  desc: >
+    Detects when a file is opened inside a site-packages directory, indicating
+    a Python package is being used at runtime. Used for runtime SCA analysis.
+  condition: >
+    (evt.type in (open, openat, openat2))
+    and fd.typechar='f'
+    and fd.num>=0
+    and fd.name contains "/site-packages/"
+    and container
+  output: Python package used at runtime | file=%fd.name process=%proc.name container=%container.name image=%container.image.repository k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name
+  priority: INFORMATIONAL
+  tags: [container, aikido:runtime-sca]

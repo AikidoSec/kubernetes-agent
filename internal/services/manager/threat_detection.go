@@ -14,6 +14,7 @@ import (
 const (
 	threatDetectionRulesKey      = "01-threat-detection-rules.yaml"
 	threatDetectionExceptionsKey = "02-threat-detection-exceptions.yaml"
+	runtimeSCARulesKey           = "03-runtime-sca-rules.yaml"
 )
 
 func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.ThreatDetectionHeartbeat) {
@@ -129,6 +130,42 @@ func (s *Service) ClearEmbeddedThreatRules(ctx context.Context) error {
 		cm.Data = make(map[string]string)
 	}
 	cm.Data[threatDetectionRulesKey] = ""
+
+	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating falco rules configmap %q: %w", cmName, err)
+	}
+	return nil
+}
+
+func (s *Service) WriteEmbeddedRuntimeSCARules(ctx context.Context) error {
+	cmName := s.GetFalcoRulesConfigMapName()
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting falco rules configmap %q: %w", cmName, err)
+	}
+
+	if cm.Data == nil {
+		cm.Data = make(map[string]string)
+	}
+	cm.Data[runtimeSCARulesKey] = string(falco.EmbeddedRuntimeSCARules)
+
+	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating falco rules configmap %q: %w", cmName, err)
+	}
+	return nil
+}
+
+func (s *Service) ClearEmbeddedRuntimeSCARules(ctx context.Context) error {
+	cmName := s.GetFalcoRulesConfigMapName()
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting falco rules configmap %q: %w", cmName, err)
+	}
+
+	if cm.Data == nil {
+		cm.Data = make(map[string]string)
+	}
+	cm.Data[runtimeSCARulesKey] = ""
 
 	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("error updating falco rules configmap %q: %w", cmName, err)

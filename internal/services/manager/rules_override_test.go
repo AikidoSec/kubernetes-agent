@@ -6,9 +6,10 @@ import (
 
 func TestBuildRulesOverrideYAML(t *testing.T) {
 	tests := []struct {
-		name         string
-		enabledRules []string
-		want         string
+		name              string
+		enabledRules      []string
+		runtimeSCAEnabled bool
+		want              string
 	}{
 		{
 			name:         "no enabled rules produces only the global disable",
@@ -52,11 +53,24 @@ func TestBuildRulesOverrideYAML(t *testing.T) {
         rule: Read sensitive file untrusted
 `,
 		},
+		{
+			name:              "runtime SCA enabled appends the SCA tag enable entry",
+			enabledRules:      []string{"Read sensitive file untrusted"},
+			runtimeSCAEnabled: true,
+			want: `rules:
+    - disable:
+        rule: '*'
+    - enable:
+        rule: Read sensitive file untrusted
+    - enable:
+        tag: aikido:runtime-sca
+`,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildRulesOverrideYAML(tt.enabledRules)
+			got, err := buildRulesOverrideYAML(tt.enabledRules, tt.runtimeSCAEnabled)
 			if err != nil {
 				t.Fatalf("buildRulesOverrideYAML() unexpected error: %v", err)
 			}

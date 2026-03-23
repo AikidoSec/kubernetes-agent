@@ -309,11 +309,11 @@ func TestHandleThreatDetectionHeartbeat_DisableClearsRulesOverride(t *testing.T)
 	ruleA := "Read sensitive file untrusted"
 	ruleB := "Write below root"
 
-	staleOverride, err := buildRulesOverrideYAML([]string{ruleA, ruleB})
+	staleOverride, err := buildRulesOverrideYAML([]string{ruleA, ruleB}, false)
 	if err != nil {
 		t.Fatalf("buildRulesOverrideYAML: %v", err)
 	}
-	emptyOverride, err := buildRulesOverrideYAML([]string{})
+	emptyOverride, err := buildRulesOverrideYAML([]string{}, false)
 	if err != nil {
 		t.Fatalf("buildRulesOverrideYAML: %v", err)
 	}

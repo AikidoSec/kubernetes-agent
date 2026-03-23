@@ -37,6 +37,8 @@ type AgentState struct {
 	threatDetectionExceptions      []ThreatDetectionException
 	falcoVersion                   string
 
+	runtimeSCAEnabled bool
+
 	mu sync.Mutex
 }
 
@@ -390,4 +392,16 @@ func (a *AgentState) SetFalcoVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.falcoVersion = version
+}
+
+func (a *AgentState) IsRuntimeSCAEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.runtimeSCAEnabled
+}
+
+func (a *AgentState) SetRuntimeSCAEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.runtimeSCAEnabled = enabled
 }

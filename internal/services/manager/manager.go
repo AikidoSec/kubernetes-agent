@@ -510,6 +510,15 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.SetSBOMCollectorServiceAccount(sa)
 	}
 
+	// Runtime SCA initialization (env-var controlled only).
+	// Set state before rebuildFalcoRulesConfig so SCA rules are included in the rebuild.
+	s.SetRuntimeSCAEnabled(environmentConfig.RuntimeSCAEnabled)
+	if s.IsRuntimeSCAEnabled() {
+		if err := s.WriteEmbeddedRuntimeSCARules(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error writing embedded runtime SCA rules to configmap", "managerError")
+		}
+	}
+
 	// Threat detection initialization
 	s.SetChartsRuntimeDetectionEnabled(environmentConfig.RuntimeDetectionEnabled)
 	s.SetThreatDetectionEnabled(hb.ThreatDetection.Enabled)
@@ -520,20 +529,23 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.SetThreatDetectionExceptions(*hb.ThreatDetection.Exceptions)
 	}
 
-	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
-	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
+	// If runtime detection is deployed and either threat detection or SCA is enabled, write
+	// embedded rules and apply the enabled-rules and exceptions configs.
+	if s.IsChartsRuntimeDetectionEnabled() && (s.IsThreatDetectionEnabled() || s.IsRuntimeSCAEnabled()) {
 		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
 		}
 		s.SetFalcoVersion(falcoVersion)
 
-		if err := s.WriteEmbeddedThreatRules(ctx); err != nil {
-			s.logger.ReportError(ctx, err, "error writing embedded threat rules to configmap", "managerError")
+		if s.IsThreatDetectionEnabled() {
+			if err := s.WriteEmbeddedThreatRules(ctx); err != nil {
+				s.logger.ReportError(ctx, err, "error writing embedded threat rules to configmap", "managerError")
+			}
 		}
 
 		if err := s.rebuildFalcoRulesConfig(ctx); err != nil {
-			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
+			s.logger.ReportError(ctx, err, "error updating enabled rules config", "managerError")
 		}
 
 		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
