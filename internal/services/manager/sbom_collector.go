@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/models"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
+
+var sbomHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool, enabledInCharts bool) error {
 	if s.GetRunSBOMCollectorAsDaemonSet() {
@@ -175,7 +178,7 @@ func (s *Service) ListCollectorScannedImages(ctx context.Context) ([]models.Scan
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+s.GetAPIToken())
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := sbomHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request to get collector scanned images: %w", err)
 	}
