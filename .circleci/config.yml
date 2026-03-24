@@ -36,6 +36,12 @@ jobs:
       - run:
           name: Run linter
           command: golangci-lint run
+      - run:
+          name: Run tests
+          command: go test -race -coverprofile=coverage.out ./...
+      - run:
+          name: Print coverage
+          command: go tool cover -func=coverage.out
 
   commitmsglint:
     docker:
