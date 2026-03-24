@@ -6,11 +6,26 @@ orbs:
   aws-cli: circleci/aws-cli@5.4.1
 
 jobs:
+  checkout_code:
+    docker:
+      - image: cimg/base:current
+    circleci_ip_ranges: true
+    steps:
+      - run: mkdir -p ~/.ssh && ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+      - run: git clone "$CIRCLE_REPOSITORY_URL" --branch "$CIRCLE_BRANCH" .
+      - run: git fetch origin main
+      - save_cache:
+          key: sourcecode-{{ .Revision }}
+          paths:
+            - .
+
   verification:
     docker:
       - image: cimg/go:1.25
     steps:
-      - checkout
+      - restore_cache:
+          keys:
+            - sourcecode-{{ .Revision }}
       - go/load-mod-cache
       - go/mod-download
       - go/save-mod-cache
@@ -21,25 +36,25 @@ jobs:
       - run:
           name: Run linter
           command: golangci-lint run
-  
+
   commitmsglint:
     docker:
       - image: cimg/python:3.13
     steps:
-      - checkout
+      - restore_cache:
+          keys:
+            - sourcecode-{{ .Revision }}
       - run:
           name: Install pre-commit
           command: pip install pre-commit
       - run:
           name: Validate Commit Messages
           command: |
-            git fetch origin main
-
             # Loop through every commit from main to HEAD
             for commit_hash in $(git log origin/main..HEAD --no-merges --pretty=format:"%H"); do
               git log -1 --pretty=%B $commit_hash > .git/COMMIT_EDITMSG
               pre-commit run conventional-pre-commit --hook-stage commit-msg --commit-msg-filename .git/COMMIT_EDITMSG
-                
+
               if [ $? -ne 0 ]; then
                 echo "Commit message for $commit_hash does not conform"
                 exit 1
@@ -51,7 +66,9 @@ jobs:
       - image: cimg/base:current
     resource_class: medium
     steps:
-      - checkout
+      - restore_cache:
+          keys:
+            - sourcecode-{{ .Revision }}
       - setup_remote_docker:
           docker_layer_caching: true
       - aws-ecr/build_and_push_image:
@@ -76,7 +93,9 @@ jobs:
       - image: cimg/base:current
     resource_class: arm.medium
     steps:
-      - checkout
+      - restore_cache:
+          keys:
+            - sourcecode-{{ .Revision }}
       - setup_remote_docker:
           docker_layer_caching: true
       - aws-ecr/build_and_push_image:
@@ -100,7 +119,9 @@ jobs:
     docker:
       - image: cimg/base:current
     steps:
-      - checkout
+      - restore_cache:
+          keys:
+            - sourcecode-{{ .Revision }}
       - setup_remote_docker:
           docker_layer_caching: true
       - aws-cli/setup:
@@ -120,23 +141,39 @@ jobs:
 workflows:
   pull-request:
     jobs:
+      - checkout_code:
+          filters:
+            branches:
+              ignore: main
       - verification:
+          requires:
+            - checkout_code
           filters:
             branches:
               ignore: main
       - commitmsglint:
+          requires:
+            - checkout_code
           filters:
             branches:
               ignore: main
 
   main-deploy:
     jobs:
+      - checkout_code:
+          filters:
+            branches:
+              only: main
       - build-amd64:
+          requires:
+            - checkout_code
           filters:
             branches:
               only: main
           context: staging
       - build-arm64:
+          requires:
+            - checkout_code
           filters:
             branches:
               only: main
