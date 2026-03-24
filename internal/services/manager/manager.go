@@ -24,13 +24,10 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/imagescache"
 	"aikidoSec.kubernetesAgent/pkg/models"
-	"k8s.io/apimachinery/pkg/api/meta"
-
 	"github.com/google/uuid"
 	"go.uber.org/multierr"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -331,7 +328,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// In case no hash is being received through the heartbeat, assume the cache has not changed to prevent pulling the cache from the cloud after every heartbeat
 	if s.IsSBOMCollectorEnabled() && resp.ImageCacheHash != nil {
 		if hash, err := s.scannedImagesCache.CalculateHash(); err != nil {
-				s.logger.ReportError(ctx, err, "error calculating cache hash", "managerError")
+			s.logger.ReportError(ctx, err, "error calculating cache hash", "managerError")
 		} else if hash != *resp.ImageCacheHash {
 			collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
 			if err != nil {
@@ -525,8 +522,8 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 
 		watcherSelector := models.WatcherSelector{
-			GroupVersionKind:    v,
-			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			GroupVersionKind: v,
+			NamespaceFilter:  predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
 		}
 
 		if err = (&controllers.Watcher{
@@ -1275,85 +1272,6 @@ func (s *Service) getDeploymentServiceAccount(ctx context.Context, depName strin
 	return s.GetServiceAccountByName(ctx, dep.Spec.Template.Spec.ServiceAccountName)
 }
 
-func (s *Service) ShouldCreateController(serverResourcesGVKs map[string]struct{}, gvk schema.GroupVersionKind, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole) (bool, error) {
-	// Skip the GVK if it's not available in the cluster
-	if _, found := serverResourcesGVKs[gvk.String()]; len(serverResourcesGVKs) > 0 && !found {
-		s.logger.LogWarning(fmt.Errorf("GVK %s not found in cluster", gvk.String()), "skipping watcher setup")
-		return false, nil
-	}
-
-	// Get the REST mapping for the GVK
-	mapping, err := restMapper.RESTMapping(
-		gvk.GroupKind(),
-		gvk.Version,
-	)
-	if err != nil {
-		return false, fmt.Errorf("error getting REST mapping for GVK (`%s`): %w", gvk.String(), err)
-	}
-
-	// Skip the GVK if the agent does not have the required permissions to watch it
-	if !clusterRoleAllowsWatch(agentClusterRole, gvk.Group, mapping.Resource.Resource) {
-		s.logger.LogWarning(fmt.Errorf("agent does not have permissions to watch resource %s", mapping.Resource.Resource), "skipping watcher setup")
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func clusterRoleAllowsWatch(role *rbacv1.ClusterRole, apiGroup, resource string) bool {
-	if role == nil {
-		return false
-	}
-
-	neededVerbs := map[string]bool{
-		"get":   false,
-		"list":  false,
-		"watch": false,
-	}
-
-	for _, rule := range role.Rules {
-		if !listMatchesValues(rule.APIGroups, apiGroup) {
-			continue
-		}
-
-		if !listMatchesValues(rule.Resources, resource) {
-			continue
-		}
-
-		isWildcardVerb := false
-		for _, verb := range rule.Verbs {
-			if verb == "*" {
-				isWildcardVerb = true
-				break
-			}
-
-			if _, ok := neededVerbs[verb]; ok {
-				neededVerbs[verb] = true
-			}
-		}
-
-		if isWildcardVerb {
-			return true
-		}
-
-		verbsAllowed := true
-		for _, hasVerb := range neededVerbs {
-			if hasVerb {
-				continue
-			}
-
-			verbsAllowed = false
-			break
-		}
-
-		if verbsAllowed {
-			return true
-		}
-	}
-
-	return false
-}
-
 func BuildLocalConfig() (*rest.Config, error) {
 	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
@@ -1365,14 +1283,5 @@ func IsLocalEnvironment() bool {
 		return true
 	}
 
-	return false
-}
-
-func listMatchesValues(list []string, val string) bool {
-	for _, v := range list {
-		if v == "*" || v == val {
-			return true
-		}
-	}
 	return false
 }
