@@ -19,11 +19,6 @@ var ignoredEventsReasons = []string{
 	"SuccessfulDelete",
 }
 
-func (s *Service) ListResourceEvents(ctx context.Context, kind, name string) ([]corev1.Event, error) {
-	fieldSelector := fmt.Sprintf("involvedObject.kind=%s,involvedObject.name=%s", kind, name)
-	return s.ListEventsByFieldSelector(ctx, fieldSelector)
-}
-
 func (s *Service) ListEventsByFieldSelector(ctx context.Context, fieldSelector string) ([]corev1.Event, error) {
 	opts := v1.ListOptions{}
 	if fieldSelector != "" {
