@@ -16,11 +16,11 @@ import (
 
 var noHostErrorMessage = "no such host"
 
-// GetClusterIdentifier extracts the unique identifier for the Kubernetes cluster
-func (s *Service) GetClusterIdentifier(ctx context.Context) (string, error) {
+// getClusterIdentifier extracts the unique identifier for the Kubernetes cluster
+func (s *Service) getClusterIdentifier(ctx context.Context) (string, error) {
 	var errs error
 	// Check if the cluster is GKE
-	identifier, err := s.GetGKEClusterIdentifier(ctx)
+	identifier, err := s.getGKEClusterIdentifier(ctx)
 	if err != nil {
 		errs = multierr.Append(errs, err)
 	}
@@ -30,7 +30,7 @@ func (s *Service) GetClusterIdentifier(ctx context.Context) (string, error) {
 	}
 
 	// Check if the cluster is AKS
-	identifier, err = s.GetAKSClusterIdentifier(ctx)
+	identifier, err = s.getAKSClusterIdentifier(ctx)
 	if err != nil {
 		errs = multierr.Append(errs, err)
 	}
@@ -40,7 +40,7 @@ func (s *Service) GetClusterIdentifier(ctx context.Context) (string, error) {
 	}
 
 	// Try to get the identifier from the kube-proxy configmap
-	identifier, err = s.GetClusterIdentifierFromProxy(ctx)
+	identifier, err = s.getClusterIdentifierFromProxy(ctx)
 	if err != nil {
 		errs = multierr.Append(errs, err)
 	}
@@ -50,7 +50,7 @@ func (s *Service) GetClusterIdentifier(ctx context.Context) (string, error) {
 	}
 
 	// Try to get the `kube-system` namespace UID
-	identifier, err = s.GetKubeSystemNamespaceUID(ctx)
+	identifier, err = s.getKubeSystemNamespaceUID(ctx)
 	if err != nil {
 		errs = multierr.Append(errs, err)
 	}
@@ -63,8 +63,8 @@ func (s *Service) GetClusterIdentifier(ctx context.Context) (string, error) {
 	return uuid.New().String(), multierr.Append(errs, fmt.Errorf("could not get unique cluster identifier"))
 }
 
-// GetGKEClusterIdentifier checks if the Kubernetes cluster is GKE and returns the cluster uid if true.
-func (s *Service) GetGKEClusterIdentifier(ctx context.Context) (string, error) {
+// getGKEClusterIdentifier checks if the Kubernetes cluster is GKE and returns the cluster uid if true.
+func (s *Service) getGKEClusterIdentifier(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
 		"http://metadata.google.internal/computeMetadata/v1/instance/attributes/cluster-uid", nil)
 	if err != nil {
@@ -105,8 +105,8 @@ func (s *Service) GetGKEClusterIdentifier(ctx context.Context) (string, error) {
 	return clusterUID, nil
 }
 
-// GetAKSClusterIdentifier checks if the Kubernetes cluster is AKS and returns the DNS name if true.
-func (s *Service) GetAKSClusterIdentifier(ctx context.Context) (string, error) {
+// getAKSClusterIdentifier checks if the Kubernetes cluster is AKS and returns the DNS name if true.
+func (s *Service) getAKSClusterIdentifier(ctx context.Context) (string, error) {
 	// Get the kube-proxy pods in the kube-system namespace
 	pods, err := s.kubernetesClientSet.CoreV1().Pods("kube-system").List(ctx, v1.ListOptions{
 		LabelSelector: "component=kube-proxy,kubernetes.azure.com/managedby=aks",
@@ -137,8 +137,8 @@ func (s *Service) GetAKSClusterIdentifier(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// GetClusterIdentifierFromProxy extracts the unique identifier for the Kubernetes cluster from the kube-proxy ConfigMap
-func (s *Service) GetClusterIdentifierFromProxy(ctx context.Context) (string, error) {
+// getClusterIdentifierFromProxy extracts the unique identifier for the Kubernetes cluster from the kube-proxy ConfigMap
+func (s *Service) getClusterIdentifierFromProxy(ctx context.Context) (string, error) {
 	configMap, err := s.kubernetesClientSet.CoreV1().ConfigMaps("kube-system").Get(ctx, "kube-proxy", v1.GetOptions{})
 	if err != nil {
 		// kube-proxy is not installed in this cluster
@@ -173,7 +173,7 @@ func (s *Service) GetClusterIdentifierFromProxy(ctx context.Context) (string, er
 	return "", nil
 }
 
-func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error) {
+func (s *Service) getKubeSystemNamespaceUID(ctx context.Context) (string, error) {
 	// Get the `kube-system` namespace
 	ns, err := s.kubernetesClientSet.CoreV1().Namespaces().Get(ctx, "kube-system", v1.GetOptions{})
 	if err != nil {

@@ -19,7 +19,7 @@ var ignoredEventsReasons = []string{
 	"SuccessfulDelete",
 }
 
-func (s *Service) ListEventsByFieldSelector(ctx context.Context, fieldSelector string) ([]corev1.Event, error) {
+func (s *Service) listEventsByFieldSelector(ctx context.Context, fieldSelector string) ([]corev1.Event, error) {
 	opts := v1.ListOptions{}
 	if fieldSelector != "" {
 		opts.FieldSelector = fieldSelector
@@ -42,8 +42,8 @@ func (s *Service) ListEventsByFieldSelector(ctx context.Context, fieldSelector s
 	return events, nil
 }
 
-func (s *Service) GenerateAgentPodEvent(ctx context.Context) (*corev1.Event, error) {
-	agentPodDetails, err := s.GetPodByName(ctx, s.GetAgentPodName())
+func (s *Service) generateAgentPodEvent(ctx context.Context) (*corev1.Event, error) {
+	agentPodDetails, err := s.getPodByName(ctx, s.GetAgentPodName())
 	if err != nil {
 		return nil, fmt.Errorf("error getting agent pod: %w", err)
 	}
@@ -71,7 +71,7 @@ func (s *Service) GenerateAgentPodEvent(ctx context.Context) (*corev1.Event, err
 	return event, nil
 }
 
-func (s *Service) GetPodByName(ctx context.Context, name string) (*corev1.Pod, error) {
+func (s *Service) getPodByName(ctx context.Context, name string) (*corev1.Pod, error) {
 	pod, err := s.kubernetesClientSet.CoreV1().Pods(s.GetAgentNamespace()).Get(ctx, name, v1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error getting pod by name: %w", err)
