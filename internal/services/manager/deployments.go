@@ -11,10 +11,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// RestartDeployment fetches the deployment and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
+// restartDeployment fetches the deployment and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
 // a restart.
-func (s *Service) RestartDeployment(ctx context.Context, deploymentName string) error {
-	if IsLocalEnvironment() {
+func (s *Service) restartDeployment(ctx context.Context, deploymentName string) error {
+	if isLocalEnvironment() {
 		return nil
 	}
 
@@ -35,10 +35,10 @@ func (s *Service) RestartDeployment(ctx context.Context, deploymentName string) 
 	return nil
 }
 
-// RestartDaemonSet fetches the daemonSet and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
+// restartDaemonSet fetches the daemonSet and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
 // a restart.
-func (s *Service) RestartDaemonSet(ctx context.Context, dsName string) error {
-	if IsLocalEnvironment() {
+func (s *Service) restartDaemonSet(ctx context.Context, dsName string) error {
+	if isLocalEnvironment() {
 		return nil
 	}
 
@@ -59,9 +59,9 @@ func (s *Service) RestartDaemonSet(ctx context.Context, dsName string) error {
 	return nil
 }
 
-// UpdateAgentVersion updates the agent deployment with a new image version and updates the version labels
-func (s *Service) UpdateAgentVersion(ctx context.Context, newVersion string) error {
-	if IsLocalEnvironment() {
+// updateAgentVersion updates the agent deployment with a new image version and updates the version labels
+func (s *Service) updateAgentVersion(ctx context.Context, newVersion string) error {
+	if isLocalEnvironment() {
 		return nil
 	}
 
@@ -91,7 +91,7 @@ func (s *Service) UpdateAgentVersion(ctx context.Context, newVersion string) err
 	return nil
 }
 
-func (s *Service) GetDeploymentAndChartsVersions(ctx context.Context, ns, deploymentName string) (string, string, error) {
+func (s *Service) getDeploymentAndChartsVersions(ctx context.Context, ns, deploymentName string) (string, string, error) {
 	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
 		return defaultAgentVersion, defaultAgentVersion, nil
 	}
@@ -114,8 +114,8 @@ func (s *Service) GetDeploymentAndChartsVersions(ctx context.Context, ns, deploy
 	return agentVersion, chartsVersion, nil
 }
 
-// LoadDeploymentVersion gets the deployment details from the API server and extracts the version from the labels
-func LoadDeploymentVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, deploymentName string) (string, error) {
+// loadDeploymentVersion gets the deployment details from the API server and extracts the version from the labels
+func loadDeploymentVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, deploymentName string) (string, error) {
 	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
 		return defaultAgentVersion, nil
 	}
@@ -133,8 +133,8 @@ func LoadDeploymentVersion(ctx context.Context, clientSet *kubernetes.Clientset,
 	return agentVersion, nil
 }
 
-// LoadDaemonSetVersion gets the daemonSet details from the API server and extracts the version from the labels
-func LoadDaemonSetVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, dsName string) (string, error) {
+// loadDaemonSetVersion gets the daemonSet details from the API server and extracts the version from the labels
+func loadDaemonSetVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, dsName string) (string, error) {
 	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
 		return defaultAgentVersion, nil
 	}

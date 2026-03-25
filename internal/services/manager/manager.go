@@ -96,8 +96,8 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 
 	// Build the cluster configuration based on the environment.
 	var cfg *rest.Config
-	if IsLocalEnvironment() {
-		cfg, err = BuildLocalConfig()
+	if isLocalEnvironment() {
+		cfg, err = buildLocalConfig()
 	} else {
 		cfg, err = rest.InClusterConfig()
 	}
@@ -127,7 +127,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}, nil
 }
 
-func (s *Service) StartHeartbeat() {
+func (s *Service) startHeartbeat() {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.LogError(fmt.Errorf("panic recovered: %v", r), "panic recovered in periodic heartbeat")
@@ -141,7 +141,7 @@ func (s *Service) StartHeartbeat() {
 			select {
 			case <-ticker.C:
 				ctx := context.Background()
-				_, _ = s.SendHeartbeat(ctx)
+				_, _ = s.sendHeartbeat(ctx)
 			case <-s.heartbeatStopChan:
 				close(s.heartbeatStopChan)
 				ticker.Stop()
@@ -151,23 +151,23 @@ func (s *Service) StartHeartbeat() {
 	}()
 }
 
-func (s *Service) StopHeartbeat() {
+func (s *Service) stopHeartbeat() {
 	s.heartbeatStopChan <- struct{}{}
 }
 
 func (s *Service) Close(ctx context.Context) {
-	s.StopHeartbeat()
+	s.stopHeartbeat()
 
 	if err := s.assetsOutputClient.Close(ctx); err != nil {
 		s.logger.ReportError(ctx, err, "error closing assets output client", "managerError")
 	}
 }
 
-// SendHeartbeat sends a heartbeat to the management server and processes the response
-func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
+// sendHeartbeat sends a heartbeat to the management server and processes the response
+func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
 	metrics := models.Metrics{}
 	if s.metricClient != nil {
-		agentMetrics, _ := s.GetAgentMetrics(ctx)
+		agentMetrics, _ := s.getAgentMetrics(ctx)
 		// We currently ignore the errors since most agents will lack the necessary permissions to fetch metrics.
 		metrics.AgentMetrics = agentMetrics
 	}
@@ -181,7 +181,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// might have been updated in the deployment but the new pod might fail to schedule or start, so we need to know if
 	// the old pod is the one that sends the heartbeat.
 	// Also, the charts can be updated without triggering a deployment update, so we need to load it every time.
-	agentVersion, helmChartsVersion, err := s.GetDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
+	agentVersion, helmChartsVersion, err := s.getDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error loading agent version from context at heartbeat", "managerError")
 	}
@@ -189,7 +189,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	sbomCollectorVersion := s.GetSBOMCollectorVersion()
 	if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
 		// Load the SBOM collector version from the deployment labels
-		sbomCollectorVersion, err = LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
+		sbomCollectorVersion, err = loadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
 		}
@@ -212,7 +212,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// If the token has changed, update it in the service, output clients and in the agent Kubernetes secret
 	if s.GetAPIToken() != resp.Token && resp.Token != "" {
 		s.logger.LogInfo("API token updated from heartbeat response")
-		if err := s.UpdateAPIToken(ctx, resp.Token); err != nil {
+		if err := s.updateAPIToken(ctx, resp.Token); err != nil {
 			s.logger.ReportError(ctx, err, "error updating agent API token", "managerError")
 			return resp, err
 		}
@@ -222,7 +222,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		// If the agent version has changed, update the deployment with the new image version which will also trigger a restart
 		if s.GetAgentVersion() != resp.Cluster.DesiredAgentVersion {
 			s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.GetAgentVersion(), "new version", resp.Cluster.DesiredAgentVersion)
-			if err := s.UpdateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
+			if err := s.updateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
 				s.logger.ReportError(ctx, err, "error updating agent version", "managerError")
 				return resp, err
 			}
@@ -236,13 +236,13 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	if excludedChanged || includedChanged {
 		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
 			s.logger.LogInfo("namespace filter changed, restarting sbom collector")
-			if err := s.RestartSBOMCollector(ctx); err != nil {
+			if err := s.restartSBOMCollector(ctx); err != nil {
 				s.logger.ReportError(ctx, err, "error restarting sbom collector", "managerError")
 			}
 		}
 
 		s.logger.LogInfo("namespace filter changed, restarting agent")
-		if err := s.RestartDeployment(ctx, s.GetAgentName()); err != nil {
+		if err := s.restartDeployment(ctx, s.GetAgentName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
@@ -258,7 +258,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// If the monitored resources have changed, restart the agent to re-create the watchers with the new configuration
 	if !slices.Equal(s.GetMonitoredResources(), monitoredResourcesGVKs) {
 		s.logger.LogInfo("monitored resources changed, restarting agent")
-		if err := s.RestartDeployment(ctx, s.GetAgentName()); err != nil {
+		if err := s.restartDeployment(ctx, s.GetAgentName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
@@ -268,7 +268,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// If the SBOM collector enabled state has changed, update the deployment/daemonset accordingly
 	if s.IsSBOMCollectorEnabled() != resp.Cluster.SBOMCollectorEnabled {
 		s.logger.LogInfo("sbom collector enabled state changed from heartbeat response", "current state", s.IsSBOMCollectorEnabled(), "new state", resp.Cluster.SBOMCollectorEnabled)
-		if err := s.ConfigureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled, s.IsChartsSBOMCollectorEnabled()); err != nil {
+		if err := s.configureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled, s.IsChartsSBOMCollectorEnabled()); err != nil {
 			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 			return resp, err
 		}
@@ -277,13 +277,13 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		// If the SBOM collector was enabled, load the scanned images from the API server into the cache and set the deployed collector version.
 		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
 			// Load the SBOM collector version from the deployment labels
-			sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
+			sbomCollectorVersion, err := loadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 			if err != nil {
 				s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
 			}
 			s.SetSBOMCollectorVersion(sbomCollectorVersion)
 			// Load the scanned images cache
-			collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+			collectorScannedImages, err := s.listCollectorScannedImages(ctx)
 			if err != nil {
 				s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
 			}
@@ -301,7 +301,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		// If the SBOM collector version has changed, update it in the service state
 		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
 			s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
-			if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
+			if err := s.updateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
 				s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
 			}
 			s.SetSBOMCollectorVersion(resp.Cluster.DesiredSBOMCollectorVersion)
@@ -313,7 +313,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		if hash, err := s.scannedImagesCache.CalculateHash(); err != nil {
 			s.logger.ReportError(ctx, err, "error calculating cache hash", "managerError")
 		} else if hash != *resp.ImageCacheHash {
-			collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+			collectorScannedImages, err := s.listCollectorScannedImages(ctx)
 			if err != nil {
 				s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
 			} else {
@@ -328,20 +328,20 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
 	// Load the agent and charts versions from the deployment labels
-	agentVersion, helmChartsVersion, err := s.GetDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
+	agentVersion, helmChartsVersion, err := s.getDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
 		return fmt.Errorf("error loading agent version from context: %w", err)
 	}
 	s.SetAgentVersion(agentVersion)
 
-	clusterIdentifier, err := s.GetClusterIdentifier(ctx)
+	clusterIdentifier, err := s.getClusterIdentifier(ctx)
 	if err != nil {
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}
 
 	// List all events from the agent namespace.
-	namespaceEvents, _ := s.ListEventsByFieldSelector(ctx, "")
+	namespaceEvents, _ := s.listEventsByFieldSelector(ctx, "")
 	if namespaceEvents == nil {
 		namespaceEvents = []corev1.Event{} // empty slice instead of nil so the payload is `[]` instead of `null`
 	}
@@ -353,7 +353,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// Generate an artificial event for the agent pod to include its status in the initial heartbeat.
 	// This helps us identify potential OOM kills.
-	generatedPodEvent, err := s.GenerateAgentPodEvent(ctx)
+	generatedPodEvent, err := s.generateAgentPodEvent(ctx)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error generating agent pod event", "managerError")
 	}
@@ -424,21 +424,21 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetChartsSBOMCollectorEnabled(*environmentConfig.SBOMCollectorEnabled)
 
 	// Configure the SBOM collector deployment/daemonset based on the current enabled state.
-	if err := s.ConfigureSBOMCollector(ctx, s.IsSBOMCollectorEnabled(), s.IsChartsSBOMCollectorEnabled()); err != nil {
+	if err := s.configureSBOMCollector(ctx, s.IsSBOMCollectorEnabled(), s.IsChartsSBOMCollectorEnabled()); err != nil {
 		s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 	}
 
 	// If the SBOM collector is enabled, load the already scanned images from the API server into the cache and configure the collector.
 	if s.IsSBOMCollectorEnabled() && s.IsChartsSBOMCollectorEnabled() {
 		// Load the SBOM collector version from the deployment labels
-		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
+		sbomCollectorVersion, err := loadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
 		}
 		s.SetSBOMCollectorVersion(sbomCollectorVersion)
 
 		// Load the scanned images cache
-		collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+		collectorScannedImages, err := s.listCollectorScannedImages(ctx)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
 		}
@@ -448,7 +448,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 
 		// Load the SBOM collector service account
-		sa, err := s.GetSBOMCollectorServiceAccount(ctx)
+		sa, err := s.getSBOMCollectorServiceAccount(ctx)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading sbom collector service account from context", "managerError")
 		}
@@ -494,7 +494,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// Set up the resource watchers based on the monitored resources from the heartbeat
 	for _, v := range hb.MonitoredResources {
-		createController, err := s.ShouldCreateController(serverResourcesGVKs, v, restMapper, agentClusterRole)
+		createController, err := s.shouldCreateController(serverResourcesGVKs, v, restMapper, agentClusterRole)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 			return fmt.Errorf("error checking if controller should be created: %w", err)
@@ -525,7 +525,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Check if ImageContentSourcePolicy is available in the cluster
-	createICSPController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageContentSourcePolicyGVK, restMapper, agentClusterRole)
+	createICSPController, err := s.shouldCreateController(serverResourcesGVKs, openshift.ImageContentSourcePolicyGVK, restMapper, agentClusterRole)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 		return fmt.Errorf("error checking if controller should be created: %w", err)
@@ -544,7 +544,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Check if ImageDigestMirrorSet is available in the cluster
-	createIDMSController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageDigestMirrorSetGVK, restMapper, agentClusterRole)
+	createIDMSController, err := s.shouldCreateController(serverResourcesGVKs, openshift.ImageDigestMirrorSetGVK, restMapper, agentClusterRole)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 		return fmt.Errorf("error checking if controller should be created: %w", err)
@@ -563,7 +563,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Check if ImageTagMirrorSet is available in the cluster
-	createITMSController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageTagMirrorSetGVK, restMapper, agentClusterRole)
+	createITMSController, err := s.shouldCreateController(serverResourcesGVKs, openshift.ImageTagMirrorSetGVK, restMapper, agentClusterRole)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 		return fmt.Errorf("error checking if controller should be created: %w", err)
@@ -581,15 +581,15 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 	}
 
-	s.StartHeartbeat()
+	s.startHeartbeat()
 
 	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", hb.Cluster.ExcludedNamespaces, "included_namespaces", hb.Cluster.IncludedNamespaces)
 
 	return nil
 }
 
-// UpdateAPIToken updates the API token in the service, output clients and in the agent Kubernetes secret
-func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
+// updateAPIToken updates the API token in the service, output clients and in the agent Kubernetes secret
+func (s *Service) updateAPIToken(ctx context.Context, newToken string) error {
 	if err := s.updateAgentSecret(ctx, newToken); err != nil {
 		return fmt.Errorf("error updating agent secret: %w", err)
 	}
@@ -632,7 +632,7 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 	return nil
 }
 
-func (s *Service) GetAgentMetrics(ctx context.Context) (models.ComponentMetrics, error) {
+func (s *Service) getAgentMetrics(ctx context.Context) (models.ComponentMetrics, error) {
 	podMetrics, err := s.metricClient.MetricsV1beta1().PodMetricses(s.GetAgentNamespace()).Get(ctx, s.GetAgentPodName(), v1.GetOptions{})
 	if err != nil {
 		// The metrics for the agent might not have been generated yet (it takes ~60s after the pod starts) or the
@@ -654,12 +654,12 @@ func (s *Service) GetAgentMetrics(ctx context.Context) (models.ComponentMetrics,
 	return models.ComponentMetrics{CPUUsage: fmt.Sprintf("%dm", cpuUsage), MemoryUsage: fmt.Sprintf("%.0fMi", float64(memUsage.Value())/(1024*1024))}, nil
 }
 
-func BuildLocalConfig() (*rest.Config, error) {
+func buildLocalConfig() (*rest.Config, error) {
 	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
-func IsLocalEnvironment() bool {
+func isLocalEnvironment() bool {
 	val, ok := os.LookupEnv("ENVIRONMENT")
 	if ok && val == "local" {
 		return true

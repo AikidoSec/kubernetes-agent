@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/models"
 	corev1 "k8s.io/api/core/v1"
@@ -13,7 +14,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool, enabledInCharts bool) error {
+var sbomHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+func (s *Service) configureSBOMCollector(ctx context.Context, enabled bool, enabledInCharts bool) error {
 	if s.GetRunSBOMCollectorAsDaemonSet() {
 		return s.configureSBOMCollectorDaemonSet(ctx, enabled, enabledInCharts)
 	}
@@ -22,7 +25,7 @@ func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool, enab
 }
 
 func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled, enabledInCharts bool) error {
-	if IsLocalEnvironment() {
+	if isLocalEnvironment() {
 		return nil
 	}
 
@@ -52,7 +55,7 @@ func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled, 
 }
 
 func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled, enabledInCharts bool) error {
-	if IsLocalEnvironment() {
+	if isLocalEnvironment() {
 		return nil
 	}
 
@@ -79,25 +82,25 @@ func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled,
 	return nil
 }
 
-func (s *Service) RestartSBOMCollector(ctx context.Context) error {
+func (s *Service) restartSBOMCollector(ctx context.Context) error {
 	if s.GetRunSBOMCollectorAsDaemonSet() {
-		return s.RestartDaemonSet(ctx, s.GetSBOMCollectorName())
+		return s.restartDaemonSet(ctx, s.GetSBOMCollectorName())
 	}
 
-	return s.RestartDeployment(ctx, s.GetSBOMCollectorName())
+	return s.restartDeployment(ctx, s.GetSBOMCollectorName())
 }
 
-func (s *Service) UpdateSBOMCollectorVersion(ctx context.Context, newVersion string) error {
+func (s *Service) updateSBOMCollectorVersion(ctx context.Context, newVersion string) error {
 	if s.GetRunSBOMCollectorAsDaemonSet() {
-		return s.UpdateSBOMCollectorDaemonSetVersion(ctx, newVersion)
+		return s.updateSBOMCollectorDaemonSetVersion(ctx, newVersion)
 	}
 
-	return s.UpdateSBOMCollectorDeploymentVersion(ctx, newVersion)
+	return s.updateSBOMCollectorDeploymentVersion(ctx, newVersion)
 }
 
-// UpdateSBOMCollectorDeploymentVersion updates the sbom collector deployment with a new image version and updates the version labels
-func (s *Service) UpdateSBOMCollectorDeploymentVersion(ctx context.Context, newVersion string) error {
-	if IsLocalEnvironment() {
+// updateSBOMCollectorDeploymentVersion updates the sbom collector deployment with a new image version and updates the version labels
+func (s *Service) updateSBOMCollectorDeploymentVersion(ctx context.Context, newVersion string) error {
+	if isLocalEnvironment() {
 		return nil
 	}
 
@@ -127,9 +130,9 @@ func (s *Service) UpdateSBOMCollectorDeploymentVersion(ctx context.Context, newV
 	return nil
 }
 
-// UpdateSBOMCollectorDaemonSetVersion updates the sbom collector daemonSet with a new image version and updates the version labels
-func (s *Service) UpdateSBOMCollectorDaemonSetVersion(ctx context.Context, newVersion string) error {
-	if IsLocalEnvironment() {
+// updateSBOMCollectorDaemonSetVersion updates the sbom collector daemonSet with a new image version and updates the version labels
+func (s *Service) updateSBOMCollectorDaemonSetVersion(ctx context.Context, newVersion string) error {
+	if isLocalEnvironment() {
 		return nil
 	}
 
@@ -159,14 +162,14 @@ func (s *Service) UpdateSBOMCollectorDaemonSetVersion(ctx context.Context, newVe
 	return nil
 }
 
-func LoadSBOMCollectorVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, ownerName string, isDaemonSet bool) (string, error) {
+func loadSBOMCollectorVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, ownerName string, isDaemonSet bool) (string, error) {
 	if isDaemonSet {
-		return LoadDaemonSetVersion(ctx, clientSet, ns, ownerName)
+		return loadDaemonSetVersion(ctx, clientSet, ns, ownerName)
 	}
-	return LoadDeploymentVersion(ctx, clientSet, ns, ownerName)
+	return loadDeploymentVersion(ctx, clientSet, ns, ownerName)
 }
 
-func (s *Service) ListCollectorScannedImages(ctx context.Context) ([]models.ScannedImage, error) {
+func (s *Service) listCollectorScannedImages(ctx context.Context) ([]models.ScannedImage, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/api/sbom/list-scanned-images", s.GetAPIEndpoint()), nil)
 	if err != nil {
 		return nil, err
@@ -175,7 +178,7 @@ func (s *Service) ListCollectorScannedImages(ctx context.Context) ([]models.Scan
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+s.GetAPIToken())
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := sbomHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request to get collector scanned images: %w", err)
 	}
@@ -197,7 +200,7 @@ func (s *Service) ListCollectorScannedImages(ctx context.Context) ([]models.Scan
 	return response, nil
 }
 
-func (s *Service) GetSBOMCollectorServiceAccount(ctx context.Context) (*corev1.ServiceAccount, error) {
+func (s *Service) getSBOMCollectorServiceAccount(ctx context.Context) (*corev1.ServiceAccount, error) {
 	if s.GetRunSBOMCollectorAsDaemonSet() {
 		return s.getDaemonsetServiceAccount(ctx, s.GetSBOMCollectorName())
 	}
@@ -205,7 +208,7 @@ func (s *Service) GetSBOMCollectorServiceAccount(ctx context.Context) (*corev1.S
 	return s.getDeploymentServiceAccount(ctx, s.GetSBOMCollectorName())
 }
 
-func (s *Service) GetServiceAccountByName(ctx context.Context, name string) (*corev1.ServiceAccount, error) {
+func (s *Service) getServiceAccountByName(ctx context.Context, name string) (*corev1.ServiceAccount, error) {
 	sa, err := s.kubernetesClientSet.CoreV1().ServiceAccounts(s.GetAgentNamespace()).Get(ctx, name, v1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error getting service account by name: %w", err)
@@ -224,7 +227,7 @@ func (s *Service) getDaemonsetServiceAccount(ctx context.Context, dsName string)
 		return nil, nil
 	}
 
-	return s.GetServiceAccountByName(ctx, ds.Spec.Template.Spec.ServiceAccountName)
+	return s.getServiceAccountByName(ctx, ds.Spec.Template.Spec.ServiceAccountName)
 }
 
 func (s *Service) getDeploymentServiceAccount(ctx context.Context, depName string) (*corev1.ServiceAccount, error) {
@@ -237,5 +240,5 @@ func (s *Service) getDeploymentServiceAccount(ctx context.Context, depName strin
 		return nil, nil
 	}
 
-	return s.GetServiceAccountByName(ctx, dep.Spec.Template.Spec.ServiceAccountName)
+	return s.getServiceAccountByName(ctx, dep.Spec.Template.Spec.ServiceAccountName)
 }
