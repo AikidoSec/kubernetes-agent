@@ -84,6 +84,7 @@ jobs:
                 role_arn: ${DEV_AWS_ROLE_ARN}
                 region: us-east-1
           account_id: ${DEV_AWS_ACCOUNT_ID}
+          checkout: false
           platform: linux/amd64
           profile_name: circleci
           no_output_timeout: 30m
@@ -111,6 +112,7 @@ jobs:
                 role_arn: ${DEV_AWS_ROLE_ARN}
                 region: us-east-1
           account_id: ${DEV_AWS_ACCOUNT_ID}
+          checkout: false
           platform: linux/arm64
           profile_name: circleci
           no_output_timeout: 30m
