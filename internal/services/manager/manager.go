@@ -12,6 +12,7 @@ import (
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
+	"aikidoSec.kubernetesAgent/internal/controllers/traefik"
 	internalhttp "aikidoSec.kubernetesAgent/internal/http"
 	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
 	"aikidoSec.kubernetesAgent/internal/predicates"
@@ -578,6 +579,23 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			Client:     runtimeManager.GetClient(),
 		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageTagMirrorSet controller", "managerError")
+		}
+	}
+
+	// Check if IngressRoute is available in the cluster
+	createIngressRouteController, err := s.shouldCreateController(serverResourcesGVKs, traefik.IngressRouteGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createIngressRouteController {
+		s.logger.LogInfo("IngressRoute is available in the cluster")
+		if err = (&traefik.IngressRouteController{
+			Logger:       s.logger,
+			Client:       runtimeManager.GetClient(),
+			OutputClient: assetsClient,
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new Traefik IngressRoute controller", "managerError")
 		}
 	}
 
