@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
+	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -14,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 )
@@ -24,11 +27,36 @@ var IngressRouteGVK = schema.GroupVersionKind{
 	Kind:    "IngressRoute",
 }
 
+const defaultRequeueAfter = 12 * time.Hour
+
 // IngressRouteController reconciles a Traefik IngressRoute object.
 type IngressRouteController struct {
 	client.Client
-	Logger       *logger.Service
-	OutputClient *batchclient.BatchClient
+	Logger          *logger.Service
+	OutputClient    *batchclient.BatchClient
+	NamespaceFilter *predicates.NamespaceFilter
+
+	PendingMu sync.Mutex
+	Pending   map[string]time.Time
+}
+
+func (r *IngressRouteController) shouldRequeue(key string) bool {
+	r.PendingMu.Lock()
+	defer r.PendingMu.Unlock()
+
+	lastRequeue, exists := r.Pending[key]
+	if exists && time.Since(lastRequeue) < defaultRequeueAfter {
+		return false
+	}
+
+	r.Pending[key] = time.Now()
+	return true
+}
+
+func (r *IngressRouteController) clearPending(key string) {
+	r.PendingMu.Lock()
+	delete(r.Pending, key)
+	r.PendingMu.Unlock()
 }
 
 func (r *IngressRouteController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -37,18 +65,26 @@ func (r *IngressRouteController) Reconcile(ctx context.Context, req ctrl.Request
 	eventTime := time.Now().UTC()
 
 	var ingressRoute traefikv1alpha1.IngressRoute
+	ingressRoute.GetObjectKind().SetGroupVersionKind(IngressRouteGVK)
 	ingressRoute.SetName(req.Name)
 	ingressRoute.SetNamespace(req.Namespace)
+
+	objectID := IngressRouteGVK.String() + "/" + req.String()
+	requeueAfter := time.Duration(0)
 
 	var eventType models.EventType
 	switch err := r.Get(ctx, req.NamespacedName, &ingressRoute); {
 	case errors.IsNotFound(err):
 		eventType = models.DeletedEventType
+		r.clearPending(objectID)
 	case err != nil:
 		r.Logger.ReportError(ctx, err, "error getting IngressRoute", "watcherError", "name", req.Name, "namespace", req.Namespace)
 		return ctrl.Result{}, fmt.Errorf("could not get IngressRoute %v: %w", req.NamespacedName, err)
 	default:
 		eventType = models.ModifiedEventType
+		if r.shouldRequeue(objectID) {
+			requeueAfter = defaultRequeueAfter
+		}
 	}
 
 	metadata, err := json.Marshal(ingressRoute)
@@ -58,7 +94,7 @@ func (r *IngressRouteController) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	payload := models.AssetPayload{
-		ObjectUID: IngressRouteGVK.String() + "/" + req.String(),
+		ObjectUID: objectID,
 		Metadata:  string(metadata),
 		EventType: eventType,
 		EventTime: eventTime,
@@ -69,17 +105,14 @@ func (r *IngressRouteController) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("could not send IngressRoute payload: %w", err)
 	}
 
-	if eventType == models.DeletedEventType {
-		return ctrl.Result{}, nil
-	}
-	return ctrl.Result{RequeueAfter: 12 * time.Hour}, nil
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *IngressRouteController) SetupWithManager(mgr ctrl.Manager, opts controller.Options) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("AikidoSecurityWatcher_" + IngressRouteGVK.String() + "_" + uuid.NewString()).
-		For(&traefikv1alpha1.IngressRoute{}).
+		Named("AikidoSecurityWatcher_"+IngressRouteGVK.String()+"_"+uuid.NewString()).
+		For(&traefikv1alpha1.IngressRoute{}, builder.WithPredicates(predicates.NewGenericPredicate(r.NamespaceFilter))).
 		WithOptions(opts).
 		Complete(r)
 }

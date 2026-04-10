@@ -594,7 +594,9 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			Logger:          s.logger,
 			Client:          runtimeManager.GetClient(),
 			OutputClient:    assetsClient,
-			NamespaceFilter: predicates.NewNamespaceFilter(hb.Cluster.IncludedNamespaces, hb.Cluster.ExcludedNamespaces),
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			PendingMu:       sync.Mutex{},
+			Pending:         make(map[string]time.Time),
 		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new Traefik IngressRoute controller", "managerError")
 		}
