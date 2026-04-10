@@ -591,9 +591,10 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	if createIngressRouteController {
 		s.logger.LogInfo("IngressRoute is available in the cluster")
 		if err = (&traefik.IngressRouteController{
-			Logger:       s.logger,
-			Client:       runtimeManager.GetClient(),
-			OutputClient: assetsClient,
+			Logger:          s.logger,
+			Client:          runtimeManager.GetClient(),
+			OutputClient:    assetsClient,
+			NamespaceFilter: predicates.NewNamespaceFilter(hb.Cluster.IncludedNamespaces, hb.Cluster.ExcludedNamespaces),
 		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new Traefik IngressRoute controller", "managerError")
 		}
