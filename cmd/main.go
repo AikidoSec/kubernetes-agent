@@ -19,13 +19,13 @@ import (
 	openshiftconfigv1 "github.com/openshift/api/config/v1"
 	operatorv1alpha1 "github.com/openshift/api/operator/v1alpha1"
 	traefikv1alpha1 "github.com/traefik/traefik/v3/pkg/provider/kubernetes/crd/traefikio/v1alpha1"
-	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
