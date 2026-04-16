@@ -36,6 +36,8 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 		return NewEndpointsPredicates(nsFilter)
 	case "discovery.k8s.io/v1, Kind=EndpointSlice":
 		return NewEndpointSlicePredicates(nsFilter)
+	case "gateway.networking.k8s.io/v1, Kind=Gateway", "gateway.networking.k8s.io/v1, Kind=HTTPRoute":
+		return NewGatewayPredicate(nsFilter)
 	default:
 		return NewGenericPredicate(nsFilter)
 	}
