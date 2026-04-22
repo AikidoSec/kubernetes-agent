@@ -150,7 +150,10 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}, nil
 }
 
-const threatDetectionRulesKey = "threat-detection-rules.yaml"
+const (
+	threatDetectionRulesKey      = "threat-detection-rules.yaml"
+	threatDetectionExceptionsKey = "threat-detection-exceptions.yaml"
+)
 
 func (s *Service) StartHeartbeat() {
 	defer func() {
@@ -379,18 +382,33 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	newEnabledRules := resp.EnabledThreatRules
+	newExceptions := resp.ThreatDetectionExceptions
 	if !s.IsThreatDetectionEnabled() {
 		newEnabledRules = []string{}
+		newExceptions = nil
 	}
 
-	if !slices.Equal(s.GetEnabledThreatRules(), newEnabledRules) {
+	rulesChanged := !slices.Equal(s.GetEnabledThreatRules(), newEnabledRules)
+	exceptionsChanged := !slices.EqualFunc(s.GetThreatDetectionExceptions(), newExceptions, models.ThreatDetectionExceptionEqual)
+
+	if rulesChanged {
 		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", newEnabledRules)
 		if err := s.UpdateEnabledThreatRules(ctx, newEnabledRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
-		} else {
-			if err := s.RestartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
-				s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
-			}
+		}
+	}
+
+	if exceptionsChanged {
+		s.logger.LogInfo("threat detection exceptions changed from heartbeat response")
+		s.SetThreatDetectionExceptions(newExceptions)
+		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error updating threat detection exceptions", "managerError")
+		}
+	}
+
+	if rulesChanged || exceptionsChanged {
+		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
+			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
 		}
 	}
 
@@ -444,6 +462,99 @@ func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (s *Service) rebuildFalcoExceptionsConfig(ctx context.Context) error {
+	cmName := s.GetFalcoRulesConfigMapName()
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("error getting falco rules configmap %q: %w", cmName, err)
+	}
+
+	if cm.Data == nil {
+		cm.Data = make(map[string]string)
+	}
+	cm.Data[threatDetectionExceptionsKey] = buildExceptionsYAML(s.GetThreatDetectionExceptions())
+
+	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating falco rules configmap %q: %w", cmName, err)
+	}
+	return nil
+}
+
+// falcoValueTuple marshals as a flow-style sequence (e.g. [myapp, default])
+// rather than the default block style (- myapp\n- default).
+type falcoValueTuple []string
+
+func (t falcoValueTuple) MarshalYAML() (any, error) {
+	node := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+	for _, v := range t {
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: v})
+	}
+	return node, nil
+}
+
+type falcoExceptionEntry struct {
+	Name   string            `yaml:"name"`
+	Fields []string          `yaml:"fields"`
+	Comps  []string          `yaml:"comps"`
+	Values []falcoValueTuple `yaml:"values"`
+}
+
+type falcoOverride struct {
+	Exceptions string `yaml:"exceptions"`
+}
+
+type falcoRuleExceptionBlock struct {
+	Rule       string                `yaml:"rule"`
+	Exceptions []falcoExceptionEntry `yaml:"exceptions"`
+	Override   falcoOverride         `yaml:"override"`
+}
+
+func buildExceptionsYAML(exceptions []models.ThreatDetectionException) string {
+	// Group exceptions by rule name so each rule gets one override block.
+	byRule := make(map[string][]falcoExceptionEntry)
+	ruleOrder := make([]string, 0)
+	for _, exc := range exceptions {
+		entry := falcoExceptionEntry{
+			Name: exc.Name,
+		}
+		for _, c := range exc.Conditions {
+			entry.Fields = append(entry.Fields, c.Field)
+			entry.Comps = append(entry.Comps, c.Operator)
+		}
+		tuple := make(falcoValueTuple, len(exc.Conditions))
+		for i, c := range exc.Conditions {
+			tuple[i] = c.Value
+		}
+		entry.Values = []falcoValueTuple{tuple}
+
+		for _, ruleName := range exc.RuleNames {
+			if _, seen := byRule[ruleName]; !seen {
+				ruleOrder = append(ruleOrder, ruleName)
+			}
+			byRule[ruleName] = append(byRule[ruleName], entry)
+		}
+	}
+
+	if len(byRule) == 0 {
+		return ""
+	}
+
+	blocks := make([]falcoRuleExceptionBlock, 0, len(byRule))
+	for _, ruleName := range ruleOrder {
+		blocks = append(blocks, falcoRuleExceptionBlock{
+			Rule:       ruleName,
+			Exceptions: byRule[ruleName],
+			Override:   falcoOverride{Exceptions: "append"},
+		})
+	}
+
+	data, err := yaml.Marshal(blocks)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func (s *Service) WriteEmbeddedThreatRules(ctx context.Context) error {
@@ -616,8 +727,9 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetChartsThreatDetectionEnabled(environmentConfig.ThreatDetectionEnabled)
 	s.SetThreatDetectionEnabled(hb.Cluster.ThreatDetectionEnabled)
 	s.SetEnabledThreatRules(hb.EnabledThreatRules)
+	s.SetThreatDetectionExceptions(hb.ThreatDetectionExceptions)
 
-	// If threat detection is enabled, write embedded rules and apply the enabled-rules config.
+	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
 	if s.IsChartsThreatDetectionEnabled() && s.IsThreatDetectionEnabled() {
 		falcoVersion, err := LoadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
 		if err != nil {
@@ -631,6 +743,10 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 		if err := s.rebuildFalcoRulesConfig(ctx); err != nil {
 			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
+		}
+
+		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error updating threat detection exceptions", "managerError")
 		}
 
 		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
