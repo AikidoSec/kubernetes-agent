@@ -151,8 +151,8 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 }
 
 const (
-	threatDetectionRulesKey      = "threat-detection-rules.yaml"
-	threatDetectionExceptionsKey = "threat-detection-exceptions.yaml"
+	threatDetectionRulesKey      = "01-threat-detection-rules.yaml"
+	threatDetectionExceptionsKey = "02-threat-detection-exceptions.yaml"
 )
 
 func (s *Service) StartHeartbeat() {
