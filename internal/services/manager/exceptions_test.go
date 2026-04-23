@@ -147,6 +147,59 @@ func TestBuildExceptionsYAML(t *testing.T) {
 `,
 		},
 		{
+			name: "in operator value is split into a nested list",
+			exceptions: []models.ThreatDetectionException{
+				{
+					ID:        1,
+					Name:      "Suppress cat on sensitive files",
+					RuleNames: []string{"Read sensitive file untrusted"},
+					Conditions: []models.ExceptionCondition{
+						{Field: "proc.name", Operator: "=", Value: "cat"},
+						{Field: "fd.name", Operator: "in", Value: "/etc/shadow, /etc/passwd"},
+					},
+				},
+			},
+			want: `- rule: Read sensitive file untrusted
+  exceptions:
+    - name: Suppress cat on sensitive files
+      fields:
+        - proc.name
+        - fd.name
+      comps:
+        - =
+        - in
+      values:
+        - [cat, [/etc/shadow, /etc/passwd]]
+  override:
+    exceptions: append
+`,
+		},
+		{
+			name: "in operator value is trimmed of whitespace around commas",
+			exceptions: []models.ThreatDetectionException{
+				{
+					ID:        1,
+					Name:      "Suppress writes",
+					RuleNames: []string{"Write below root"},
+					Conditions: []models.ExceptionCondition{
+						{Field: "fd.directory", Operator: "in", Value: "/tmp , /var/tmp , /dev/shm"},
+					},
+				},
+			},
+			want: `- rule: Write below root
+  exceptions:
+    - name: Suppress writes
+      fields:
+        - fd.directory
+      comps:
+        - in
+      values:
+        - [[/tmp, /var/tmp, /dev/shm]]
+  override:
+    exceptions: append
+`,
+		},
+		{
 			name: "rule order follows first-seen order, not alphabetical",
 			exceptions: []models.ThreatDetectionException{
 				{

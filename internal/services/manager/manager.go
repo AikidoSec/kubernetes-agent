@@ -482,14 +482,24 @@ func (s *Service) rebuildFalcoExceptionsConfig(ctx context.Context) error {
 	return nil
 }
 
-// falcoValueTuple marshals as a flow-style sequence (e.g. [myapp, default])
-// rather than the default block style (- myapp\n- default).
-type falcoValueTuple []string
+// falcoValueTuple marshals as a flow-style sequence (e.g. [myapp, default]).
+// Each element is either a string (scalar operators) or []string (for the "in"
+// operator), which becomes a nested flow-style sequence: [cat, [/etc/shadow, /etc/passwd]].
+type falcoValueTuple []any
 
 func (t falcoValueTuple) MarshalYAML() (any, error) {
 	node := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
 	for _, v := range t {
-		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: v})
+		switch val := v.(type) {
+		case string:
+			node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: val})
+		case []string:
+			inner := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+			for _, item := range val {
+				inner.Content = append(inner.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: item})
+			}
+			node.Content = append(node.Content, inner)
+		}
 	}
 	return node, nil
 }
@@ -525,7 +535,16 @@ func buildExceptionsYAML(exceptions []models.ThreatDetectionException) string {
 		}
 		tuple := make(falcoValueTuple, len(exc.Conditions))
 		for i, c := range exc.Conditions {
-			tuple[i] = c.Value
+			if c.Operator == "in" {
+				parts := strings.Split(c.Value, ",")
+				trimmed := make([]string, len(parts))
+				for j, p := range parts {
+					trimmed[j] = strings.TrimSpace(p)
+				}
+				tuple[i] = trimmed
+			} else {
+				tuple[i] = c.Value
+			}
 		}
 		entry.Values = []falcoValueTuple{tuple}
 
