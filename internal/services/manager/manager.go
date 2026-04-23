@@ -349,8 +349,16 @@ func (s *Service) sendInitialHeartbeat(ctx context.Context, clusterIdentifier st
 
 		s.logger.LogWarning(err, "error while sending initial heartbeat, will retry", "attempt", attempt)
 		// Exponential backoff with jitter
-		d := rand.IntN(min(5, attempt)) * 5
-		time.Sleep(time.Duration(d) * time.Second)
+		d := rand.IntN(min(10, attempt+1)) * 5
+		timer := time.NewTimer(time.Duration(d) * time.Second)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return models.HeartbeatResponse{}, ctx.Err()
+		case <-timer.C:
+		}
 	}
 }
 
