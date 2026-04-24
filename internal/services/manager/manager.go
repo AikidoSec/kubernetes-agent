@@ -534,6 +534,7 @@ func buildExceptionsYAML(exceptions []models.ThreatDetectionException) string {
 			entry.Comps = append(entry.Comps, c.Operator)
 		}
 		tuple := make(falcoValueTuple, len(exc.Conditions))
+		skip := false
 		for i, c := range exc.Conditions {
 			if c.Operator == "in" {
 				parts := strings.Split(c.Value, ",")
@@ -543,10 +544,17 @@ func buildExceptionsYAML(exceptions []models.ThreatDetectionException) string {
 						trimmed = append(trimmed, v)
 					}
 				}
+				if len(trimmed) == 0 {
+					skip = true
+					break
+				}
 				tuple[i] = trimmed
 			} else {
 				tuple[i] = c.Value
 			}
+		}
+		if skip {
+			continue
 		}
 		entry.Values = []falcoValueTuple{tuple}
 

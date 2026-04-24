@@ -175,6 +175,20 @@ func TestBuildExceptionsYAML(t *testing.T) {
 `,
 		},
 		{
+			name: "exception is skipped entirely when in operator value contains only whitespace and commas",
+			exceptions: []models.ThreatDetectionException{
+				{
+					ID:        1,
+					Name:      "breaking",
+					RuleNames: []string{"Clear Log Activities"},
+					Conditions: []models.ExceptionCondition{
+						{Field: "k8s.ns.name", Operator: "in", Value: " , , "},
+					},
+				},
+			},
+			want: "",
+		},
+		{
 			name: "in operator value skips empty segments from consecutive or trailing commas",
 			exceptions: []models.ThreatDetectionException{
 				{
