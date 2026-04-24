@@ -175,6 +175,31 @@ func TestBuildExceptionsYAML(t *testing.T) {
 `,
 		},
 		{
+			name: "in operator value skips empty segments from consecutive or trailing commas",
+			exceptions: []models.ThreatDetectionException{
+				{
+					ID:        1,
+					Name:      "Suppress writes",
+					RuleNames: []string{"Write below root"},
+					Conditions: []models.ExceptionCondition{
+						{Field: "fd.directory", Operator: "in", Value: "/tmp,,/var/tmp,"},
+					},
+				},
+			},
+			want: `- rule: Write below root
+  exceptions:
+    - name: Suppress writes
+      fields:
+        - fd.directory
+      comps:
+        - in
+      values:
+        - [[/tmp, /var/tmp]]
+  override:
+    exceptions: append
+`,
+		},
+		{
 			name: "in operator value is trimmed of whitespace around commas",
 			exceptions: []models.ThreatDetectionException{
 				{

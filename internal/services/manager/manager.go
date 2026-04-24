@@ -537,9 +537,11 @@ func buildExceptionsYAML(exceptions []models.ThreatDetectionException) string {
 		for i, c := range exc.Conditions {
 			if c.Operator == "in" {
 				parts := strings.Split(c.Value, ",")
-				trimmed := make([]string, len(parts))
-				for j, p := range parts {
-					trimmed[j] = strings.TrimSpace(p)
+				trimmed := make([]string, 0, len(parts))
+				for _, p := range parts {
+					if v := strings.TrimSpace(p); v != "" {
+						trimmed = append(trimmed, v)
+					}
 				}
 				tuple[i] = trimmed
 			} else {
