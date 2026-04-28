@@ -13,7 +13,7 @@ type HeartbeatResponse struct {
 	MonitoredResources []schema.GroupVersionKind `json:"monitoredResources"`
 	ImageCacheHash     *int64                    `json:"imageCacheHash,omitempty"`
 	EnabledThreatRules        []string                   `json:"enabled_threat_rules"`
-	ThreatDetectionExceptions []ThreatDetectionException `json:"threat_detection_exceptions"`
+	ThreatDetectionExceptions *[]ThreatDetectionException `json:"threat_detection_exceptions"`
 }
 
 func (h *HeartbeatResponse) FromJSON(r io.Reader) error {

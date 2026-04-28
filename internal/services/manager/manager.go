@@ -382,14 +382,17 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	newEnabledRules := resp.EnabledThreatRules
+	// null means the server could not load exceptions — keep current state unchanged.
 	newExceptions := resp.ThreatDetectionExceptions
 	if !s.IsThreatDetectionEnabled() {
 		newEnabledRules = []string{}
+		// Leave exceptions unchanged when disabling — Falco is shutting down anyway
+		// and clearing exceptions before the DaemonSet stops creates an unnecessary window.
 		newExceptions = nil
 	}
 
 	rulesChanged := !slices.Equal(s.GetEnabledThreatRules(), newEnabledRules)
-	exceptionsChanged := !slices.EqualFunc(s.GetThreatDetectionExceptions(), newExceptions, models.ThreatDetectionExceptionEqual)
+	exceptionsChanged := newExceptions != nil && !slices.EqualFunc(s.GetThreatDetectionExceptions(), *newExceptions, models.ThreatDetectionExceptionEqual)
 
 	if rulesChanged {
 		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", newEnabledRules)
@@ -400,7 +403,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 
 	if exceptionsChanged {
 		s.logger.LogInfo("threat detection exceptions changed from heartbeat response")
-		s.SetThreatDetectionExceptions(newExceptions)
+		s.SetThreatDetectionExceptions(*newExceptions)
 		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
 			s.logger.ReportError(ctx, err, "error updating threat detection exceptions", "managerError")
 		}
@@ -756,7 +759,9 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetChartsThreatDetectionEnabled(environmentConfig.ThreatDetectionEnabled)
 	s.SetThreatDetectionEnabled(hb.Cluster.ThreatDetectionEnabled)
 	s.SetEnabledThreatRules(hb.EnabledThreatRules)
-	s.SetThreatDetectionExceptions(hb.ThreatDetectionExceptions)
+	if hb.ThreatDetectionExceptions != nil {
+		s.SetThreatDetectionExceptions(*hb.ThreatDetectionExceptions)
+	}
 
 	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
 	if s.IsChartsThreatDetectionEnabled() && s.IsThreatDetectionEnabled() {
