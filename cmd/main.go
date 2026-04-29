@@ -16,6 +16,7 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 
 	"github.com/go-logr/logr"
+	kongv1alpha1 "github.com/kong/kubernetes-configuration/v2/api/configuration/v1alpha1"
 	openshiftconfigv1 "github.com/openshift/api/config/v1"
 	operatorv1alpha1 "github.com/openshift/api/operator/v1alpha1"
 	traefikv1alpha1 "github.com/traefik/traefik/v3/pkg/provider/kubernetes/crd/traefikio/v1alpha1"
@@ -47,6 +48,7 @@ func init() {
 	utilruntime.Must(openshiftconfigv1.Install(scheme))
 	utilruntime.Must(traefikv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(gatewayv1.Install(scheme))
+	utilruntime.Must(kongv1alpha1.AddToScheme(scheme))
 }
 
 // nolint:gocyclo

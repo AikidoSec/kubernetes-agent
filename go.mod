@@ -1,12 +1,13 @@
 module aikidoSec.kubernetesAgent
 
-go 1.25.0
+go 1.25.8
 
 require (
 	github.com/go-logr/logr v1.4.3
 	github.com/gobwas/glob v0.2.3
 	github.com/google/go-containerregistry v0.21.5
 	github.com/google/uuid v1.6.0
+	github.com/kong/kubernetes-configuration/v2 v2.0.1
 	github.com/openshift/api v0.0.0-20251208101024-c2a41ea924bd
 	github.com/traefik/traefik/v3 v3.6.13
 	go.uber.org/multierr v1.11.0
@@ -16,6 +17,12 @@ require (
 	k8s.io/client-go v0.35.1
 	k8s.io/metrics v0.34.1
 	sigs.k8s.io/controller-runtime v0.22.1
+)
+
+require (
+	github.com/Kong/sdk-konnect-go v0.9.1 // indirect
+	github.com/ericlagergren/decimal v0.0.0-20240411145413-00de7ca16731 // indirect
+	github.com/samber/lo v1.51.0 // indirect
 )
 
 require (
