@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -327,6 +328,41 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	return resp, nil
 }
 
+// sendInitialHeartbeat tries to send the initial heartbeat in order to fetch the configuration.
+// If we receive an error, we retry until we receive a valid response or the pod is killed by the startup probe.
+func (s *Service) sendInitialHeartbeat(ctx context.Context, clusterIdentifier string, namespaceEventsPayload []byte, helmChartsVersion string) (models.HeartbeatResponse, error) {
+	for attempt := 1; ; attempt++ {
+		hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
+			AgentVersion:       s.GetAgentVersion(),
+			CollectorVersion:   s.GetSBOMCollectorVersion(),
+			IsInitialHeartbeat: true,
+			ClusterIdentifier:  clusterIdentifier,
+			NamespaceEvents:    string(namespaceEventsPayload),
+			HelmChartsVersion:  helmChartsVersion,
+			AgentPodName:       s.GetAgentPodName(),
+			AgentNamespace:     s.GetAgentNamespace(),
+		})
+
+		if err == nil {
+			return hb, nil
+		}
+
+		s.logger.LogWarning(err, "error while sending initial heartbeat, will retry", "attempt", attempt)
+		// Exponential backoff with jitter
+		maxDelay := 1 << min(attempt, 6)
+		d := rand.IntN(maxDelay) + 1
+		timer := time.NewTimer(time.Duration(d) * time.Second)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return models.HeartbeatResponse{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
 	// Load the agent and charts versions from the deployment labels
 	agentVersion, helmChartsVersion, err := s.getDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
@@ -370,16 +406,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Send the initial heartbeat to get the monitored resources and agent configuration
-	hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
-		AgentVersion:       s.GetAgentVersion(),
-		CollectorVersion:   s.GetSBOMCollectorVersion(),
-		IsInitialHeartbeat: true,
-		ClusterIdentifier:  clusterIdentifier,
-		NamespaceEvents:    string(namespaceEventsPayload),
-		HelmChartsVersion:  helmChartsVersion,
-		AgentPodName:       s.GetAgentPodName(),
-		AgentNamespace:     s.GetAgentNamespace(),
-	})
+	hb, err := s.sendInitialHeartbeat(ctx, clusterIdentifier, namespaceEventsPayload, helmChartsVersion)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
 		return fmt.Errorf("error sending initial heartbeat: %w", err)
