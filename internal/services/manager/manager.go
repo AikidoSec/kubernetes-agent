@@ -619,7 +619,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			PendingMu:       sync.Mutex{},
 			Pending:         make(map[string]time.Time),
 		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new Kong KongService controller", "managerError")
+			s.logger.ReportError(ctx, err, "error creating new KongService controller", "managerError")
 		}
 	}
 
@@ -639,7 +639,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			PendingMu:       sync.Mutex{},
 			Pending:         make(map[string]time.Time),
 		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new Kong KongRoute controller", "managerError")
+			s.logger.ReportError(ctx, err, "error creating new KongRoute controller", "managerError")
 		}
 	}
 
