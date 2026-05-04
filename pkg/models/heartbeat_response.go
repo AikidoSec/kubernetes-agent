@@ -8,11 +8,11 @@ import (
 )
 
 type HeartbeatResponse struct {
-	Cluster            Cluster                   `json:"cluster"`
-	Token              string                    `json:"token"`
-	MonitoredResources []schema.GroupVersionKind `json:"monitoredResources"`
-	ImageCacheHash     *int64                    `json:"imageCacheHash,omitempty"`
-	EnabledThreatRules        []string                   `json:"enabled_threat_rules"`
+	Cluster                   Cluster                     `json:"cluster"`
+	Token                     string                      `json:"token"`
+	MonitoredResources        []schema.GroupVersionKind   `json:"monitoredResources"`
+	ImageCacheHash            *int64                      `json:"imageCacheHash,omitempty"`
+	EnabledThreatRules        []string                    `json:"enabled_threat_rules"`
 	ThreatDetectionExceptions *[]ThreatDetectionException `json:"threat_detection_exceptions"`
 }
 
