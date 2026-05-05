@@ -16,7 +16,6 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 
 	"github.com/go-logr/logr"
-	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	openshiftconfigv1 "github.com/openshift/api/config/v1"
 	operatorv1alpha1 "github.com/openshift/api/operator/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -44,7 +43,6 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(operatorv1alpha1.Install(scheme))
 	utilruntime.Must(openshiftconfigv1.Install(scheme))
-	utilruntime.Must(kedav1alpha1.AddToScheme(scheme))
 }
 
 // nolint:gocyclo
