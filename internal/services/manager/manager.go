@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
+	"aikidoSec.kubernetesAgent/internal/controllers/keda"
 	"aikidoSec.kubernetesAgent/internal/controllers/kong"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
 	"aikidoSec.kubernetesAgent/internal/controllers/traefik"
@@ -667,6 +668,86 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			Pending:         make(map[string]time.Time),
 		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new KongRoute controller", "managerError")
+		}
+	}
+
+	// Check if ScaledObject is available in the cluster
+	createScaledObjectController, err := s.shouldCreateController(serverResourcesGVKs, keda.ScaledObjectGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createScaledObjectController {
+		s.logger.LogInfo("ScaledObject is available in the cluster")
+		if err = (&keda.ScaledObjectController{
+			Logger:          s.logger,
+			Client:          runtimeManager.GetClient(),
+			OutputClient:    assetsClient,
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			PendingMu:       sync.Mutex{},
+			Pending:         make(map[string]time.Time),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new ScaledObject controller", "managerError")
+		}
+	}
+
+	// Check if ScaledJob is available in the cluster
+	createScaledJobController, err := s.shouldCreateController(serverResourcesGVKs, keda.ScaledJobGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createScaledJobController {
+		s.logger.LogInfo("ScaledJob is available in the cluster")
+		if err = (&keda.ScaledJobController{
+			Logger:          s.logger,
+			Client:          runtimeManager.GetClient(),
+			OutputClient:    assetsClient,
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			PendingMu:       sync.Mutex{},
+			Pending:         make(map[string]time.Time),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new ScaledJob controller", "managerError")
+		}
+	}
+
+	// Check if TriggerAuthentication is available in the cluster
+	createTriggerAuthController, err := s.shouldCreateController(serverResourcesGVKs, keda.TriggerAuthenticationGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createTriggerAuthController {
+		s.logger.LogInfo("TriggerAuthentication is available in the cluster")
+		if err = (&keda.TriggerAuthenticationController{
+			Logger:          s.logger,
+			Client:          runtimeManager.GetClient(),
+			OutputClient:    assetsClient,
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			PendingMu:       sync.Mutex{},
+			Pending:         make(map[string]time.Time),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new TriggerAuthentication controller", "managerError")
+		}
+	}
+
+	// Check if ClusterTriggerAuthentication is available in the cluster
+	createClusterTriggerAuthController, err := s.shouldCreateController(serverResourcesGVKs, keda.ClusterTriggerAuthenticationGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createClusterTriggerAuthController {
+		s.logger.LogInfo("ClusterTriggerAuthentication is available in the cluster")
+		if err = (&keda.ClusterTriggerAuthenticationController{
+			Logger:          s.logger,
+			Client:          runtimeManager.GetClient(),
+			OutputClient:    assetsClient,
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			PendingMu:       sync.Mutex{},
+			Pending:         make(map[string]time.Time),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new ClusterTriggerAuthentication controller", "managerError")
 		}
 	}
 
