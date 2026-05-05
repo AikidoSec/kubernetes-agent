@@ -7,6 +7,7 @@ require (
 	github.com/gobwas/glob v0.2.3
 	github.com/google/go-containerregistry v0.21.5
 	github.com/google/uuid v1.6.0
+	github.com/kong/kubernetes-configuration/v2 v2.0.1
 	github.com/openshift/api v0.0.0-20251208101024-c2a41ea924bd
 	github.com/traefik/traefik/v3 v3.6.14
 	go.uber.org/multierr v1.11.0
@@ -19,6 +20,7 @@ require (
 )
 
 require (
+	github.com/Kong/sdk-konnect-go v0.9.1 // indirect
 	github.com/aws/smithy-go v1.25.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -26,6 +28,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
+	github.com/ericlagergren/decimal v0.0.0-20240411145413-00de7ca16731 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
@@ -64,6 +67,7 @@ require (
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/rs/zerolog v1.33.0 // indirect
+	github.com/samber/lo v1.51.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/traefik/paerser v0.2.2 // indirect
 	github.com/unrolled/render v1.0.2 // indirect

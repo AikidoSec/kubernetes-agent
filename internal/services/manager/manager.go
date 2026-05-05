@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
+	"aikidoSec.kubernetesAgent/internal/controllers/kong"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
 	"aikidoSec.kubernetesAgent/internal/controllers/traefik"
 	internalhttp "aikidoSec.kubernetesAgent/internal/http"
@@ -626,6 +627,46 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			Pending:         make(map[string]time.Time),
 		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new Traefik IngressRoute controller", "managerError")
+		}
+	}
+
+	// Check if KongService is available in the cluster
+	createKongServiceController, err := s.shouldCreateController(serverResourcesGVKs, kong.KongServiceGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createKongServiceController {
+		s.logger.LogInfo("KongService is available in the cluster")
+		if err = (&kong.KongServiceController{
+			Logger:          s.logger,
+			Client:          runtimeManager.GetClient(),
+			OutputClient:    assetsClient,
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			PendingMu:       sync.Mutex{},
+			Pending:         make(map[string]time.Time),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new KongService controller", "managerError")
+		}
+	}
+
+	// Check if KongRoute is available in the cluster
+	createKongRouteController, err := s.shouldCreateController(serverResourcesGVKs, kong.KongRouteGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createKongRouteController {
+		s.logger.LogInfo("KongRoute is available in the cluster")
+		if err = (&kong.KongRouteController{
+			Logger:          s.logger,
+			Client:          runtimeManager.GetClient(),
+			OutputClient:    assetsClient,
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			PendingMu:       sync.Mutex{},
+			Pending:         make(map[string]time.Time),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new KongRoute controller", "managerError")
 		}
 	}
 
