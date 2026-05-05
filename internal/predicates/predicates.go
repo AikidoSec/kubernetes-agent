@@ -10,34 +10,36 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-func NewGenericPredicate(nsExclusions *NamespaceExclusions) predicate.Predicate {
+func NewGenericPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			return !nsExclusions.IsObjectExcluded(e.Object)
+			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return !nsExclusions.IsObjectExcluded(e.ObjectNew) && IsSpecModified(e)
+			return !nsFilter.IsObjectExcluded(e.ObjectNew) && IsSpecModified(e)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			return !nsExclusions.IsObjectExcluded(e.Object)
+			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 	}
 }
 
-func GetPredicatesForGVK(gvk string, nsExclusions *NamespaceExclusions) predicate.Predicate {
+func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predicate {
 	switch gvk {
 	case "/v1, Kind=Pod":
-		return NewPodPredicate(nsExclusions)
+		return NewPodPredicate(nsFilter)
 	case "/v1, Kind=ServiceAccount":
-		return NewServiceAccountPredicate(nsExclusions)
+		return NewServiceAccountPredicate(nsFilter)
 	case "/v1, Kind=Service", "networking.k8s.io/v1, Kind=Ingress":
-		return NewServicePredicate(nsExclusions)
+		return NewServicePredicate(nsFilter)
 	case "/v1, Kind=Endpoints":
-		return NewEndpointsPredicates(nsExclusions)
+		return NewEndpointsPredicates(nsFilter)
 	case "discovery.k8s.io/v1, Kind=EndpointSlice":
-		return NewEndpointSlicePredicates(nsExclusions)
+		return NewEndpointSlicePredicates(nsFilter)
+	case "gateway.networking.k8s.io/v1, Kind=Gateway", "gateway.networking.k8s.io/v1, Kind=HTTPRoute":
+		return NewGatewayPredicate(nsFilter)
 	default:
-		return NewGenericPredicate(nsExclusions)
+		return NewGenericPredicate(nsFilter)
 	}
 }
 
@@ -76,28 +78,35 @@ func IsSpecModified(e event.UpdateEvent) bool {
 	return string(oldSpec) != string(newSpec)
 }
 
-type NamespaceExclusions struct {
-	patterns []glob.Glob
+type NamespaceFilter struct {
+	excludePatterns []glob.Glob
+	includePatterns []glob.Glob
 }
 
 type logger interface {
 	LogWarning(err error, message string, args ...any)
 }
 
-func NewNamespaceExclusions(logger logger, excludedNamespaces []string) *NamespaceExclusions {
-	patterns := make([]glob.Glob, 0, len(excludedNamespaces))
-	for _, pattern := range excludedNamespaces {
-		glob, err := glob.Compile(pattern)
-		if err != nil {
-			logger.LogWarning(err, "Namespace exclusion could not be parsed and will be ignored: %q", pattern)
-		} else {
-			patterns = append(patterns, glob)
-		}
-	}
-	return &NamespaceExclusions{patterns: patterns}
+func NewNamespaceFilter(logger logger, excludedNamespaces, includedNamespaces []string) *NamespaceFilter {
+	excludePatterns := compilePatterns(logger, excludedNamespaces, "exclusion")
+	includePatterns := compilePatterns(logger, includedNamespaces, "inclusion")
+	return &NamespaceFilter{excludePatterns: excludePatterns, includePatterns: includePatterns}
 }
 
-func (n *NamespaceExclusions) IsObjectExcluded(o client.Object) bool {
+func compilePatterns(logger logger, namespaces []string, label string) []glob.Glob {
+	patterns := make([]glob.Glob, 0, len(namespaces))
+	for _, pattern := range namespaces {
+		compiled, err := glob.Compile(pattern)
+		if err != nil {
+			logger.LogWarning(err, "Namespace %s could not be parsed and will be ignored: %q", label, pattern)
+		} else {
+			patterns = append(patterns, compiled)
+		}
+	}
+	return patterns
+}
+
+func (n *NamespaceFilter) IsObjectExcluded(o client.Object) bool {
 	ns := o.GetNamespace()
 	if ns == "" {
 		return false
@@ -105,8 +114,17 @@ func (n *NamespaceExclusions) IsObjectExcluded(o client.Object) bool {
 	return n.IsExcluded(ns)
 }
 
-func (n *NamespaceExclusions) IsExcluded(namespace string) bool {
-	for _, pattern := range n.patterns {
+func (n *NamespaceFilter) IsExcluded(namespace string) bool {
+	if len(n.includePatterns) > 0 {
+		for _, pattern := range n.includePatterns {
+			if pattern.Match(namespace) {
+				return false
+			}
+		}
+		return true
+	}
+
+	for _, pattern := range n.excludePatterns {
 		if pattern.Match(namespace) {
 			return true
 		}
