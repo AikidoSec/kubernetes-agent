@@ -121,7 +121,7 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		}
 	}
 
-	threatDetectionEnabledStr, exists := os.LookupEnv("THREAT_DETECTION_ENABLED")
+	threatDetectionEnabledStr, exists := os.LookupEnv("RUNTIME_PROTECTION_ENABLED")
 	if !exists {
 		threatDetectionEnabledStr = "false"
 	}
