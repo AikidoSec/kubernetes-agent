@@ -4,8 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,7 +13,9 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
+	"aikidoSec.kubernetesAgent/internal/controllers/kong"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
+	"aikidoSec.kubernetesAgent/internal/controllers/traefik"
 	"aikidoSec.kubernetesAgent/internal/falco"
 	internalhttp "aikidoSec.kubernetesAgent/internal/http"
 	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
@@ -25,13 +26,8 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/imagescache"
 	"aikidoSec.kubernetesAgent/pkg/models"
-	"k8s.io/apimachinery/pkg/api/meta"
-
-	"github.com/google/uuid"
-	"go.uber.org/multierr"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -45,21 +41,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-var noHostErrorMessage = "no such host"
-
 const (
 	defaultAgentVersion = "1.0.0"
 )
-
-var ignoredEventsReasons = []string{
-	"Pulled",
-	"Created",
-	"Started",
-	"Scheduled",
-	"ScalingReplicaSet",
-	"SuccessfulCreate",
-	"SuccessfulDelete",
-}
 
 type Options struct {
 	AgentNamespace                    string
@@ -119,8 +103,8 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 
 	// Build the cluster configuration based on the environment.
 	var cfg *rest.Config
-	if IsLocalEnvironment() {
-		cfg, err = BuildLocalConfig()
+	if isLocalEnvironment() {
+		cfg, err = buildLocalConfig()
 	} else {
 		cfg, err = rest.InClusterConfig()
 	}
@@ -161,7 +145,7 @@ const (
 	rulesOverrideKey = "rules-override.yaml"
 )
 
-func (s *Service) StartHeartbeat() {
+func (s *Service) startHeartbeat() {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.LogError(fmt.Errorf("panic recovered: %v", r), "panic recovered in periodic heartbeat")
@@ -175,7 +159,7 @@ func (s *Service) StartHeartbeat() {
 			select {
 			case <-ticker.C:
 				ctx := context.Background()
-				_, _ = s.SendHeartbeat(ctx)
+				_, _ = s.sendHeartbeat(ctx)
 			case <-s.heartbeatStopChan:
 				close(s.heartbeatStopChan)
 				ticker.Stop()
@@ -185,23 +169,23 @@ func (s *Service) StartHeartbeat() {
 	}()
 }
 
-func (s *Service) StopHeartbeat() {
+func (s *Service) stopHeartbeat() {
 	s.heartbeatStopChan <- struct{}{}
 }
 
 func (s *Service) Close(ctx context.Context) {
-	s.StopHeartbeat()
+	s.stopHeartbeat()
 
 	if err := s.assetsOutputClient.Close(ctx); err != nil {
 		s.logger.ReportError(ctx, err, "error closing assets output client", "managerError")
 	}
 }
 
-// SendHeartbeat sends a heartbeat to the management server and processes the response
-func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
+// sendHeartbeat sends a heartbeat to the management server and processes the response
+func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, error) {
 	metrics := models.Metrics{}
 	if s.metricClient != nil {
-		agentMetrics, _ := s.GetAgentMetrics(ctx)
+		agentMetrics, _ := s.getAgentMetrics(ctx)
 		// We currently ignore the errors since most agents will lack the necessary permissions to fetch metrics.
 		metrics.AgentMetrics = agentMetrics
 	}
@@ -215,7 +199,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// might have been updated in the deployment but the new pod might fail to schedule or start, so we need to know if
 	// the old pod is the one that sends the heartbeat.
 	// Also, the charts can be updated without triggering a deployment update, so we need to load it every time.
-	agentVersion, helmChartsVersion, err := s.GetDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
+	agentVersion, helmChartsVersion, err := s.getDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error loading agent version from context at heartbeat", "managerError")
 	}
@@ -223,7 +207,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	sbomCollectorVersion := s.GetSBOMCollectorVersion()
 	if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
 		// Load the SBOM collector version from the deployment labels
-		sbomCollectorVersion, err = LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
+		sbomCollectorVersion, err = loadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
 		}
@@ -231,7 +215,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 
 	falcoVersion := s.GetFalcoVersion()
 	if s.IsChartsThreatDetectionEnabled() && s.IsThreatDetectionEnabled() {
-		falcoVersion, err = LoadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+		falcoVersion, err = loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
 		}
@@ -255,7 +239,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// If the token has changed, update it in the service, output clients and in the agent Kubernetes secret
 	if s.GetAPIToken() != resp.Token && resp.Token != "" {
 		s.logger.LogInfo("API token updated from heartbeat response")
-		if err := s.UpdateAPIToken(ctx, resp.Token); err != nil {
+		if err := s.updateAPIToken(ctx, resp.Token); err != nil {
 			s.logger.ReportError(ctx, err, "error updating agent API token", "managerError")
 			return resp, err
 		}
@@ -265,7 +249,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		// If the agent version has changed, update the deployment with the new image version which will also trigger a restart
 		if s.GetAgentVersion() != resp.Cluster.DesiredAgentVersion {
 			s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.GetAgentVersion(), "new version", resp.Cluster.DesiredAgentVersion)
-			if err := s.UpdateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
+			if err := s.updateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
 				s.logger.ReportError(ctx, err, "error updating agent version", "managerError")
 				return resp, err
 			}
@@ -279,13 +263,13 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	if excludedChanged || includedChanged {
 		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
 			s.logger.LogInfo("namespace filter changed, restarting sbom collector")
-			if err := s.RestartSBOMCollector(ctx); err != nil {
+			if err := s.restartSBOMCollector(ctx); err != nil {
 				s.logger.ReportError(ctx, err, "error restarting sbom collector", "managerError")
 			}
 		}
 
 		s.logger.LogInfo("namespace filter changed, restarting agent")
-		if err := s.RestartDeployment(ctx, s.GetAgentName()); err != nil {
+		if err := s.restartDeployment(ctx, s.GetAgentName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
@@ -301,7 +285,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// If the monitored resources have changed, restart the agent to re-create the watchers with the new configuration
 	if !slices.Equal(s.GetMonitoredResources(), monitoredResourcesGVKs) {
 		s.logger.LogInfo("monitored resources changed, restarting agent")
-		if err := s.RestartDeployment(ctx, s.GetAgentName()); err != nil {
+		if err := s.restartDeployment(ctx, s.GetAgentName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting agent", "managerError")
 			return resp, err
 		}
@@ -311,7 +295,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	// If the SBOM collector enabled state has changed, update the deployment/daemonset accordingly
 	if s.IsSBOMCollectorEnabled() != resp.Cluster.SBOMCollectorEnabled {
 		s.logger.LogInfo("sbom collector enabled state changed from heartbeat response", "current state", s.IsSBOMCollectorEnabled(), "new state", resp.Cluster.SBOMCollectorEnabled)
-		if err := s.ConfigureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled, s.IsChartsSBOMCollectorEnabled()); err != nil {
+		if err := s.configureSBOMCollector(ctx, resp.Cluster.SBOMCollectorEnabled, s.IsChartsSBOMCollectorEnabled()); err != nil {
 			s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 			return resp, err
 		}
@@ -320,13 +304,13 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		// If the SBOM collector was enabled, load the scanned images from the API server into the cache and set the deployed collector version.
 		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() {
 			// Load the SBOM collector version from the deployment labels
-			sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
+			sbomCollectorVersion, err := loadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 			if err != nil {
 				s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
 			}
 			s.SetSBOMCollectorVersion(sbomCollectorVersion)
 			// Load the scanned images cache
-			collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+			collectorScannedImages, err := s.listCollectorScannedImages(ctx)
 			if err != nil {
 				s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
 			}
@@ -344,7 +328,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		// If the SBOM collector version has changed, update it in the service state
 		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
 			s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
-			if err := s.UpdateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
+			if err := s.updateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
 				s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
 			}
 			s.SetSBOMCollectorVersion(resp.Cluster.DesiredSBOMCollectorVersion)
@@ -356,7 +340,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		if hash, err := s.scannedImagesCache.CalculateHash(); err != nil {
 			s.logger.ReportError(ctx, err, "error calculating cache hash", "managerError")
 		} else if hash != *resp.ImageCacheHash {
-			collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+			collectorScannedImages, err := s.listCollectorScannedImages(ctx)
 			if err != nil {
 				s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
 			} else {
@@ -371,7 +355,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		s.SetThreatDetectionEnabled(resp.Cluster.ThreatDetectionEnabled)
 
 		if s.IsThreatDetectionEnabled() && s.IsChartsThreatDetectionEnabled() {
-			falcoVersion, err := LoadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+			falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
 			if err != nil {
 				s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
 			}
@@ -416,7 +400,7 @@ func (s *Service) SendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	if rulesChanged || exceptionsChanged {
-		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
+		if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
 		}
 	}
@@ -641,22 +625,58 @@ func (s *Service) ClearEmbeddedThreatRules(ctx context.Context) error {
 	return nil
 }
 
+// sendInitialHeartbeat tries to send the initial heartbeat in order to fetch the configuration.
+// If we receive an error, we retry until we receive a valid response or the pod is killed by the startup probe.
+func (s *Service) sendInitialHeartbeat(ctx context.Context, clusterIdentifier string, namespaceEventsPayload []byte, helmChartsVersion string) (models.HeartbeatResponse, error) {
+	for attempt := 1; ; attempt++ {
+		hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
+			AgentVersion:       s.GetAgentVersion(),
+			CollectorVersion:   s.GetSBOMCollectorVersion(),
+			FalcoVersion:       s.GetFalcoVersion(),
+			IsInitialHeartbeat: true,
+			ClusterIdentifier:  clusterIdentifier,
+			NamespaceEvents:    string(namespaceEventsPayload),
+			HelmChartsVersion:  helmChartsVersion,
+			AgentPodName:       s.GetAgentPodName(),
+			AgentNamespace:     s.GetAgentNamespace(),
+		})
+
+		if err == nil {
+			return hb, nil
+		}
+
+		s.logger.LogWarning(err, "error while sending initial heartbeat, will retry", "attempt", attempt)
+		// Exponential backoff with jitter
+		maxDelay := 1 << min(attempt, 6)
+		d := rand.IntN(maxDelay) + 1
+		timer := time.NewTimer(time.Duration(d) * time.Second)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return models.HeartbeatResponse{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
 	// Load the agent and charts versions from the deployment labels
-	agentVersion, helmChartsVersion, err := s.GetDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
+	agentVersion, helmChartsVersion, err := s.getDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
 		return fmt.Errorf("error loading agent version from context: %w", err)
 	}
 	s.SetAgentVersion(agentVersion)
 
-	clusterIdentifier, err := s.GetClusterIdentifier(ctx)
+	clusterIdentifier, err := s.getClusterIdentifier(ctx)
 	if err != nil {
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}
 
 	// List all events from the agent namespace.
-	namespaceEvents, _ := s.ListEventsByFieldSelector(ctx, "")
+	namespaceEvents, _ := s.listEventsByFieldSelector(ctx, "")
 	if namespaceEvents == nil {
 		namespaceEvents = []corev1.Event{} // empty slice instead of nil so the payload is `[]` instead of `null`
 	}
@@ -668,7 +688,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// Generate an artificial event for the agent pod to include its status in the initial heartbeat.
 	// This helps us identify potential OOM kills.
-	generatedPodEvent, err := s.GenerateAgentPodEvent(ctx)
+	generatedPodEvent, err := s.generateAgentPodEvent(ctx)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error generating agent pod event", "managerError")
 	}
@@ -684,17 +704,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Send the initial heartbeat to get the monitored resources and agent configuration
-	hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
-		AgentVersion:       s.GetAgentVersion(),
-		CollectorVersion:   s.GetSBOMCollectorVersion(),
-		FalcoVersion:       s.GetFalcoVersion(),
-		IsInitialHeartbeat: true,
-		ClusterIdentifier:  clusterIdentifier,
-		NamespaceEvents:    string(namespaceEventsPayload),
-		HelmChartsVersion:  helmChartsVersion,
-		AgentPodName:       s.GetAgentPodName(),
-		AgentNamespace:     s.GetAgentNamespace(),
-	})
+	hb, err := s.sendInitialHeartbeat(ctx, clusterIdentifier, namespaceEventsPayload, helmChartsVersion)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error sending initial heartbeat", "managerError")
 		return fmt.Errorf("error sending initial heartbeat: %w", err)
@@ -740,21 +750,21 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetChartsSBOMCollectorEnabled(*environmentConfig.SBOMCollectorEnabled)
 
 	// Configure the SBOM collector deployment/daemonset based on the current enabled state.
-	if err := s.ConfigureSBOMCollector(ctx, s.IsSBOMCollectorEnabled(), s.IsChartsSBOMCollectorEnabled()); err != nil {
+	if err := s.configureSBOMCollector(ctx, s.IsSBOMCollectorEnabled(), s.IsChartsSBOMCollectorEnabled()); err != nil {
 		s.logger.ReportError(ctx, err, "error configuring sbom collector", "managerError")
 	}
 
 	// If the SBOM collector is enabled, load the already scanned images from the API server into the cache and configure the collector.
 	if s.IsSBOMCollectorEnabled() && s.IsChartsSBOMCollectorEnabled() {
 		// Load the SBOM collector version from the deployment labels
-		sbomCollectorVersion, err := LoadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
+		sbomCollectorVersion, err := loadSBOMCollectorVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetSBOMCollectorName(), s.GetRunSBOMCollectorAsDaemonSet())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading sbom collector version from context", "managerError")
 		}
 		s.SetSBOMCollectorVersion(sbomCollectorVersion)
 
 		// Load the scanned images cache
-		collectorScannedImages, err := s.ListCollectorScannedImages(ctx)
+		collectorScannedImages, err := s.listCollectorScannedImages(ctx)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error listing scanned images from sbom collector", "managerError")
 		}
@@ -764,7 +774,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 
 		// Load the SBOM collector service account
-		sa, err := s.GetSBOMCollectorServiceAccount(ctx)
+		sa, err := s.getSBOMCollectorServiceAccount(ctx)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading sbom collector service account from context", "managerError")
 		}
@@ -781,7 +791,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
 	if s.IsChartsThreatDetectionEnabled() && s.IsThreatDetectionEnabled() {
-		falcoVersion, err := LoadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
 		}
@@ -799,7 +809,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			s.logger.ReportError(ctx, err, "error updating threat detection exceptions", "managerError")
 		}
 
-		if err := s.RestartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
+		if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
 		}
 	}
@@ -843,7 +853,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// Set up the resource watchers based on the monitored resources from the heartbeat
 	for _, v := range hb.MonitoredResources {
-		createController, err := s.ShouldCreateController(serverResourcesGVKs, v, restMapper, agentClusterRole)
+		createController, err := s.shouldCreateController(serverResourcesGVKs, v, restMapper, agentClusterRole)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 			return fmt.Errorf("error checking if controller should be created: %w", err)
@@ -874,7 +884,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Check if ImageContentSourcePolicy is available in the cluster
-	createICSPController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageContentSourcePolicyGVK, restMapper, agentClusterRole)
+	createICSPController, err := s.shouldCreateController(serverResourcesGVKs, openshift.ImageContentSourcePolicyGVK, restMapper, agentClusterRole)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 		return fmt.Errorf("error checking if controller should be created: %w", err)
@@ -893,7 +903,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Check if ImageDigestMirrorSet is available in the cluster
-	createIDMSController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageDigestMirrorSetGVK, restMapper, agentClusterRole)
+	createIDMSController, err := s.shouldCreateController(serverResourcesGVKs, openshift.ImageDigestMirrorSetGVK, restMapper, agentClusterRole)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 		return fmt.Errorf("error checking if controller should be created: %w", err)
@@ -912,7 +922,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Check if ImageTagMirrorSet is available in the cluster
-	createITMSController, err := s.ShouldCreateController(serverResourcesGVKs, openshift.ImageTagMirrorSetGVK, restMapper, agentClusterRole)
+	createITMSController, err := s.shouldCreateController(serverResourcesGVKs, openshift.ImageTagMirrorSetGVK, restMapper, agentClusterRole)
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 		return fmt.Errorf("error checking if controller should be created: %w", err)
@@ -930,71 +940,75 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		}
 	}
 
-	s.StartHeartbeat()
+	// Check if IngressRoute is available in the cluster
+	createIngressRouteController, err := s.shouldCreateController(serverResourcesGVKs, traefik.IngressRouteGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createIngressRouteController {
+		s.logger.LogInfo("IngressRoute is available in the cluster")
+		if err = (&traefik.IngressRouteController{
+			Logger:          s.logger,
+			Client:          runtimeManager.GetClient(),
+			OutputClient:    assetsClient,
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			PendingMu:       sync.Mutex{},
+			Pending:         make(map[string]time.Time),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new Traefik IngressRoute controller", "managerError")
+		}
+	}
+
+	// Check if KongService is available in the cluster
+	createKongServiceController, err := s.shouldCreateController(serverResourcesGVKs, kong.KongServiceGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createKongServiceController {
+		s.logger.LogInfo("KongService is available in the cluster")
+		if err = (&kong.KongServiceController{
+			Logger:          s.logger,
+			Client:          runtimeManager.GetClient(),
+			OutputClient:    assetsClient,
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			PendingMu:       sync.Mutex{},
+			Pending:         make(map[string]time.Time),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new KongService controller", "managerError")
+		}
+	}
+
+	// Check if KongRoute is available in the cluster
+	createKongRouteController, err := s.shouldCreateController(serverResourcesGVKs, kong.KongRouteGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if createKongRouteController {
+		s.logger.LogInfo("KongRoute is available in the cluster")
+		if err = (&kong.KongRouteController{
+			Logger:          s.logger,
+			Client:          runtimeManager.GetClient(),
+			OutputClient:    assetsClient,
+			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
+			PendingMu:       sync.Mutex{},
+			Pending:         make(map[string]time.Time),
+		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+			s.logger.ReportError(ctx, err, "error creating new KongRoute controller", "managerError")
+		}
+	}
+
+	s.startHeartbeat()
 
 	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", hb.Cluster.ExcludedNamespaces, "included_namespaces", hb.Cluster.IncludedNamespaces)
 
 	return nil
 }
 
-// RestartDeployment fetches the deployment and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
-// a restart.
-func (s *Service) RestartDeployment(ctx context.Context, deploymentName string) error {
-	if IsLocalEnvironment() {
-		return nil
-	}
-
-	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, deploymentName, v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("error getting deployment: %w", err)
-	}
-
-	if deployment.Spec.Template.Annotations == nil {
-		deployment.Spec.Template.Annotations = map[string]string{}
-	}
-	deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339Nano)
-
-	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating deployment: %w", err)
-	}
-
-	return nil
-}
-
-// UpdateAgentVersion updates the agent deployment with a new image version and updates the version labels
-func (s *Service) UpdateAgentVersion(ctx context.Context, newVersion string) error {
-	if IsLocalEnvironment() {
-		return nil
-	}
-
-	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetAgentName(), v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("error getting agent deployment: %w", err)
-	}
-
-	image := deployment.Spec.Template.Spec.Containers[0].Image
-	imageParts := strings.Split(image, ":")
-	if len(imageParts) != 2 {
-		return fmt.Errorf("invalid image format: %s", image)
-	}
-
-	newImage := fmt.Sprintf("%s:%s", imageParts[0], newVersion)
-	deployment.Spec.Template.Spec.Containers[0].Image = newImage
-	deployment.Labels["app.kubernetes.io/version"] = newVersion
-	deployment.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
-
-	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update deployment: %w", err)
-	}
-
-	// We're setting the agent version to prevent multiple updates of the deployment if the heartbeat interval is
-	// shorter than the time it takes for the deployment to roll out
-	s.SetAgentVersion(newVersion)
-	return nil
-}
-
-// UpdateAPIToken updates the API token in the service, output clients and in the agent Kubernetes secret
-func (s *Service) UpdateAPIToken(ctx context.Context, newToken string) error {
+// updateAPIToken updates the API token in the service, output clients and in the agent Kubernetes secret
+func (s *Service) updateAPIToken(ctx context.Context, newToken string) error {
 	if err := s.updateAgentSecret(ctx, newToken); err != nil {
 		return fmt.Errorf("error updating agent secret: %w", err)
 	}
@@ -1041,414 +1055,9 @@ func (s *Service) updateAgentSecret(ctx context.Context, newToken string) error 
 	return nil
 }
 
-func (s *Service) ConfigureSBOMCollector(ctx context.Context, enabled bool, enabledInCharts bool) error {
-	if s.GetRunSBOMCollectorAsDaemonSet() {
-		return s.configureSBOMCollectorDaemonSet(ctx, enabled, enabledInCharts)
-	}
-
-	return s.configureSBOMCollectorDeployment(ctx, enabled, enabledInCharts)
-}
-
-func (s *Service) configureSBOMCollectorDaemonSet(ctx context.Context, enabled, enabledInCharts bool) error {
-	if IsLocalEnvironment() {
-		return nil
-	}
-
-	if !enabledInCharts {
-		return nil
-	}
-
-	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("error getting SBOM collector daemonset: %w", err)
-	}
-
-	if enabled {
-		if len(ds.Spec.Template.Spec.NodeSelector) > 0 {
-			delete(ds.Spec.Template.Spec.NodeSelector, "aikidoSecurity.disable-sbom-collector")
-		}
-	} else {
-		ds.Spec.Template.Spec.NodeSelector = map[string]string{
-			"aikidoSecurity.disable-sbom-collector": "true",
-		}
-	}
-
-	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, ds, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating SBOM collector daemonset: %w", err)
-	}
-	return nil
-}
-
-func (s *Service) configureSBOMCollectorDeployment(ctx context.Context, enabled, enabledInCharts bool) error {
-	if IsLocalEnvironment() {
-		return nil
-	}
-
-	if !enabledInCharts {
-		return nil
-	}
-
-	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("error getting SBOM collector deployment: %w", err)
-	}
-
-	if enabled {
-		replicas := int32(1)
-		dep.Spec.Replicas = &replicas
-	} else {
-		replicas := int32(0)
-		dep.Spec.Replicas = &replicas
-	}
-
-	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, dep, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating SBOM collector deployment: %w", err)
-	}
-	return nil
-}
-
-// GetClusterIdentifier extracts the unique identifier for the Kubernetes cluster
-func (s *Service) GetClusterIdentifier(ctx context.Context) (string, error) {
-	var errs error
-	// Check if the cluster is GKE
-	identifier, err := s.GetGKEClusterIdentifier(ctx)
-	if err != nil {
-		errs = multierr.Append(errs, err)
-	}
-
-	if identifier != "" {
-		return identifier, errs
-	}
-
-	// Check if the cluster is AKS
-	identifier, err = s.GetAKSClusterIdentifier(ctx)
-	if err != nil {
-		errs = multierr.Append(errs, err)
-	}
-
-	if identifier != "" {
-		return identifier, errs
-	}
-
-	// Try to get the identifier from the kube-proxy configmap
-	identifier, err = s.GetClusterIdentifierFromProxy(ctx)
-	if err != nil {
-		errs = multierr.Append(errs, err)
-	}
-
-	if identifier != "" {
-		return identifier, errs
-	}
-
-	// Try to get the `kube-system` namespace UID
-	identifier, err = s.GetKubeSystemNamespaceUID(ctx)
-	if err != nil {
-		errs = multierr.Append(errs, err)
-	}
-
-	if identifier != "" {
-		return identifier, errs
-	}
-
-	// If all methods fail, return a random UUID to ensure the cluster can still be uniquely identified.
-	return uuid.New().String(), multierr.Append(errs, fmt.Errorf("could not get unique cluster identifier"))
-}
-
-// GetGKEClusterIdentifier checks if the Kubernetes cluster is GKE and returns the cluster uid if true.
-func (s *Service) GetGKEClusterIdentifier(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		"http://metadata.google.internal/computeMetadata/v1/instance/attributes/cluster-uid", nil)
-	if err != nil {
-		return "", fmt.Errorf("error creating GKE metadata request: %w", err)
-	}
-
-	req.Header.Add("Metadata-Flavor", "Google")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		if strings.Contains(err.Error(), noHostErrorMessage) {
-			// Not a GKE cluster
-			return "", nil
-		}
-
-		return "", fmt.Errorf("error getting cluster uid: %w", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			s.logger.ReportError(ctx, err, "error closing GKE metadata response body", "managerError")
-		}
-	}()
-
-	if resp.StatusCode == http.StatusNotFound {
-		// Not a GKE cluster
-		return "", nil
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code from GKE metadata server: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error reading GKE metadata response body: %w", err)
-	}
-
-	clusterUID := string(body)
-	return clusterUID, nil
-}
-
-// GetAKSClusterIdentifier checks if the Kubernetes cluster is AKS and returns the DNS name if true.
-func (s *Service) GetAKSClusterIdentifier(ctx context.Context) (string, error) {
-	// Get the kube-proxy pods in the kube-system namespace
-	pods, err := s.kubernetesClientSet.CoreV1().Pods("kube-system").List(ctx, v1.ListOptions{
-		LabelSelector: "component=kube-proxy,kubernetes.azure.com/managedby=aks",
-	})
-	if err != nil {
-		return "", fmt.Errorf("error getting kube-proxy pods: %w", err)
-	}
-
-	// Iterate through all kube-proxy pods
-	for _, pod := range pods.Items {
-		// Check each environment variable in each container
-		for _, container := range pod.Spec.Containers {
-			for _, env := range container.Env {
-				if env.Name != "KUBERNETES_SERVICE_HOST" {
-					continue
-				}
-
-				// Check if the AKS DNS name is present
-				if len(env.Value) == 0 {
-					continue
-				}
-
-				return env.Value, nil
-			}
-		}
-	}
-
-	return "", nil
-}
-
-// GetClusterIdentifierFromProxy extracts the unique identifier for the Kubernetes cluster from the kube-proxy ConfigMap
-func (s *Service) GetClusterIdentifierFromProxy(ctx context.Context) (string, error) {
-	configMap, err := s.kubernetesClientSet.CoreV1().ConfigMaps("kube-system").Get(ctx, "kube-proxy", v1.GetOptions{})
-	if err != nil {
-		// kube-proxy is not installed in this cluster
-		if k8sErrors.IsNotFound(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("error getting kube-proxy configmap: %w", err)
-	}
-
-	// Extract the kubeconfig content if exists
-	for _, v := range configMap.Data {
-		// Try to load the kubeconfig content
-		config, err := clientcmd.Load([]byte(v))
-		if err != nil {
-			continue
-		}
-
-		// Get the current context
-		contextName := config.CurrentContext
-		ctx, ok := config.Contexts[contextName]
-		if !ok {
-			continue
-		}
-
-		// Get the cluster information
-		cluster, ok := config.Clusters[ctx.Cluster]
-		if ok {
-			return cluster.Server, nil
-		}
-	}
-
-	return "", nil
-}
-
-func (s *Service) GetKubeSystemNamespaceUID(ctx context.Context) (string, error) {
-	// Get the `kube-system` namespace
-	ns, err := s.kubernetesClientSet.CoreV1().Namespaces().Get(ctx, "kube-system", v1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("error getting `kube-system` namespace: %w", err)
-	}
-
-	return string(ns.UID), nil
-}
-
 // RegisterFalcoProxy injects the Falco event proxy into the manager (when threat detection is enabled).
 func (s *Service) RegisterFalcoProxy(proxy *falco.Proxy) {
 	s.falcoProxy = proxy
-}
-
-func (s *Service) GetDeploymentAndChartsVersions(ctx context.Context, ns, deploymentName string) (string, string, error) {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
-		return defaultAgentVersion, defaultAgentVersion, nil
-	}
-
-	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(ns).Get(ctx, deploymentName, v1.GetOptions{})
-	if err != nil {
-		return "", "", fmt.Errorf("error getting deployment: %w", err)
-	}
-
-	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
-	if !ok {
-		return "", "", fmt.Errorf("agent version label not found on deployment")
-	}
-
-	chartsVersion, ok := deployment.Labels["helm.sh/chart"]
-	if !ok {
-		return "", "", fmt.Errorf("helm chart version label not found on deployment")
-	}
-
-	return agentVersion, chartsVersion, nil
-}
-
-func LoadSBOMCollectorVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, ownerName string, isDaemonSet bool) (string, error) {
-	if isDaemonSet {
-		return LoadDaemonSetVersion(ctx, clientSet, ns, ownerName)
-	}
-	return LoadDeploymentVersion(ctx, clientSet, ns, ownerName)
-}
-
-// LoadDeploymentVersion gets the deployment details from the API server and extracts the version from the labels
-func LoadDeploymentVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, deploymentName string) (string, error) {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
-		return defaultAgentVersion, nil
-	}
-
-	deployment, err := clientSet.AppsV1().Deployments(ns).Get(ctx, deploymentName, v1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("error getting deployment: %w", err)
-	}
-
-	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
-	if !ok {
-		return "", fmt.Errorf("agent version label not found on deployment")
-	}
-
-	return agentVersion, nil
-}
-
-// LoadDaemonSetVersion gets the daemonSet details from the API server and extracts the version from the labels
-func LoadDaemonSetVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, dsName string) (string, error) {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
-		return defaultAgentVersion, nil
-	}
-
-	deployment, err := clientSet.AppsV1().DaemonSets(ns).Get(ctx, dsName, v1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("error getting daemonSet: %w", err)
-	}
-
-	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
-	if !ok {
-		return "", fmt.Errorf("agent version label not found on deployment")
-	}
-
-	return agentVersion, nil
-}
-
-func (s *Service) RestartSBOMCollector(ctx context.Context) error {
-	if s.GetRunSBOMCollectorAsDaemonSet() {
-		return s.RestartDaemonSet(ctx, s.GetSBOMCollectorName())
-	}
-
-	return s.RestartDeployment(ctx, s.GetSBOMCollectorName())
-}
-
-// RestartDaemonSet fetches the daemonSet and updates the `kubectl.kubernetes.io/restartedAt` annotation to trigger
-// a restart.
-func (s *Service) RestartDaemonSet(ctx context.Context, dsName string) error {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
-		return nil
-	}
-
-	deployment, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, dsName, v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("error getting daemonSet: %w", err)
-	}
-
-	if deployment.Spec.Template.Annotations == nil {
-		deployment.Spec.Template.Annotations = map[string]string{}
-	}
-	deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339Nano)
-
-	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating daemonSet: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Service) UpdateSBOMCollectorVersion(ctx context.Context, newVersion string) error {
-	if s.GetRunSBOMCollectorAsDaemonSet() {
-		return s.UpdateSBOMCollectorDaemonSetVersion(ctx, newVersion)
-	}
-
-	return s.UpdateSBOMCollectorDeploymentVersion(ctx, newVersion)
-}
-
-// UpdateSBOMCollectorDeploymentVersion updates the sbom collector deployment with a new image version and updates the version labels
-func (s *Service) UpdateSBOMCollectorDeploymentVersion(ctx context.Context, newVersion string) error {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
-		return nil
-	}
-
-	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("error getting sbom collector deployment: %w", err)
-	}
-
-	image := deployment.Spec.Template.Spec.Containers[0].Image
-	imageParts := strings.Split(image, ":")
-	if len(imageParts) != 2 {
-		return fmt.Errorf("invalid image format: %s", image)
-	}
-
-	newImage := fmt.Sprintf("%s:%s", imageParts[0], newVersion)
-	deployment.Spec.Template.Spec.Containers[0].Image = newImage
-	deployment.Labels["app.kubernetes.io/version"] = newVersion
-	deployment.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
-
-	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating sbom collector deployment: %w", err)
-	}
-
-	// We're setting the sbom collector version to prevent multiple updates of the deployment if the heartbeat interval is
-	// shorter than the time it takes for the deployment to roll out
-	s.SetSBOMCollectorVersion(newVersion)
-	return nil
-}
-
-// UpdateSBOMCollectorDaemonSetVersion updates the sbom collector daemonSet with a new image version and updates the version labels
-func (s *Service) UpdateSBOMCollectorDaemonSetVersion(ctx context.Context, newVersion string) error {
-	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
-		return nil
-	}
-
-	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("error getting sbom collector deployment: %w", err)
-	}
-
-	image := daemonSet.Spec.Template.Spec.Containers[0].Image
-	imageParts := strings.Split(image, ":")
-	if len(imageParts) != 2 {
-		return fmt.Errorf("invalid image format: %s", image)
-	}
-
-	newImage := fmt.Sprintf("%s:%s", imageParts[0], newVersion)
-	daemonSet.Spec.Template.Spec.Containers[0].Image = newImage
-	daemonSet.Labels["app.kubernetes.io/version"] = newVersion
-	daemonSet.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
-
-	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, daemonSet, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating sbom collector deployment: %w", err)
-	}
-
-	// We're setting the sbom collector version to prevent multiple updates of the deployment if the heartbeat interval is
-	// shorter than the time it takes for the deployment to roll out
-	s.SetSBOMCollectorVersion(newVersion)
-	return nil
 }
 
 // UpdateFalcoVersion updates all containers and init containers in the Falco DaemonSet to the new version.
@@ -1488,38 +1097,7 @@ func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) err
 	return nil
 }
 
-func (s *Service) ListCollectorScannedImages(ctx context.Context) ([]models.ScannedImage, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/api/sbom/list-scanned-images", s.GetAPIEndpoint()), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Authorization", "Bearer "+s.GetAPIToken())
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error making request to get collector scanned images: %w", err)
-	}
-	defer func() {
-		if err := res.Body.Close(); err != nil {
-			s.logger.ReportError(ctx, err, "error closing list collector scanned images body", "managerError")
-		}
-	}()
-
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("error listing collector scanned images, status code: %d", res.StatusCode)
-	}
-
-	var response []models.ScannedImage
-	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
-		return nil, err
-	}
-
-	return response, nil
-}
-
-func (s *Service) GetAgentMetrics(ctx context.Context) (models.ComponentMetrics, error) {
+func (s *Service) getAgentMetrics(ctx context.Context) (models.ComponentMetrics, error) {
 	podMetrics, err := s.metricClient.MetricsV1beta1().PodMetricses(s.GetAgentNamespace()).Get(ctx, s.GetAgentPodName(), v1.GetOptions{})
 	if err != nil {
 		// The metrics for the agent might not have been generated yet (it takes ~60s after the pod starts) or the
@@ -1541,213 +1119,16 @@ func (s *Service) GetAgentMetrics(ctx context.Context) (models.ComponentMetrics,
 	return models.ComponentMetrics{CPUUsage: fmt.Sprintf("%dm", cpuUsage), MemoryUsage: fmt.Sprintf("%.0fMi", float64(memUsage.Value())/(1024*1024))}, nil
 }
 
-func (s *Service) ListResourceEvents(ctx context.Context, kind, name string) ([]corev1.Event, error) {
-	fieldSelector := fmt.Sprintf("involvedObject.kind=%s,involvedObject.name=%s", kind, name)
-	return s.ListEventsByFieldSelector(ctx, fieldSelector)
-}
-
-func (s *Service) ListEventsByFieldSelector(ctx context.Context, fieldSelector string) ([]corev1.Event, error) {
-	opts := v1.ListOptions{}
-	if fieldSelector != "" {
-		opts.FieldSelector = fieldSelector
-	}
-	eventsList, err := s.kubernetesClientSet.CoreV1().Events(s.GetAgentNamespace()).List(ctx, opts)
-	if err != nil {
-		return nil, fmt.Errorf("error listing resource events: %w", err)
-	}
-
-	events := make([]corev1.Event, 0, len(eventsList.Items))
-	// Filter out irrelevant events by reason.
-	for _, event := range eventsList.Items {
-		if slices.Contains(ignoredEventsReasons, event.Reason) {
-			continue
-		}
-
-		events = append(events, event)
-	}
-
-	return events, nil
-}
-
-func (s *Service) GenerateAgentPodEvent(ctx context.Context) (*corev1.Event, error) {
-	agentPodDetails, err := s.GetPodByName(ctx, s.GetAgentPodName())
-	if err != nil {
-		return nil, fmt.Errorf("error getting agent pod: %w", err)
-	}
-
-	if len(agentPodDetails.Status.ContainerStatuses) == 0 {
-		return nil, nil
-	}
-
-	event := &corev1.Event{
-		TypeMeta: agentPodDetails.TypeMeta,
-		InvolvedObject: corev1.ObjectReference{
-			Kind:            "Pod",
-			Namespace:       agentPodDetails.Namespace,
-			Name:            agentPodDetails.Name,
-			UID:             agentPodDetails.UID,
-			APIVersion:      "v1",
-			ResourceVersion: agentPodDetails.ResourceVersion,
-		},
-		Reason:  "AgentInformation",
-		Message: agentPodDetails.Status.ContainerStatuses[0].LastTerminationState.String(),
-		Count:   1,
-		Type:    "AgentStatusInformation",
-	}
-
-	return event, nil
-}
-
-func (s *Service) GetPodByName(ctx context.Context, name string) (*corev1.Pod, error) {
-	pod, err := s.kubernetesClientSet.CoreV1().Pods(s.GetAgentNamespace()).Get(ctx, name, v1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("error getting pod by name: %w", err)
-	}
-
-	return pod, nil
-}
-
-func (s *Service) GetSBOMCollectorServiceAccount(ctx context.Context) (*corev1.ServiceAccount, error) {
-	if s.GetRunSBOMCollectorAsDaemonSet() {
-		return s.getDaemonsetServiceAccount(ctx, s.GetSBOMCollectorName())
-	}
-
-	return s.getDeploymentServiceAccount(ctx, s.GetSBOMCollectorName())
-}
-
-func (s *Service) GetServiceAccountByName(ctx context.Context, name string) (*corev1.ServiceAccount, error) {
-	sa, err := s.kubernetesClientSet.CoreV1().ServiceAccounts(s.GetAgentNamespace()).Get(ctx, name, v1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("error getting service account by name: %w", err)
-	}
-
-	return sa, nil
-}
-
-func (s *Service) getDaemonsetServiceAccount(ctx context.Context, dsName string) (*corev1.ServiceAccount, error) {
-	ds, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, dsName, v1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("error getting SBOM collector daemonset: %w", err)
-	}
-
-	if ds.Spec.Template.Spec.ServiceAccountName == "" {
-		return nil, nil
-	}
-
-	return s.GetServiceAccountByName(ctx, ds.Spec.Template.Spec.ServiceAccountName)
-}
-
-func (s *Service) getDeploymentServiceAccount(ctx context.Context, depName string) (*corev1.ServiceAccount, error) {
-	dep, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, depName, v1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("error getting SBOM collector deployment: %w", err)
-	}
-
-	if dep.Spec.Template.Spec.ServiceAccountName == "" {
-		return nil, nil
-	}
-
-	return s.GetServiceAccountByName(ctx, dep.Spec.Template.Spec.ServiceAccountName)
-}
-
-func (s *Service) ShouldCreateController(serverResourcesGVKs map[string]struct{}, gvk schema.GroupVersionKind, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole) (bool, error) {
-	// Skip the GVK if it's not available in the cluster
-	if _, found := serverResourcesGVKs[gvk.String()]; len(serverResourcesGVKs) > 0 && !found {
-		s.logger.LogWarning(fmt.Errorf("GVK %s not found in cluster", gvk.String()), "skipping watcher setup")
-		return false, nil
-	}
-
-	// Get the REST mapping for the GVK
-	mapping, err := restMapper.RESTMapping(
-		gvk.GroupKind(),
-		gvk.Version,
-	)
-	if err != nil {
-		return false, fmt.Errorf("error getting REST mapping for GVK (`%s`): %w", gvk.String(), err)
-	}
-
-	// Skip the GVK if the agent does not have the required permissions to watch it
-	if !clusterRoleAllowsWatch(agentClusterRole, gvk.Group, mapping.Resource.Resource) {
-		s.logger.LogWarning(fmt.Errorf("agent does not have permissions to watch resource %s", mapping.Resource.Resource), "skipping watcher setup")
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func clusterRoleAllowsWatch(role *rbacv1.ClusterRole, apiGroup, resource string) bool {
-	if role == nil {
-		return false
-	}
-
-	neededVerbs := map[string]bool{
-		"get":   false,
-		"list":  false,
-		"watch": false,
-	}
-
-	for _, rule := range role.Rules {
-		if !listMatchesValues(rule.APIGroups, apiGroup) {
-			continue
-		}
-
-		if !listMatchesValues(rule.Resources, resource) {
-			continue
-		}
-
-		isWildcardVerb := false
-		for _, verb := range rule.Verbs {
-			if verb == "*" {
-				isWildcardVerb = true
-				break
-			}
-
-			if _, ok := neededVerbs[verb]; ok {
-				neededVerbs[verb] = true
-			}
-		}
-
-		if isWildcardVerb {
-			return true
-		}
-
-		verbsAllowed := true
-		for _, hasVerb := range neededVerbs {
-			if hasVerb {
-				continue
-			}
-
-			verbsAllowed = false
-			break
-		}
-
-		if verbsAllowed {
-			return true
-		}
-	}
-
-	return false
-}
-
-func BuildLocalConfig() (*rest.Config, error) {
+func buildLocalConfig() (*rest.Config, error) {
 	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
-func IsLocalEnvironment() bool {
+func isLocalEnvironment() bool {
 	val, ok := os.LookupEnv("ENVIRONMENT")
 	if ok && val == "local" {
 		return true
 	}
 
-	return false
-}
-
-func listMatchesValues(list []string, val string) bool {
-	for _, v := range list {
-		if v == "*" || v == val {
-			return true
-		}
-	}
 	return false
 }
