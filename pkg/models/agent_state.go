@@ -213,7 +213,7 @@ func (a *AgentState) GetFalcoRulesConfigMapName() string {
 }
 
 func (a *AgentState) GetRuntimeProtectionConfigMapName() string {
-	return "kubernetes-agent-runtime-protection"
+	return "kubernetes-agent-falco-config"
 }
 
 func (a *AgentState) SetAgentVersion(version string) {

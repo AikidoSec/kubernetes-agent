@@ -156,7 +156,7 @@ const (
 	threatDetectionExceptionsKey = "02-threat-detection-exceptions.yaml"
 )
 
-// Keys in the kubernetes-agent-runtime-protection ConfigMap (mounted at /etc/falco/aikido-config.d/).
+// Keys in the kubernetes-agent-falco-config ConfigMap (mounted at /etc/falco/aikido-config.d/).
 const (
 	rulesOverrideKey = "rules-override.yaml"
 )
