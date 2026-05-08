@@ -450,13 +450,7 @@ func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
 		return fmt.Errorf("error getting runtime protection configmap %q: %w", cmName, err)
 	}
 
-	rulesActions := []models.ThreatRuleAction{{Disable: models.ThreatRuleSelector{Rule: "*"}}}
-	for _, rule := range s.GetEnabledThreatRules() {
-		rulesActions = append(rulesActions, models.ThreatRuleAction{Enable: models.ThreatRuleSelector{Rule: rule}})
-	}
-
-	override := map[string]any{"rules": rulesActions}
-	overrideYAML, err := yaml.Marshal(override)
+	overrideYAML, err := buildRulesOverrideYAML(s.GetEnabledThreatRules())
 	if err != nil {
 		return fmt.Errorf("error marshalling rules override: %w", err)
 	}
@@ -464,13 +458,29 @@ func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
 	if cm.Data == nil {
 		cm.Data = make(map[string]string)
 	}
-	cm.Data[rulesOverrideKey] = string(overrideYAML)
+	cm.Data[rulesOverrideKey] = overrideYAML
 
 	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("error updating runtime protection configmap %q: %w", cmName, err)
 	}
 
 	return nil
+}
+
+// buildRulesOverrideYAML produces the YAML content for the rules-override.yaml key in the
+// kubernetes-agent-falco-config ConfigMap. It disables all rules globally and then re-enables
+// each rule in enabledRules individually, which is the Falco config.d mechanism for allowlisting.
+func buildRulesOverrideYAML(enabledRules []string) (string, error) {
+	rulesActions := []models.ThreatRuleAction{{Disable: models.ThreatRuleSelector{Rule: "*"}}}
+	for _, rule := range enabledRules {
+		rulesActions = append(rulesActions, models.ThreatRuleAction{Enable: models.ThreatRuleSelector{Rule: rule}})
+	}
+	override := map[string]any{"rules": rulesActions}
+	data, err := yaml.Marshal(override)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func (s *Service) rebuildFalcoExceptionsConfig(ctx context.Context) error {

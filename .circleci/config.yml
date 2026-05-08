@@ -21,6 +21,9 @@ jobs:
       - run:
           name: Run linter
           command: golangci-lint run
+      - run:
+          name: Run tests
+          command: go test ./...
   
   commitmsglint:
     docker:
