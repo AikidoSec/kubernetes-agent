@@ -150,9 +150,15 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}, nil
 }
 
+// Keys in the kubernetes-agent-falco-rules ConfigMap (mounted at /etc/falco/rules.d/).
 const (
 	threatDetectionRulesKey      = "01-threat-detection-rules.yaml"
 	threatDetectionExceptionsKey = "02-threat-detection-exceptions.yaml"
+)
+
+// Keys in the kubernetes-agent-runtime-protection ConfigMap (mounted at /etc/falco/aikido-config.d/).
+const (
+	rulesOverrideKey = "rules-override.yaml"
 )
 
 func (s *Service) StartHeartbeat() {
@@ -434,18 +440,14 @@ func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []s
 	return s.rebuildFalcoRulesConfig(ctx)
 }
 
-// rebuildFalcoRulesConfig writes the complete rules override to the Falco ConfigMap from all
-// current ruleset states. All rulesets are denied by default; only explicitly enabled rules fire.
+// rebuildFalcoRulesConfig writes the complete rules override to the runtime protection ConfigMap.
+// All rulesets are denied by default; only explicitly enabled rules fire.
 // To add a new ruleset (e.g. SCA), read its state from agentState and append enables here.
 func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
-	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, s.GetThreatDetectorDaemonSetName(), v1.GetOptions{})
+	cmName := s.GetRuntimeProtectionConfigMapName()
+	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("error getting Threat Detector configmap: %w", err)
-	}
-
-	data := make(map[string]any)
-	if err := yaml.Unmarshal([]byte(cm.Data["falco.yaml"]), &data); err != nil {
-		return fmt.Errorf("error unmarshalling Threat Detector configmap: %w", err)
+		return fmt.Errorf("error getting runtime protection configmap %q: %w", cmName, err)
 	}
 
 	rulesActions := []models.ThreatRuleAction{{Disable: models.ThreatRuleSelector{Rule: "*"}}}
@@ -453,15 +455,19 @@ func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
 		rulesActions = append(rulesActions, models.ThreatRuleAction{Enable: models.ThreatRuleSelector{Rule: rule}})
 	}
 
-	data["rules"] = rulesActions
-	newYaml, err := yaml.Marshal(data)
+	override := map[string]any{"rules": rulesActions}
+	overrideYAML, err := yaml.Marshal(override)
 	if err != nil {
-		return fmt.Errorf("error marshalling Threat Detector configmap: %w", err)
+		return fmt.Errorf("error marshalling rules override: %w", err)
 	}
-	cm.Data["falco.yaml"] = string(newYaml)
+
+	if cm.Data == nil {
+		cm.Data = make(map[string]string)
+	}
+	cm.Data[rulesOverrideKey] = string(overrideYAML)
 
 	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating Threat Detector configmap: %w", err)
+		return fmt.Errorf("error updating runtime protection configmap %q: %w", cmName, err)
 	}
 
 	return nil

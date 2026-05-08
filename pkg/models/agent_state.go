@@ -212,6 +212,10 @@ func (a *AgentState) GetFalcoRulesConfigMapName() string {
 	return "kubernetes-agent-falco-rules"
 }
 
+func (a *AgentState) GetRuntimeProtectionConfigMapName() string {
+	return "kubernetes-agent-runtime-protection"
+}
+
 func (a *AgentState) SetAgentVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
