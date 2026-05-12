@@ -26,7 +26,7 @@ func (s *Service) getClusterIdentifier(ctx context.Context) (string, error) {
 	}
 
 	if identifier != "" {
-		return identifier, errs
+		return identifier, nil
 	}
 
 	// Check if the cluster is AKS
@@ -36,7 +36,7 @@ func (s *Service) getClusterIdentifier(ctx context.Context) (string, error) {
 	}
 
 	if identifier != "" {
-		return identifier, errs
+		return identifier, nil
 	}
 
 	// Try to get the identifier from the kube-proxy configmap
@@ -46,7 +46,7 @@ func (s *Service) getClusterIdentifier(ctx context.Context) (string, error) {
 	}
 
 	if identifier != "" {
-		return identifier, errs
+		return identifier, nil
 	}
 
 	// Try to get the `kube-system` namespace UID
@@ -56,7 +56,7 @@ func (s *Service) getClusterIdentifier(ctx context.Context) (string, error) {
 	}
 
 	if identifier != "" {
-		return identifier, errs
+		return identifier, nil
 	}
 
 	// If all methods fail, return a random UUID to ensure the cluster can still be uniquely identified.
