@@ -121,13 +121,13 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		}
 	}
 
-	threatDetectionEnabledStr, exists := os.LookupEnv("RUNTIME_PROTECTION_ENABLED")
+	runtimeProtectionEnabledStr, exists := os.LookupEnv("RUNTIME_PROTECTION_ENABLED")
 	if !exists {
-		threatDetectionEnabledStr = "false"
+		runtimeProtectionEnabledStr = "false"
 	}
-	threatDetectionEnabled, err := strconv.ParseBool(threatDetectionEnabledStr)
+	runtimeProtectionEnabled, err := strconv.ParseBool(runtimeProtectionEnabledStr)
 	if err != nil {
-		threatDetectionEnabled = false
+		runtimeProtectionEnabled = false
 	}
 
 	falcoProxyPortStr, exists := os.LookupEnv("FALCO_PROXY_PORT")
@@ -151,7 +151,7 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		MetricsPort:                 metricsPort,
 		SBOMCollectorEnabled:        sbomCollectorEnabled,
 		AutoUpdateEnabled:           autoUpdateEnabled,
-		ThreatDetectionEnabled:      threatDetectionEnabled,
+		RuntimeProtectionEnabled:    runtimeProtectionEnabled,
 		FalcoProxyPort:              falcoProxyPort,
 	}, errs
 }

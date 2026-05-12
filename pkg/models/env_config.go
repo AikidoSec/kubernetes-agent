@@ -13,6 +13,6 @@ type EnvironmentConfig struct {
 	AgentPodName                string
 	SBOMCollectorEnabled        *bool
 	AutoUpdateEnabled           bool
-	ThreatDetectionEnabled      bool
+	RuntimeProtectionEnabled    bool
 	FalcoProxyPort              int
 }

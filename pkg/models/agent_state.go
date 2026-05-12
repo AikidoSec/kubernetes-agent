@@ -31,7 +31,7 @@ type AgentState struct {
 	sbomCollectorServiceAccount *corev1.ServiceAccount
 
 	threatDetectionEnabled         bool
-	chartsThreatDetectionEnabled   bool
+	chartsRuntimeProtectionEnabled bool
 	threatDaemonSetName            string
 	enabledThreatRules             []string
 	threatDetectionExceptions      []ThreatDetectionException
@@ -178,16 +178,16 @@ func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
 	a.chartsSBOMCollectorEnabled = enabled
 }
 
-func (a *AgentState) IsChartsThreatDetectionEnabled() bool {
+func (a *AgentState) IsChartsRuntimeProtectionEnabled() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.chartsThreatDetectionEnabled
+	return a.chartsRuntimeProtectionEnabled
 }
 
-func (a *AgentState) SetChartsThreatDetectionEnabled(enabled bool) {
+func (a *AgentState) SetChartsRuntimeProtectionEnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.chartsThreatDetectionEnabled = enabled
+	a.chartsRuntimeProtectionEnabled = enabled
 }
 
 func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {
