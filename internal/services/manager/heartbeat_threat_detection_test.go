@@ -21,11 +21,12 @@ const (
 )
 
 type heartbeatTestSetup struct {
-	chartsEnabled        bool
-	initiallyEnabled     bool
-	initialRules         []string
-	initialExceptions    []models.ThreatDetectionException
-	initialEmbeddedRules string // pre-seeded value of 01-threat-detection-rules.yaml
+	chartsEnabled         bool
+	initiallyEnabled      bool
+	initialRules          []string
+	initialExceptions     []models.ThreatDetectionException
+	initialEmbeddedRules  string // pre-seeded value of 01-threat-detection-rules.yaml
+	initialExceptionsYAML string // pre-seeded value of 02-threat-detection-exceptions.yaml
 }
 
 func newServiceForHeartbeatTest(t *testing.T, setup heartbeatTestSetup) (*Service, *fake.Clientset) {
@@ -45,7 +46,10 @@ func newServiceForHeartbeatTest(t *testing.T, setup heartbeatTestSetup) (*Servic
 		},
 		&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "kubernetes-agent-falco-rules", Namespace: testNamespace},
-			Data:       map[string]string{"01-threat-detection-rules.yaml": setup.initialEmbeddedRules},
+			Data: map[string]string{
+				"01-threat-detection-rules.yaml": setup.initialEmbeddedRules,
+				"02-threat-detection-exceptions.yaml": setup.initialExceptionsYAML,
+			},
 		},
 	)
 
@@ -129,17 +133,35 @@ func TestHandleThreatDetectionHeartbeat(t *testing.T) {
 			wantEmbeddedRulesNonEmpty: ptrOf(true),
 		},
 		{
-			name: "disabling (true→false): clears embedded rules and restarts",
+			name: "disabling (true→false): clears embedded rules, clears exceptions, and restarts",
 			setup: heartbeatTestSetup{
-				chartsEnabled:        true,
-				initiallyEnabled:     true,
-				initialRules:         []string{ruleA},
-				initialEmbeddedRules: "existing rules content",
+				chartsEnabled:         true,
+				initiallyEnabled:      true,
+				initialRules:          []string{ruleA},
+				initialExceptions:     []models.ThreatDetectionException{{ID: 1, Name: "ex", RuleNames: []string{ruleA}, Conditions: []models.ExceptionCondition{{Field: "proc.name", Operator: "=", Value: "myapp"}}}},
+				initialEmbeddedRules:  "existing rules content",
+				initialExceptionsYAML: "existing exceptions content",
 			},
 			td:                        models.ThreatDetectionHeartbeat{Enabled: false},
 			wantEnabled:               false,
+			wantRules:                 []string{},
 			wantRestarted:             true,
 			wantEmbeddedRulesNonEmpty: ptrOf(false),
+			wantExceptionsNonEmpty:    ptrOf(false),
+		},
+		{
+			name:  "enabling (false→true) with exceptions: populates rules, exceptions, and restarts",
+			setup: heartbeatTestSetup{chartsEnabled: true, initiallyEnabled: false},
+			td: models.ThreatDetectionHeartbeat{
+				Enabled:    true,
+				Rules:      []string{ruleA},
+				Exceptions: ptrOf(oneException),
+			},
+			wantEnabled:               true,
+			wantRules:                 []string{ruleA},
+			wantRestarted:             true,
+			wantEmbeddedRulesNonEmpty: ptrOf(true),
+			wantExceptionsNonEmpty:    ptrOf(true),
 		},
 		{
 			name: "steady-state disabled: no K8s ops",

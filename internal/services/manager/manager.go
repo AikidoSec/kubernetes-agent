@@ -391,10 +391,15 @@ func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.
 	}
 
 	if wasEnabled && !nowEnabled {
-		// Disabling: clear the rules file and restart so Falco picks up the empty config.
+		// Disabling: clear both rule files so Falco doesn't try to append exceptions to rules that no longer exist.
 		s.SetFalcoVersion("")
+		s.SetEnabledThreatRules([]string{})
 		if err := s.ClearEmbeddedThreatRules(ctx); err != nil {
 			s.logger.ReportError(ctx, err, "error clearing embedded threat rules from configmap", "managerError")
+		}
+		s.SetThreatDetectionExceptions([]models.ThreatDetectionException{})
+		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error clearing threat detection exceptions from configmap", "managerError")
 		}
 		if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
