@@ -66,7 +66,7 @@ type Service struct {
 	logger             *logger.Service
 	// Channel to stop the heartbeat goroutine.
 	heartbeatStopChan   chan struct{}
-	kubernetesClientSet *kubernetes.Clientset
+	kubernetesClientSet kubernetes.Interface
 	heartbeatService    *heartbeat.Service
 	assetsOutputClient  *batchclient.BatchClient
 	falcoProxy          *falco.Proxy
@@ -349,57 +349,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	threatDetectionChanged := s.IsThreatDetectionEnabled() != resp.ThreatDetection.Enabled
-	if threatDetectionChanged {
-		s.logger.LogInfo("threat detection enabled changed from heartbeat response", "enabled", resp.ThreatDetection.Enabled)
-		s.SetThreatDetectionEnabled(resp.ThreatDetection.Enabled)
-
-		if s.IsThreatDetectionEnabled() && s.IsChartsRuntimeProtectionEnabled() {
-			falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
-			if err != nil {
-				s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
-			}
-			s.SetFalcoVersion(falcoVersion)
-			if err := s.WriteEmbeddedThreatRules(ctx); err != nil {
-				s.logger.ReportError(ctx, err, "error writing embedded threat rules to configmap", "managerError")
-			}
-		} else {
-			s.SetFalcoVersion("")
-			if err := s.ClearEmbeddedThreatRules(ctx); err != nil {
-				s.logger.ReportError(ctx, err, "error clearing embedded threat rules from configmap", "managerError")
-			}
-		}
-	}
-
-	if s.IsThreatDetectionEnabled() {
-		newEnabledRules := resp.ThreatDetection.Rules
-		// null means the server could not load exceptions — keep current state unchanged.
-		newExceptions := resp.ThreatDetection.Exceptions
-
-		rulesChanged := !slices.Equal(s.GetEnabledThreatRules(), newEnabledRules)
-		exceptionsChanged := newExceptions != nil && !slices.EqualFunc(s.GetThreatDetectionExceptions(), *newExceptions, models.ThreatDetectionExceptionEqual)
-
-		if rulesChanged {
-			s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", newEnabledRules)
-			if err := s.UpdateEnabledThreatRules(ctx, newEnabledRules); err != nil {
-				s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
-			}
-		}
-
-		if exceptionsChanged {
-			s.logger.LogInfo("threat detection exceptions changed from heartbeat response")
-			s.SetThreatDetectionExceptions(*newExceptions)
-			if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
-				s.logger.ReportError(ctx, err, "error updating threat detection exceptions", "managerError")
-			}
-		}
-
-		if rulesChanged || exceptionsChanged {
-			if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
-				s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
-			}
-		}
-	}
+	s.handleThreatDetectionHeartbeat(ctx, resp.ThreatDetection)
 
 	if s.GetAutoUpdateEnabled() {
 		if s.IsChartsRuntimeProtectionEnabled() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
@@ -413,6 +363,76 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	return resp, nil
+}
+
+func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.ThreatDetectionHeartbeat) {
+	wasEnabled := s.IsThreatDetectionEnabled()
+	nowEnabled := td.Enabled
+
+	if wasEnabled != nowEnabled {
+		s.logger.LogInfo("threat detection enabled changed from heartbeat response", "enabled", nowEnabled)
+		s.SetThreatDetectionEnabled(nowEnabled)
+	}
+
+	if !s.IsChartsRuntimeProtectionEnabled() {
+		return
+	}
+
+	if !wasEnabled && nowEnabled {
+		// Enabling: write the embedded rules file; the block below handles config rebuild and restart.
+		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
+		}
+		s.SetFalcoVersion(falcoVersion)
+		if err := s.WriteEmbeddedThreatRules(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error writing embedded threat rules to configmap", "managerError")
+		}
+	}
+
+	if wasEnabled && !nowEnabled {
+		// Disabling: clear the rules file and restart so Falco picks up the empty config.
+		s.SetFalcoVersion("")
+		if err := s.ClearEmbeddedThreatRules(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error clearing embedded threat rules from configmap", "managerError")
+		}
+		if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
+			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
+		}
+		return
+	}
+
+	if !nowEnabled {
+		return
+	}
+
+	newEnabledRules := td.Rules
+	// null means the server could not load exceptions — keep current state unchanged.
+	newExceptions := td.Exceptions
+
+	rulesChanged := !slices.Equal(s.GetEnabledThreatRules(), newEnabledRules)
+	exceptionsChanged := newExceptions != nil && !slices.EqualFunc(s.GetThreatDetectionExceptions(), *newExceptions, models.ThreatDetectionExceptionEqual)
+
+	if rulesChanged {
+		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", newEnabledRules)
+		if err := s.UpdateEnabledThreatRules(ctx, newEnabledRules); err != nil {
+			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
+		}
+	}
+
+	if exceptionsChanged {
+		s.logger.LogInfo("threat detection exceptions changed from heartbeat response")
+		s.SetThreatDetectionExceptions(*newExceptions)
+		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error updating threat detection exceptions", "managerError")
+		}
+	}
+
+	if rulesChanged || exceptionsChanged {
+		if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
+			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
+		}
+	}
 }
 
 func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []string) error {
