@@ -349,10 +349,10 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	threatDetectionChanged := s.IsThreatDetectionEnabled() != resp.Cluster.ThreatDetectionEnabled
+	threatDetectionChanged := s.IsThreatDetectionEnabled() != resp.ThreatDetection.Enabled
 	if threatDetectionChanged {
-		s.logger.LogInfo("threat detection enabled changed from heartbeat response", "enabled", resp.Cluster.ThreatDetectionEnabled)
-		s.SetThreatDetectionEnabled(resp.Cluster.ThreatDetectionEnabled)
+		s.logger.LogInfo("threat detection enabled changed from heartbeat response", "enabled", resp.ThreatDetection.Enabled)
+		s.SetThreatDetectionEnabled(resp.ThreatDetection.Enabled)
 
 		if s.IsThreatDetectionEnabled() && s.IsChartsThreatDetectionEnabled() {
 			falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
@@ -371,37 +371,33 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
-	newEnabledRules := resp.EnabledThreatRules
-	// null means the server could not load exceptions — keep current state unchanged.
-	newExceptions := resp.ThreatDetectionExceptions
-	if !s.IsThreatDetectionEnabled() {
-		newEnabledRules = []string{}
-		// Leave exceptions unchanged when disabling — Falco is shutting down anyway
-		// and clearing exceptions before the DaemonSet stops creates an unnecessary window.
-		newExceptions = nil
-	}
+	if s.IsThreatDetectionEnabled() {
+		newEnabledRules := resp.ThreatDetection.Rules
+		// null means the server could not load exceptions — keep current state unchanged.
+		newExceptions := resp.ThreatDetection.Exceptions
 
-	rulesChanged := !slices.Equal(s.GetEnabledThreatRules(), newEnabledRules)
-	exceptionsChanged := newExceptions != nil && !slices.EqualFunc(s.GetThreatDetectionExceptions(), *newExceptions, models.ThreatDetectionExceptionEqual)
+		rulesChanged := !slices.Equal(s.GetEnabledThreatRules(), newEnabledRules)
+		exceptionsChanged := newExceptions != nil && !slices.EqualFunc(s.GetThreatDetectionExceptions(), *newExceptions, models.ThreatDetectionExceptionEqual)
 
-	if rulesChanged {
-		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", newEnabledRules)
-		if err := s.UpdateEnabledThreatRules(ctx, newEnabledRules); err != nil {
-			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
+		if rulesChanged {
+			s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", newEnabledRules)
+			if err := s.UpdateEnabledThreatRules(ctx, newEnabledRules); err != nil {
+				s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
+			}
 		}
-	}
 
-	if exceptionsChanged {
-		s.logger.LogInfo("threat detection exceptions changed from heartbeat response")
-		s.SetThreatDetectionExceptions(*newExceptions)
-		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
-			s.logger.ReportError(ctx, err, "error updating threat detection exceptions", "managerError")
+		if exceptionsChanged {
+			s.logger.LogInfo("threat detection exceptions changed from heartbeat response")
+			s.SetThreatDetectionExceptions(*newExceptions)
+			if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
+				s.logger.ReportError(ctx, err, "error updating threat detection exceptions", "managerError")
+			}
 		}
-	}
 
-	if rulesChanged || exceptionsChanged {
-		if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
-			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
+		if rulesChanged || exceptionsChanged {
+			if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
+				s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
+			}
 		}
 	}
 
@@ -783,10 +779,10 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// Threat detection initialization
 	s.SetChartsThreatDetectionEnabled(environmentConfig.ThreatDetectionEnabled)
-	s.SetThreatDetectionEnabled(hb.Cluster.ThreatDetectionEnabled)
-	s.SetEnabledThreatRules(hb.EnabledThreatRules)
-	if hb.ThreatDetectionExceptions != nil {
-		s.SetThreatDetectionExceptions(*hb.ThreatDetectionExceptions)
+	s.SetThreatDetectionEnabled(hb.ThreatDetection.Enabled)
+	s.SetEnabledThreatRules(hb.ThreatDetection.Rules)
+	if hb.ThreatDetection.Exceptions != nil {
+		s.SetThreatDetectionExceptions(*hb.ThreatDetection.Exceptions)
 	}
 
 	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
