@@ -47,7 +47,7 @@ func (s *Service) SendError(ctx context.Context, err error, errorType string, ar
 	builder.WriteString("{\"message\":")
 	errJSON, marshalErr := json.Marshal(err.Error())
 	if marshalErr != nil {
-		builder.WriteString(fmt.Sprintf(`"%v"`, err.Error()))
+		_, _ = fmt.Fprintf(&builder, `"%v"`, err.Error())
 	} else {
 		builder.WriteString(string(errJSON))
 	}
@@ -67,7 +67,7 @@ func (s *Service) SendError(ctx context.Context, err error, errorType string, ar
 
 		argValue, marshalErr := json.Marshal(args[i+1])
 		if marshalErr != nil {
-			builder.WriteString(fmt.Sprintf(`"%v"`, args[i+1]))
+			_, _ = fmt.Fprintf(&builder, `"%v"`, args[i+1])
 			continue
 		}
 		builder.WriteString(string(argValue))
