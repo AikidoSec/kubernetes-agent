@@ -155,7 +155,7 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p.GetLogger().Debug("event received", "rule", event.Rule, "tags", event.Tags)
+	p.GetLogger().Debug("event received", "rule", event.Rule, "tags", event.Tags, event.OutputFields)
 
 	if !hasAikidoTag(event.Tags) {
 		p.LogWarning(fmt.Errorf("rule %q fired with no aikido: routing tag — event will not be forwarded", event.Rule), "misconfigured rule detected")
