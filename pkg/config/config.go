@@ -131,15 +131,7 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		}
 	}
 
-	runtimeSCAEnabled := false
-	if runtimeSCAEnabledStr, exists := os.LookupEnv("RUNTIME_SCA_ENABLED"); exists {
-		enabled, err := strconv.ParseBool(runtimeSCAEnabledStr)
-		if err != nil {
-			errs = multierr.Append(errs, fmt.Errorf("invalid RUNTIME_SCA_ENABLED value: %s", runtimeSCAEnabledStr))
-		} else {
-			runtimeSCAEnabled = enabled
-		}
-	}
+	runtimeSCAEnabled := true
 
 	runtimeDetectionProxyPortStr, exists := os.LookupEnv("RUNTIME_DETECTION_PORT")
 	if !exists {
