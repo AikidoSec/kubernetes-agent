@@ -31,7 +31,7 @@ func TestBuildExceptionsYAML(t *testing.T) {
 			},
 			want: `- rule: Read sensitive file untrusted
   exceptions:
-    - name: Suppress myapp
+    - name: '1: Suppress myapp'
       fields:
         - proc.name
       comps:
@@ -57,7 +57,7 @@ func TestBuildExceptionsYAML(t *testing.T) {
 			},
 			want: `- rule: Read sensitive file untrusted
   exceptions:
-    - name: Suppress myapp in default ns
+    - name: '1: Suppress myapp in default ns'
       fields:
         - proc.name
         - k8s.ns.name
@@ -84,7 +84,7 @@ func TestBuildExceptionsYAML(t *testing.T) {
 			},
 			want: `- rule: Read sensitive file untrusted
   exceptions:
-    - name: Suppress myapp
+    - name: '1: Suppress myapp'
       fields:
         - proc.name
       comps:
@@ -95,7 +95,7 @@ func TestBuildExceptionsYAML(t *testing.T) {
     exceptions: append
 - rule: Write below root
   exceptions:
-    - name: Suppress myapp
+    - name: '1: Suppress myapp'
       fields:
         - proc.name
       comps:
@@ -128,14 +128,14 @@ func TestBuildExceptionsYAML(t *testing.T) {
 			},
 			want: `- rule: Read sensitive file untrusted
   exceptions:
-    - name: Suppress myapp
+    - name: '1: Suppress myapp'
       fields:
         - proc.name
       comps:
         - =
       values:
         - [myapp]
-    - name: Suppress production ns
+    - name: '2: Suppress production ns'
       fields:
         - k8s.ns.name
       comps:
@@ -161,7 +161,7 @@ func TestBuildExceptionsYAML(t *testing.T) {
 			},
 			want: `- rule: Read sensitive file untrusted
   exceptions:
-    - name: Suppress cat on sensitive files
+    - name: '1: Suppress cat on sensitive files'
       fields:
         - proc.name
         - fd.name
@@ -202,7 +202,7 @@ func TestBuildExceptionsYAML(t *testing.T) {
 			},
 			want: `- rule: Write below root
   exceptions:
-    - name: Suppress writes
+    - name: '1: Suppress writes'
       fields:
         - fd.directory
       comps:
@@ -227,7 +227,7 @@ func TestBuildExceptionsYAML(t *testing.T) {
 			},
 			want: `- rule: Write below root
   exceptions:
-    - name: Suppress writes
+    - name: '1: Suppress writes'
       fields:
         - fd.directory
       comps:
@@ -260,7 +260,7 @@ func TestBuildExceptionsYAML(t *testing.T) {
 			},
 			want: `- rule: Write below root
   exceptions:
-    - name: Suppress writes
+    - name: '1: Suppress writes'
       fields:
         - proc.name
       comps:
@@ -271,7 +271,7 @@ func TestBuildExceptionsYAML(t *testing.T) {
     exceptions: append
 - rule: Read sensitive file untrusted
   exceptions:
-    - name: Suppress reads
+    - name: '2: Suppress reads'
       fields:
         - proc.name
       comps:

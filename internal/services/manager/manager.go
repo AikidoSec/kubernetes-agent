@@ -551,7 +551,9 @@ func buildExceptionsYAML(exceptions []models.ThreatDetectionException) string {
 	ruleOrder := make([]string, 0)
 	for _, exc := range exceptions {
 		entry := falcoExceptionEntry{
-			Name: exc.Name,
+			// Falco requires exception names to be unique per rule. Prefixing with the DB ID
+			// guarantees uniqueness even when two exceptions share the same user-facing name.
+			Name: fmt.Sprintf("%d: %s", exc.ID, exc.Name),
 		}
 		for _, c := range exc.Conditions {
 			entry.Fields = append(entry.Fields, c.Field)
