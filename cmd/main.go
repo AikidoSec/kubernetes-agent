@@ -115,6 +115,7 @@ func main() {
 		ControllerCacheSyncTimeout:        envCfg.ControllerCacheSyncTimeout,
 		IsSBOMCollectorRunningAsDaemonSet: envCfg.RunSBOMCollectorAsDaemonSet,
 		AutoUpdateEnabled:                 envCfg.AutoUpdateEnabled,
+		FalcoRulesConfigMapName:           envCfg.FalcoRulesConfigMapName,
 	})
 	if err != nil {
 		loggerService.ReportError(ctx, err, "error creating agent service", "agentSetupError")
@@ -179,9 +180,9 @@ func main() {
 
 	// RuntimeDetectionEnabled is a static Helm flag that controls whether runtime detection
 	// infrastructure is deployed (Falco DaemonSet subchart + proxy HTTP server). The per-cluster
-	// DB flag (resp.ThreatDetection.Enabled) is a runtime on/off switch within an already
-	// deployed setup — it cannot activate threat detection if the Helm flag is false.
-	// Runtime SCA shares the same Falco infrastructure and is gated by the RuntimeSCAEnabled env var.
+	// DB flags (resp.ThreatDetection.Enabled and resp.RuntimeSCA.Enabled) are runtime on/off
+	// switches within an already deployed setup — they cannot activate the feature if the Helm
+	// flag is false. Runtime SCA shares the same Falco infrastructure and needs no separate gate.
 	if envCfg.RuntimeDetectionEnabled {
 		threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
 			Endpoint:              cfg.APIEndpoint + "/api/threats/events",
@@ -207,26 +208,24 @@ func main() {
 			},
 		}
 
-		if envCfg.RuntimeSCAEnabled {
-			runtimeSCABatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
-				Endpoint:              cfg.APIEndpoint + "/api/runtime-sca/events",
-				MaxBatch:              1000,
-				FlushEvery:            time.Second * 10,
-				MaxConcurrentRequests: 5,
-				CompressionEnabled:    true,
-				Token:                 cfg.APIToken,
-				HeartbeatService:      heartbeatService,
-			})
-			if err != nil {
-				loggerService.ReportError(ctx, err, "error creating runtime SCA batch client", "agentSetupError")
-				os.Exit(1)
-			}
-			routes = append(routes, falco.Route{
-				Tag:       "aikido:runtime-sca",
-				Client:    runtimeSCABatchClient,
-				IsEnabled: agentState.IsRuntimeSCAEnabled,
-			})
+		runtimeSCABatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
+			Endpoint:              cfg.APIEndpoint + "/api/runtime-sca/events",
+			MaxBatch:              1000,
+			FlushEvery:            time.Second * 10,
+			MaxConcurrentRequests: 5,
+			CompressionEnabled:    true,
+			Token:                 cfg.APIToken,
+			HeartbeatService:      heartbeatService,
+		})
+		if err != nil {
+			loggerService.ReportError(ctx, err, "error creating runtime SCA batch client", "agentSetupError")
+			os.Exit(1)
 		}
+		routes = append(routes, falco.Route{
+			Tag:       "aikido:runtime-sca",
+			Client:    runtimeSCABatchClient,
+			IsEnabled: agentState.IsRuntimeSCAEnabled,
+		})
 
 		proxy := falco.NewProxy(
 			loggerService,

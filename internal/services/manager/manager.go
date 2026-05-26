@@ -58,6 +58,7 @@ type Options struct {
 	ControllerCacheSyncTimeout        time.Duration
 	IsSBOMCollectorRunningAsDaemonSet bool
 	AutoUpdateEnabled                 bool
+	FalcoRulesConfigMapName           string
 }
 type Service struct {
 	*models.AgentState
@@ -98,6 +99,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		fmt.Sprintf("%s-sbom-collector", o.AgentName),
 		o.AutoUpdateEnabled,
 		fmt.Sprintf("%s-runtime-detection", o.AgentName),
+		o.FalcoRulesConfigMapName,
 	)
 
 	// Build the cluster configuration based on the environment.
@@ -339,6 +341,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	s.handleThreatDetectionHeartbeat(ctx, resp.ThreatDetection)
+	s.handleRuntimeSCAHeartbeat(ctx, resp.RuntimeSCA)
 
 	if s.GetAutoUpdateEnabled() {
 		if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
@@ -510,9 +513,9 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.SetSBOMCollectorServiceAccount(sa)
 	}
 
-	// Runtime SCA initialization (env-var controlled only).
+	// Runtime SCA initialization (heartbeat-controlled).
 	// Set state before rebuildFalcoRulesConfig so SCA rules are included in the rebuild.
-	s.SetRuntimeSCAEnabled(environmentConfig.RuntimeSCAEnabled)
+	s.SetRuntimeSCAEnabled(hb.RuntimeSCA.Enabled)
 	if s.IsRuntimeSCAEnabled() {
 		if err := s.WriteEmbeddedRuntimeSCARules(ctx); err != nil {
 			s.logger.ReportError(ctx, err, "error writing embedded runtime SCA rules to configmap", "managerError")

@@ -7,7 +7,7 @@
     and fd.typechar='f'
     and fd.num>=0
     and fd.name contains "/node_modules/"
-    and container
+    and container.id != "host"
   output: Node.js package used at runtime | file=%fd.name process=%proc.name image=%container.image.repository image_tag=%container.image.tag image_digest=%container.image.digest k8s_ns=%k8s.ns.name
   priority: INFORMATIONAL
   tags: [container, aikido:runtime-sca]
@@ -21,7 +21,7 @@
     and fd.typechar='f'
     and fd.num>=0
     and fd.name contains "/site-packages/"
-    and container
+    and container.id != "host"
   output: Python package used at runtime | file=%fd.name process=%proc.name image=%container.image.repository image_tag=%container.image.tag image_digest=%container.image.digest k8s_ns=%k8s.ns.name
   priority: INFORMATIONAL
   tags: [container, aikido:runtime-sca]

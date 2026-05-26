@@ -96,6 +96,44 @@ func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.
 	}
 }
 
+func (s *Service) handleRuntimeSCAHeartbeat(ctx context.Context, hb models.RuntimeSCAHeartbeat) {
+	wasEnabled := s.IsRuntimeSCAEnabled()
+	nowEnabled := hb.Enabled
+
+	if wasEnabled == nowEnabled {
+		return
+	}
+
+	s.logger.LogInfo("runtime SCA enabled changed from heartbeat response", "enabled", nowEnabled)
+	s.SetRuntimeSCAEnabled(nowEnabled)
+
+	if !s.IsChartsRuntimeDetectionEnabled() {
+		return
+	}
+
+	if nowEnabled {
+		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName())
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
+		}
+		s.SetFalcoVersion(falcoVersion)
+		if err := s.WriteEmbeddedRuntimeSCARules(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error writing embedded runtime SCA rules to configmap", "managerError")
+		}
+	} else {
+		if err := s.ClearEmbeddedRuntimeSCARules(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error clearing embedded runtime SCA rules from configmap", "managerError")
+		}
+	}
+
+	if err := s.rebuildFalcoRulesConfig(ctx); err != nil {
+		s.logger.ReportError(ctx, err, "error rebuilding falco rules config", "managerError")
+	}
+	if err := s.restartDaemonSet(ctx, s.GetFalcoDaemonSetName()); err != nil {
+		s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
+	}
+}
+
 func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []string) error {
 	s.SetEnabledThreatRules(enabledRules)
 	return s.rebuildFalcoRulesConfig(ctx)
