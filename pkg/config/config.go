@@ -145,8 +145,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		}
 	}
 
-	runtimeSCAEnabled := true
-
 	runtimeDetectionProxyPortStr, exists := os.LookupEnv("RUNTIME_DETECTION_PORT")
 	if !exists {
 		runtimeDetectionProxyPortStr = "8241"
@@ -156,6 +154,8 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 	if err != nil {
 		errs = multierr.Append(errs, fmt.Errorf("invalid RUNTIME_DETECTION_PORT value: %s", runtimeDetectionProxyPortStr))
 	}
+
+	falcoRulesConfigMapName := os.Getenv("FALCO_RULES_CONFIGMAP_NAME")
 
 	return models.EnvironmentConfig{
 		Namespace:                   namespace,
@@ -169,8 +169,8 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		SBOMCollectorEnabled:        sbomCollectorEnabled,
 		AutoUpdateEnabled:           autoUpdateEnabled,
 		RuntimeDetectionEnabled:     runtimeDetectionEnabled,
-		RuntimeSCAEnabled:           runtimeSCAEnabled,
 		RuntimeDetectionPort:        runtimeDetectionProxyPort,
 		FalcoDaemonSetName:          falcoDaemonSetName,
+		FalcoRulesConfigMapName:     falcoRulesConfigMapName,
 	}, errs
 }

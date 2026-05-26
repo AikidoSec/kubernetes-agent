@@ -58,7 +58,7 @@ func newServiceForHeartbeatTest(t *testing.T, setup heartbeatTestSetup) (*Servic
 	state := models.NewEmptyAgentState()
 	state.SetInitialValues(
 		"test-agent-pod-abc123", testNamespace, "test-agent",
-		"", "", "", 0, false, "", false, testDSName,
+		"", "", "", 0, false, "", false, testDSName, "",
 	)
 	state.SetChartsRuntimeDetectionEnabled(setup.chartsEnabled)
 	state.SetRuntimeDetectionSetupFailed(setup.setupFailed)

@@ -14,7 +14,7 @@ type EnvironmentConfig struct {
 	SBOMCollectorEnabled        *bool
 	AutoUpdateEnabled           bool
 	RuntimeDetectionEnabled     bool
-	RuntimeSCAEnabled           bool
 	RuntimeDetectionPort        int
 	FalcoDaemonSetName          string
+	FalcoRulesConfigMapName     string
 }

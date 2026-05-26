@@ -23,7 +23,7 @@ func newServiceForFalcoVersionTest(t *testing.T, objects ...runtime.Object) *Ser
 	state := models.NewEmptyAgentState()
 	state.SetInitialValues(
 		"test-agent-pod-abc123", testNamespace, "test-agent",
-		"", "", "", 0, false, "", false, testDSName,
+		"", "", "", 0, false, "", false, testDSName, "",
 	)
 
 	return &Service{
