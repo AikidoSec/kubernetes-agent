@@ -14,5 +14,5 @@ type EnvironmentConfig struct {
 	SBOMCollectorEnabled        *bool
 	AutoUpdateEnabled           bool
 	RuntimeDetectionEnabled     bool
-	FalcoProxyPort              int
+	RuntimeDetectionPort              int
 }

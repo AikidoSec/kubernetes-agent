@@ -130,14 +130,14 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		runtimeDetectionEnabled = false
 	}
 
-	falcoProxyPortStr, exists := os.LookupEnv("FALCO_PROXY_PORT")
+	runtimeDetectionProxyPortStr, exists := os.LookupEnv("RUNTIME_DETECTION_PORT")
 	if !exists {
-		falcoProxyPortStr = "8241"
+		runtimeDetectionProxyPortStr = "8241"
 	}
 
-	falcoProxyPort, err := strconv.Atoi(falcoProxyPortStr)
+	runtimeDetectionProxyPort, err := strconv.Atoi(runtimeDetectionProxyPortStr)
 	if err != nil {
-		errs = multierr.Append(errs, fmt.Errorf("invalid FALCO_PROXY_PORT value: %s", falcoProxyPortStr))
+		errs = multierr.Append(errs, fmt.Errorf("invalid RUNTIME_DETECTION_PORT value: %s", runtimeDetectionProxyPortStr))
 	}
 
 	return models.EnvironmentConfig{
@@ -152,6 +152,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		SBOMCollectorEnabled:        sbomCollectorEnabled,
 		AutoUpdateEnabled:           autoUpdateEnabled,
 		RuntimeDetectionEnabled:     runtimeDetectionEnabled,
-		FalcoProxyPort:              falcoProxyPort,
+		RuntimeDetectionPort:        runtimeDetectionProxyPort,
 	}, errs
 }

@@ -197,7 +197,7 @@ func main() {
 		}
 		proxy := falco.NewProxy(
 			loggerService,
-			envCfg.FalcoProxyPort,
+			envCfg.RuntimeDetectionPort,
 			agentState,
 			[]string{imageAgentRepository, imageSBOMCollectorRepository, imageFalcoRepository},
 			[]falco.Route{
