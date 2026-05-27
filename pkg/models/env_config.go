@@ -14,5 +14,5 @@ type EnvironmentConfig struct {
 	SBOMCollectorEnabled        *bool
 	AutoUpdateEnabled           bool
 	RuntimeDetectionEnabled     bool
-	RuntimeDetectionPort              int
+	RuntimeDetectionPort        int
 }

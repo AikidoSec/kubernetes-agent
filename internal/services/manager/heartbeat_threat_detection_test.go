@@ -32,7 +32,7 @@ type heartbeatTestSetup struct {
 func newServiceForHeartbeatTest(t *testing.T, setup heartbeatTestSetup) (*Service, *fake.Clientset) {
 	t.Helper()
 
-	fakeClient := fake.NewSimpleClientset(
+	fakeClient := fake.NewClientset(
 		&appsv1.DaemonSet{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      testDSName,
