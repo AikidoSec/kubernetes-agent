@@ -171,11 +171,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// RuntimeProtectionEnabled is a static Helm flag that controls whether runtime protection
+	// RuntimeDetectionEnabled is a static Helm flag that controls whether runtime detection
 	// infrastructure is deployed (Falco DaemonSet subchart + proxy HTTP server). The per-cluster
 	// DB flag (resp.ThreatDetection.Enabled) is a runtime on/off switch within an already
 	// deployed setup — it cannot activate threat detection if the Helm flag is false.
-	if envCfg.RuntimeProtectionEnabled {
+	if envCfg.RuntimeDetectionEnabled {
 		threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
 			Endpoint:              cfg.APIEndpoint + "/api/threats/events",
 			MaxBatch:              1000,

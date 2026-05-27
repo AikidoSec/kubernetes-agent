@@ -31,7 +31,7 @@ type AgentState struct {
 	sbomCollectorServiceAccount *corev1.ServiceAccount
 
 	threatDetectionEnabled         bool
-	chartsRuntimeProtectionEnabled bool
+	chartsRuntimeDetectionEnabled bool
 	threatDaemonSetName            string
 	enabledThreatRules             []string
 	threatDetectionExceptions      []ThreatDetectionException
@@ -178,16 +178,16 @@ func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
 	a.chartsSBOMCollectorEnabled = enabled
 }
 
-func (a *AgentState) IsChartsRuntimeProtectionEnabled() bool {
+func (a *AgentState) IsChartsRuntimeDetectionEnabled() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.chartsRuntimeProtectionEnabled
+	return a.chartsRuntimeDetectionEnabled
 }
 
-func (a *AgentState) SetChartsRuntimeProtectionEnabled(enabled bool) {
+func (a *AgentState) SetChartsRuntimeDetectionEnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.chartsRuntimeProtectionEnabled = enabled
+	a.chartsRuntimeDetectionEnabled = enabled
 }
 
 func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {
@@ -212,7 +212,7 @@ func (a *AgentState) GetFalcoRulesConfigMapName() string {
 	return "kubernetes-agent-falco-rules"
 }
 
-func (a *AgentState) GetRuntimeProtectionConfigMapName() string {
+func (a *AgentState) GetRuntimeDetectionConfigMapName() string {
 	return "kubernetes-agent-falco-config"
 }
 

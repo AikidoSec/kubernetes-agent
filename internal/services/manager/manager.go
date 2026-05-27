@@ -98,7 +98,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		o.IsSBOMCollectorRunningAsDaemonSet,
 		fmt.Sprintf("%s-sbom-collector", o.AgentName),
 		o.AutoUpdateEnabled,
-		fmt.Sprintf("%s-runtime-protection", o.AgentName),
+		fmt.Sprintf("%s-runtime-detection", o.AgentName),
 	)
 
 	// Build the cluster configuration based on the environment.
@@ -214,7 +214,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	falcoVersion := s.GetFalcoVersion()
-	if s.IsChartsRuntimeProtectionEnabled() && s.IsThreatDetectionEnabled() {
+	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
 		falcoVersion, err = loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
@@ -352,7 +352,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	s.handleThreatDetectionHeartbeat(ctx, resp.ThreatDetection)
 
 	if s.GetAutoUpdateEnabled() {
-		if s.IsChartsRuntimeProtectionEnabled() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
+		if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
 			s.logger.LogInfo("falco version updated from heartbeat response", "current version", s.GetFalcoVersion(), "new version", resp.Cluster.DesiredFalcoVersion)
 			if err := s.UpdateFalcoVersion(ctx, resp.Cluster.DesiredFalcoVersion); err != nil {
 				s.logger.ReportError(ctx, err, "error updating falco version", "managerError")
@@ -374,7 +374,7 @@ func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.
 		s.SetThreatDetectionEnabled(nowEnabled)
 	}
 
-	if !s.IsChartsRuntimeProtectionEnabled() {
+	if !s.IsChartsRuntimeDetectionEnabled() {
 		return
 	}
 
@@ -445,14 +445,14 @@ func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []s
 	return s.rebuildFalcoRulesConfig(ctx)
 }
 
-// rebuildFalcoRulesConfig writes the complete rules override to the runtime protection ConfigMap.
+// rebuildFalcoRulesConfig writes the complete rules override to the runtime detection ConfigMap.
 // All rulesets are denied by default; only explicitly enabled rules fire.
 // To add a new ruleset (e.g. SCA), read its state from agentState and append enables here.
 func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
-	cmName := s.GetRuntimeProtectionConfigMapName()
+	cmName := s.GetRuntimeDetectionConfigMapName()
 	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("error getting runtime protection configmap %q: %w", cmName, err)
+		return fmt.Errorf("error getting runtime detection configmap %q: %w", cmName, err)
 	}
 
 	overrideYAML, err := buildRulesOverrideYAML(s.GetEnabledThreatRules())
@@ -466,7 +466,7 @@ func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
 	cm.Data[rulesOverrideKey] = overrideYAML
 
 	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating runtime protection configmap %q: %w", cmName, err)
+		return fmt.Errorf("error updating runtime detection configmap %q: %w", cmName, err)
 	}
 
 	return nil
@@ -805,7 +805,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// Threat detection initialization
-	s.SetChartsRuntimeProtectionEnabled(environmentConfig.RuntimeProtectionEnabled)
+	s.SetChartsRuntimeDetectionEnabled(environmentConfig.RuntimeDetectionEnabled)
 	s.SetThreatDetectionEnabled(hb.ThreatDetection.Enabled)
 	s.SetEnabledThreatRules(hb.ThreatDetection.Rules)
 	if hb.ThreatDetection.Exceptions != nil {
@@ -813,7 +813,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
-	if s.IsChartsRuntimeProtectionEnabled() && s.IsThreatDetectionEnabled() {
+	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
 		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")

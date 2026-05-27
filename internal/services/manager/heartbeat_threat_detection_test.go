@@ -17,7 +17,7 @@ import (
 
 const (
 	testNamespace = "test-ns"
-	testDSName    = "test-agent-runtime-protection"
+	testDSName    = "test-agent-runtime-detection"
 )
 
 type heartbeatTestSetup struct {
@@ -58,7 +58,7 @@ func newServiceForHeartbeatTest(t *testing.T, setup heartbeatTestSetup) (*Servic
 		"test-agent-pod-abc123", testNamespace, "test-agent",
 		"", "", "", 0, false, "", false, testDSName,
 	)
-	state.SetChartsRuntimeProtectionEnabled(setup.chartsEnabled)
+	state.SetChartsRuntimeDetectionEnabled(setup.chartsEnabled)
 	state.SetThreatDetectionEnabled(setup.initiallyEnabled)
 	state.SetEnabledThreatRules(setup.initialRules)
 	state.SetThreatDetectionExceptions(setup.initialExceptions)
