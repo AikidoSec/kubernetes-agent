@@ -50,17 +50,19 @@ type Proxy struct {
 	*logger.Service
 	*models.AgentState
 
-	listenPort int
-	server     *http.Server
-	routes     []Route
+	listenPort               int
+	server                   *http.Server
+	routes                   []Route
+	ignoredImageRepositories []string
 }
 
-func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentState, routes []Route) *Proxy {
+func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentState, ignoredImageRepositories []string, routes []Route) *Proxy {
 	return &Proxy{
-		AgentState: agentState,
-		Service:    logger,
-		listenPort: listenPort,
-		routes:     routes,
+		AgentState:               agentState,
+		Service:                  logger,
+		listenPort:               listenPort,
+		routes:                   routes,
+		ignoredImageRepositories: ignoredImageRepositories,
 	}
 }
 
@@ -179,9 +181,10 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// parseAndFilter parses the event body and applies common namespace-based filtering.
-// Host-level events with no namespace field pass through unconditionally.
-// Events from the agent namespace are always dropped.
+// parseAndFilter parses the event body and applies common filtering.
+// Events from filtered image repositories (agent image, Falco image) are always dropped,
+// regardless of which namespace they run in.
+// Host-level events with no namespace field pass through unconditionally after the image check.
 // Customer-configured excluded/included namespace lists are also applied.
 // Returns the parsed event and true if the event should be dropped.
 func (p *Proxy) parseAndFilter(body []byte) (FalcoPayload, bool) {
@@ -189,6 +192,14 @@ func (p *Proxy) parseAndFilter(body []byte) (FalcoPayload, bool) {
 	if err := json.Unmarshal(body, &event); err != nil {
 		p.LogError(err, "failed to unmarshal falco event")
 		return event, true
+	}
+
+	if imageRepoI, ok := event.OutputFields["container.image.repository"]; ok {
+		if imageRepo, ok := imageRepoI.(string); ok {
+			if slices.Contains(p.ignoredImageRepositories, imageRepo) {
+				return event, true
+			}
+		}
 	}
 
 	nsI, ok := event.OutputFields["k8s.ns.name"]
@@ -199,10 +210,6 @@ func (p *Proxy) parseAndFilter(body []byte) (FalcoPayload, bool) {
 	ns, ok := nsI.(string)
 	if !ok {
 		return event, false
-	}
-
-	if ns == p.GetAgentNamespace() {
-		return event, true
 	}
 
 	if slices.Contains(p.GetExcludedNamespaces(), ns) {

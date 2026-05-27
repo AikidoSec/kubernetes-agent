@@ -40,6 +40,12 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
+const (
+	imageAgentRepository         = "public.ecr.aws/aikido-cloud/kubernetes-agent"
+	imageSBOMCollectorRepository = "public.ecr.aws/aikido-cloud/kubernetes-sbom-collector"
+	imageFalcoRepository         = "falcosecurity/falco"
+)
+
 var scheme = runtime.NewScheme()
 
 func init() {
@@ -193,6 +199,7 @@ func main() {
 			loggerService,
 			envCfg.FalcoProxyPort,
 			agentState,
+			[]string{imageAgentRepository, imageSBOMCollectorRepository, imageFalcoRepository},
 			[]falco.Route{
 				{
 					Tag:       "aikido:threat-detection",

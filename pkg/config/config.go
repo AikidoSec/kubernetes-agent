@@ -151,7 +151,7 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		MetricsPort:                 metricsPort,
 		SBOMCollectorEnabled:        sbomCollectorEnabled,
 		AutoUpdateEnabled:           autoUpdateEnabled,
-		RuntimeDetectionEnabled:    runtimeDetectionEnabled,
+		RuntimeDetectionEnabled:     runtimeDetectionEnabled,
 		FalcoProxyPort:              falcoProxyPort,
 	}, errs
 }
