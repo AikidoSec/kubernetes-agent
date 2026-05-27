@@ -66,11 +66,14 @@ func NewBatchClient(logger *slog.Logger, o ClientOptions) (*BatchClient, error) 
 		return nil, fmt.Errorf("maxConcurrentRequestsCount must be a positive integer")
 	}
 
-	tr := &http.Transport{
-		MaxIdleConns:        max(32, o.MaxConcurrentRequests*2),
-		MaxIdleConnsPerHost: max(16, o.MaxConcurrentRequests*2),
-		IdleConnTimeout:     120 * time.Second,
+	tr, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("default HTTP transport is not *http.Transport")
 	}
+	tr = tr.Clone()
+	tr.MaxIdleConns = max(32, o.MaxConcurrentRequests*2)
+	tr.MaxIdleConnsPerHost = max(16, o.MaxConcurrentRequests*2)
+	tr.IdleConnTimeout = 120 * time.Second
 
 	bc := &BatchClient{
 		logger:                logger,
