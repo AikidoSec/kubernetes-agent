@@ -79,7 +79,10 @@ func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.
 	// null means the server could not load exceptions — keep current state unchanged.
 	newExceptions := td.Exceptions
 
-	rulesChanged := !slices.Equal(s.GetEnabledThreatRules(), newEnabledRules)
+	// Force rulesChanged=true on the disabled→enabled transition so UpdateEnabledThreatRules always
+	// runs and overwrites any stale enables left in the override ConfigMap by the previous session
+	// (the disable path clears the embedded rules file but does not touch the override ConfigMap).
+	rulesChanged := !wasEnabled || !slices.Equal(s.GetEnabledThreatRules(), newEnabledRules)
 	exceptionsChanged := newExceptions != nil && !slices.EqualFunc(s.GetThreatDetectionExceptions(), *newExceptions, models.ThreatDetectionExceptionEqual)
 
 	if rulesChanged {

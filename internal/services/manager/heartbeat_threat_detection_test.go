@@ -27,6 +27,7 @@ type heartbeatTestSetup struct {
 	initialExceptions     []models.ThreatDetectionException
 	initialEmbeddedRules  string // pre-seeded value of 01-threat-detection-rules.yaml
 	initialExceptionsYAML string // pre-seeded value of 02-threat-detection-exceptions.yaml
+	initialRulesOverride  string // pre-seeded value of rules-override.yaml
 }
 
 func newServiceForHeartbeatTest(t *testing.T, setup heartbeatTestSetup) (*Service, *fake.Clientset) {
@@ -42,7 +43,7 @@ func newServiceForHeartbeatTest(t *testing.T, setup heartbeatTestSetup) (*Servic
 		},
 		&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "kubernetes-agent-falco-config", Namespace: testNamespace},
-			Data:       map[string]string{"rules-override.yaml": ""},
+			Data:       map[string]string{"rules-override.yaml": setup.initialRulesOverride},
 		},
 		&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "kubernetes-agent-falco-rules", Namespace: testNamespace},
@@ -283,5 +284,37 @@ func TestHandleThreatDetectionHeartbeat(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestHandleThreatDetectionHeartbeat_ReenableWithNoRulesClearsStaleOverride tests a multi-step
+// lifecycle: enable with rules → disable → re-enable with no rules. After the second enable,
+// rules-override.yaml must contain only the global disable, not the stale enables from before.
+func TestHandleThreatDetectionHeartbeat_ReenableWithNoRulesClearsStaleOverride(t *testing.T) {
+	ruleA := "Read sensitive file untrusted"
+	ruleB := "Write below root"
+
+	staleOverride, err := buildRulesOverrideYAML([]string{ruleA, ruleB})
+	if err != nil {
+		t.Fatalf("buildRulesOverrideYAML: %v", err)
+	}
+
+	svc, fakeClient := newServiceForHeartbeatTest(t, heartbeatTestSetup{
+		chartsEnabled:        true,
+		initiallyEnabled:     true,
+		initialRules:         []string{ruleA, ruleB},
+		initialRulesOverride: staleOverride,
+	})
+
+	svc.handleThreatDetectionHeartbeat(context.Background(), models.ThreatDetectionHeartbeat{Enabled: false})
+	svc.handleThreatDetectionHeartbeat(context.Background(), models.ThreatDetectionHeartbeat{Enabled: true, Rules: []string{}})
+
+	got := getCMKey(t, fakeClient, "kubernetes-agent-falco-config", "rules-override.yaml")
+	want, err := buildRulesOverrideYAML([]string{})
+	if err != nil {
+		t.Fatalf("buildRulesOverrideYAML: %v", err)
+	}
+	if got != want {
+		t.Errorf("rules-override.yaml after disable then re-enable with no rules:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
