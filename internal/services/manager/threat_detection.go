@@ -335,16 +335,18 @@ func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) err
 	}
 
 	for i, container := range daemonSet.Spec.Template.Spec.Containers {
-		imageParts := strings.Split(container.Image, ":")
-		if len(imageParts) == 2 {
-			daemonSet.Spec.Template.Spec.Containers[i].Image = fmt.Sprintf("%s:%s", imageParts[0], newVersion)
+		if updated, ok := updateImageTag(container.Image, newVersion); ok {
+			daemonSet.Spec.Template.Spec.Containers[i].Image = updated
+		} else {
+			s.logger.LogWarning(nil, "skipping falco container image update: digest-pinned or untagged reference", "image", container.Image)
 		}
 	}
 
 	for i, container := range daemonSet.Spec.Template.Spec.InitContainers {
-		imageParts := strings.Split(container.Image, ":")
-		if len(imageParts) == 2 {
-			daemonSet.Spec.Template.Spec.InitContainers[i].Image = fmt.Sprintf("%s:%s", imageParts[0], newVersion)
+		if updated, ok := updateImageTag(container.Image, newVersion); ok {
+			daemonSet.Spec.Template.Spec.InitContainers[i].Image = updated
+		} else {
+			s.logger.LogWarning(nil, "skipping falco init container image update: digest-pinned or untagged reference", "image", container.Image)
 		}
 	}
 
@@ -357,4 +359,23 @@ func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) err
 
 	s.SetFalcoVersion(newVersion)
 	return nil
+}
+
+// updateImageTag rewrites the tag portion of an image reference. Returns ok=false
+// for digest-pinned references (containing '@'): rewriting only the tag while keeping
+// the original digest would leave the image effectively pinned to the old version
+// (Kubernetes pulls by digest), silently breaking the version update. Once the heartbeat
+// payload carries both a tag and a digest, this guard can be relaxed to update both together.
+// Returns ok=false when no tag is present (e.g. "registry:5000/org/img"), since we don't
+// invent tags out of nothing.
+func updateImageTag(image, newTag string) (string, bool) {
+	if strings.Contains(image, "@") {
+		return "", false
+	}
+	lastColon := strings.LastIndex(image, ":")
+	lastSlash := strings.LastIndex(image, "/")
+	if lastColon <= lastSlash {
+		return "", false
+	}
+	return image[:lastColon] + ":" + newTag, true
 }
