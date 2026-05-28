@@ -212,26 +212,27 @@ func parseEvent(body []byte) (map[string]json.RawMessage, FalcoPayload, error) {
 }
 
 func (p *Proxy) shouldDrop(event FalcoPayload) bool {
-	if imageRepoI, ok := event.OutputFields["container.image.repository"]; ok {
-		if imageRepo, ok := imageRepoI.(string); ok {
-			if slices.Contains(p.ignoredImageRepositories, imageRepo) {
-				return true
-			}
+	if v, ok := event.OutputFields["container.image.repository"]; ok {
+		if repo, ok := v.(string); ok && slices.Contains(p.ignoredImageRepositories, repo) {
+			return true
 		}
 	}
 
-	if nsI, ok := event.OutputFields["k8s.ns.name"]; ok {
-		if ns, ok := nsI.(string); ok {
-			if slices.Contains(p.GetExcludedNamespaces(), ns) {
-				return true
-			}
-			includedNamespaces := p.GetIncludedNamespaces()
-			if len(includedNamespaces) > 0 && !slices.Contains(includedNamespaces, ns) {
-				return true
-			}
-		}
+	nsI, ok := event.OutputFields["k8s.ns.name"]
+	if !ok {
+		return false
 	}
-
+	ns, ok := nsI.(string)
+	if !ok {
+		return false
+	}
+	if slices.Contains(p.GetExcludedNamespaces(), ns) {
+		return true
+	}
+	includedNamespaces := p.GetIncludedNamespaces()
+	if len(includedNamespaces) > 0 && !slices.Contains(includedNamespaces, ns) {
+		return true
+	}
 	return false
 }
 

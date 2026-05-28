@@ -119,6 +119,12 @@ func TestShouldDrop(t *testing.T) {
 			wantDrop:           false,
 		},
 		{
+			name:               "wrong type for namespace field passes through",
+			excludedNamespaces: []string{"kube-system"},
+			body:               `{"output_fields": {"k8s.ns.name": 123}}`,
+			wantDrop:           false,
+		},
+		{
 			name:     "wrong type for tags field is dropped",
 			body:     `{"tags": 123}`,
 			wantDrop: true,
