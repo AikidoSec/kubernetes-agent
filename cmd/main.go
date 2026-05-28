@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"time"
 
+	"aikidoSec.kubernetesAgent/internal/falco"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
@@ -38,9 +40,13 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
-var (
-	scheme = runtime.NewScheme()
+const (
+	imageAgentRepository         = "public.ecr.aws/aikido-cloud/kubernetes-agent"
+	imageSBOMCollectorRepository = "public.ecr.aws/aikido-cloud/kubernetes-sbom-collector"
+	imageFalcoRepository         = "falcosecurity/falco"
 )
+
+var scheme = runtime.NewScheme()
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -169,6 +175,47 @@ func main() {
 	if err := agentService.InitializeAgent(ctx, cfg, mgr, envCfg); err != nil {
 		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
 		os.Exit(1)
+	}
+
+	// RuntimeDetectionEnabled is a static Helm flag that controls whether runtime detection
+	// infrastructure is deployed (Falco DaemonSet subchart + proxy HTTP server). The per-cluster
+	// DB flag (resp.ThreatDetection.Enabled) is a runtime on/off switch within an already
+	// deployed setup — it cannot activate threat detection if the Helm flag is false.
+	if envCfg.RuntimeDetectionEnabled {
+		threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
+			Endpoint:              cfg.APIEndpoint + "/api/threats/events",
+			MaxBatch:              1000,
+			FlushEvery:            time.Second * 10,
+			MaxConcurrentRequests: 5,
+			CompressionEnabled:    true,
+			Token:                 cfg.APIToken,
+			HeartbeatService:      heartbeatService,
+		})
+		if err != nil {
+			loggerService.ReportError(ctx, err, "error creating threat batch client", "agentSetupError")
+			os.Exit(1)
+		}
+		proxy := falco.NewProxy(
+			loggerService,
+			envCfg.RuntimeDetectionPort,
+			agentState,
+			[]string{imageAgentRepository, imageSBOMCollectorRepository, imageFalcoRepository},
+			[]falco.Route{
+				{
+					Tag:       "aikido:threat-detection",
+					Client:    threatBatchClient,
+					IsEnabled: agentState.IsThreatDetectionEnabled,
+					ShouldSkip: func(e falco.FalcoPayload) bool {
+						return !slices.Contains(agentState.GetEnabledThreatRules(), e.Rule)
+					},
+				},
+			},
+		)
+		agentService.RegisterFalcoProxy(proxy)
+		if err := mgr.Add(proxy); err != nil {
+			l.Error("Unable to add falco event proxy to manager", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

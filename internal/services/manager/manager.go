@@ -15,6 +15,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/controllers/kong"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
 	"aikidoSec.kubernetesAgent/internal/controllers/traefik"
+	"aikidoSec.kubernetesAgent/internal/falco"
 	internalhttp "aikidoSec.kubernetesAgent/internal/http"
 	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
 	"aikidoSec.kubernetesAgent/internal/predicates"
@@ -64,9 +65,10 @@ type Service struct {
 	logger             *logger.Service
 	// Channel to stop the heartbeat goroutine.
 	heartbeatStopChan   chan struct{}
-	kubernetesClientSet *kubernetes.Clientset
+	kubernetesClientSet kubernetes.Interface
 	heartbeatService    *heartbeat.Service
 	assetsOutputClient  *batchclient.BatchClient
+	falcoProxy          *falco.Proxy
 	metricClient        *metricsclient.Clientset
 }
 
@@ -95,6 +97,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		o.IsSBOMCollectorRunningAsDaemonSet,
 		fmt.Sprintf("%s-sbom-collector", o.AgentName),
 		o.AutoUpdateEnabled,
+		fmt.Sprintf("%s-runtime-detection", o.AgentName),
 	)
 
 	// Build the cluster configuration based on the environment.
@@ -198,9 +201,18 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		}
 	}
 
+	falcoVersion := s.GetFalcoVersion()
+	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
+		falcoVersion, err = loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
+		}
+	}
+
 	resp, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
 		AgentVersion:       agentVersion,
 		CollectorVersion:   sbomCollectorVersion,
+		FalcoVersion:       falcoVersion,
 		IsInitialHeartbeat: false,
 		Metrics:            string(metricsPayload),
 		HelmChartsVersion:  helmChartsVersion,
@@ -322,7 +334,19 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 			} else {
 				s.scannedImagesCache.LoadFromScannedImages(collectorScannedImages)
 			}
+		}
+	}
 
+	s.handleThreatDetectionHeartbeat(ctx, resp.ThreatDetection)
+
+	if s.GetAutoUpdateEnabled() {
+		if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
+			s.logger.LogInfo("falco version updated from heartbeat response", "current version", s.GetFalcoVersion(), "new version", resp.Cluster.DesiredFalcoVersion)
+			if err := s.UpdateFalcoVersion(ctx, resp.Cluster.DesiredFalcoVersion); err != nil {
+				s.logger.ReportError(ctx, err, "error updating falco version", "managerError")
+			} else {
+				s.SetFalcoVersion(resp.Cluster.DesiredFalcoVersion)
+			}
 		}
 	}
 
@@ -336,6 +360,7 @@ func (s *Service) sendInitialHeartbeat(ctx context.Context, clusterIdentifier st
 		hb, err := s.heartbeatService.SendHeartbeat(ctx, models.HeartbeatPayload{
 			AgentVersion:       s.GetAgentVersion(),
 			CollectorVersion:   s.GetSBOMCollectorVersion(),
+			FalcoVersion:       s.GetFalcoVersion(),
 			IsInitialHeartbeat: true,
 			ClusterIdentifier:  clusterIdentifier,
 			NamespaceEvents:    string(namespaceEventsPayload),
@@ -482,6 +507,39 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			s.logger.ReportError(ctx, err, "error loading sbom collector service account from context", "managerError")
 		}
 		s.SetSBOMCollectorServiceAccount(sa)
+	}
+
+	// Threat detection initialization
+	s.SetChartsRuntimeDetectionEnabled(environmentConfig.RuntimeDetectionEnabled)
+	s.SetThreatDetectionEnabled(hb.ThreatDetection.Enabled)
+	s.SetEnabledThreatRules(hb.ThreatDetection.Rules)
+	if hb.ThreatDetection.Exceptions != nil {
+		s.SetThreatDetectionExceptions(*hb.ThreatDetection.Exceptions)
+	}
+
+	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
+	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
+		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+		if err != nil {
+			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
+		}
+		s.SetFalcoVersion(falcoVersion)
+
+		if err := s.WriteEmbeddedThreatRules(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error writing embedded threat rules to configmap", "managerError")
+		}
+
+		if err := s.rebuildFalcoRulesConfig(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
+		}
+
+		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error updating threat detection exceptions", "managerError")
+		}
+
+		if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
+			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
+		}
 	}
 
 	watcherOptions := controller.Options{
@@ -687,6 +745,10 @@ func (s *Service) updateAPIToken(ctx context.Context, newToken string) error {
 	// Set the token for the output clients
 	s.assetsOutputClient.SetAPIToken(s.GetAPIToken())
 	s.logger.SetAPIToken(s.GetAPIToken())
+
+	if s.falcoProxy != nil {
+		s.falcoProxy.SetAPIToken(s.GetAPIToken())
+	}
 
 	// Set the heartbeat service token
 	s.heartbeatService.SetAPIToken(s.GetAPIToken())
