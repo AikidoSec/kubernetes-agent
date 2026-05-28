@@ -205,7 +205,7 @@ func main() {
 					Tag:       "aikido:threat-detection",
 					Client:    threatBatchClient,
 					IsEnabled: agentState.IsThreatDetectionEnabled,
-					ShouldSkip: func(e falco.FalcoPayload) bool {
+					ShouldSkip: func(e falco.Event) bool {
 						return !slices.Contains(agentState.GetEnabledThreatRules(), e.Rule)
 					},
 				},

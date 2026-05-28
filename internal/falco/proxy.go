@@ -17,8 +17,8 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
-// FalcoPayload represents a Falco event as received from the Falco agent.
-type FalcoPayload struct {
+// Event represents a Falco event as received from the Falco agent.
+type Event struct {
 	Rule         string         `json:"rule"`
 	Tags         []string       `json:"tags"`
 	OutputFields map[string]any `json:"output_fields"`
@@ -35,7 +35,7 @@ type Route struct {
 	IsEnabled func() bool
 	// ShouldSkip is an optional per-route filter applied after the common
 	// namespace filter. Return true to drop the event for this route.
-	ShouldSkip func(FalcoPayload) bool
+	ShouldSkip func(Event) bool
 }
 
 // This is how it works from a high-level:
@@ -185,33 +185,33 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func parseEvent(body []byte) (map[string]json.RawMessage, FalcoPayload, error) {
+func parseEvent(body []byte) (map[string]json.RawMessage, Event, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, FalcoPayload{}, err
+		return nil, Event{}, err
 	}
 
-	var event FalcoPayload
+	var event Event
 	if v, ok := raw["rule"]; ok {
 		if err := json.Unmarshal(v, &event.Rule); err != nil {
-			return nil, FalcoPayload{}, fmt.Errorf("unmarshal rule: %w", err)
+			return nil, Event{}, fmt.Errorf("unmarshal rule: %w", err)
 		}
 	}
 	if v, ok := raw["tags"]; ok {
 		if err := json.Unmarshal(v, &event.Tags); err != nil {
-			return nil, FalcoPayload{}, fmt.Errorf("unmarshal tags: %w", err)
+			return nil, Event{}, fmt.Errorf("unmarshal tags: %w", err)
 		}
 	}
 	if v, ok := raw["output_fields"]; ok {
 		if err := json.Unmarshal(v, &event.OutputFields); err != nil {
-			return nil, FalcoPayload{}, fmt.Errorf("unmarshal output_fields: %w", err)
+			return nil, Event{}, fmt.Errorf("unmarshal output_fields: %w", err)
 		}
 	}
 
 	return raw, event, nil
 }
 
-func (p *Proxy) shouldDrop(event FalcoPayload) bool {
+func (p *Proxy) shouldDrop(event Event) bool {
 	if v, ok := event.OutputFields["container.image.repository"]; ok {
 		if repo, ok := v.(string); ok && slices.Contains(p.ignoredImageRepositories, repo) {
 			return true
