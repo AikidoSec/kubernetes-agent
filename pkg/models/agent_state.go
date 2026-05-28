@@ -32,7 +32,7 @@ type AgentState struct {
 
 	threatDetectionEnabled         bool
 	chartsRuntimeDetectionEnabled bool
-	threatDaemonSetName            string
+	falcoDaemonSetName            string
 	enabledThreatRules             []string
 	threatDetectionExceptions      []ThreatDetectionException
 	falcoVersion                   string
@@ -52,7 +52,7 @@ func NewEmptyAgentState() *AgentState {
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool, threatDaemonSetName string) *AgentState {
+func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool, falcoDaemonSetName string) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -66,7 +66,7 @@ func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, a
 	a.agentPodName = agentPodName
 	a.sbomCollectorName = sbomCollectorName
 	a.autoUpdateEnabled = autoUpdate
-	a.threatDaemonSetName = threatDaemonSetName
+	a.falcoDaemonSetName = falcoDaemonSetName
 	return a
 }
 
@@ -202,17 +202,17 @@ func (a *AgentState) GetEnabledThreatRules() []string {
 	return a.enabledThreatRules
 }
 
-func (a *AgentState) GetThreatDetectorDaemonSetName() string {
+func (a *AgentState) GetFalcoDaemonSetName() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.threatDaemonSetName
+	return a.falcoDaemonSetName
 }
 
 func (a *AgentState) GetFalcoRulesConfigMapName() string {
 	return "kubernetes-agent-falco-rules"
 }
 
-func (a *AgentState) GetRuntimeDetectionConfigMapName() string {
+func (a *AgentState) GetFalcoConfigMapName() string {
 	return "kubernetes-agent-falco-config"
 }
 

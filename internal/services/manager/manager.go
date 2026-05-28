@@ -203,7 +203,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 
 	falcoVersion := s.GetFalcoVersion()
 	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
-		falcoVersion, err = loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+		falcoVersion, err = loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
 		}
@@ -519,7 +519,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
 	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
-		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
 		}
@@ -537,7 +537,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 			s.logger.ReportError(ctx, err, "error updating threat detection exceptions", "managerError")
 		}
 
-		if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
+		if err := s.restartDaemonSet(ctx, s.GetFalcoDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
 		}
 	}

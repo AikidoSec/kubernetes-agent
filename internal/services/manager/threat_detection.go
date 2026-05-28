@@ -44,7 +44,7 @@ func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.
 
 	if !wasEnabled && nowEnabled {
 		// Enabling: write the embedded rules file; the block below handles config rebuild and restart.
-		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetThreatDetectorDaemonSetName())
+		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
 		}
@@ -65,7 +65,7 @@ func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.
 		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
 			s.logger.ReportError(ctx, err, "error clearing threat detection exceptions from configmap", "managerError")
 		}
-		if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
+		if err := s.restartDaemonSet(ctx, s.GetFalcoDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
 		}
 		return
@@ -101,7 +101,7 @@ func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.
 	}
 
 	if rulesChanged || exceptionsChanged {
-		if err := s.restartDaemonSet(ctx, s.GetThreatDetectorDaemonSetName()); err != nil {
+		if err := s.restartDaemonSet(ctx, s.GetFalcoDaemonSetName()); err != nil {
 			s.logger.ReportError(ctx, err, "error restarting threat detection daemonset", "managerError")
 		}
 	}
@@ -116,7 +116,7 @@ func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []s
 // All rulesets are denied by default; only explicitly enabled rules fire.
 // To add a new ruleset (e.g. SCA), read its state from agentState and append enables here.
 func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
-	cmName := s.GetRuntimeDetectionConfigMapName()
+	cmName := s.GetFalcoConfigMapName()
 	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting runtime detection configmap %q: %w", cmName, err)
@@ -143,9 +143,9 @@ func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
 // kubernetes-agent-falco-config ConfigMap. It disables all rules globally and then re-enables
 // each rule in enabledRules individually, which is the Falco config.d mechanism for allowlisting.
 func buildRulesOverrideYAML(enabledRules []string) (string, error) {
-	rulesActions := []models.ThreatRuleAction{{Disable: models.ThreatRuleSelector{Rule: "*"}}}
+	rulesActions := []models.FalcoRuleAction{{Disable: models.FalcoRuleSelector{Rule: "*"}}}
 	for _, rule := range enabledRules {
-		rulesActions = append(rulesActions, models.ThreatRuleAction{Enable: models.ThreatRuleSelector{Rule: rule}})
+		rulesActions = append(rulesActions, models.FalcoRuleAction{Enable: models.FalcoRuleSelector{Rule: rule}})
 	}
 	override := map[string]any{"rules": rulesActions}
 	data, err := yaml.Marshal(override)
@@ -332,7 +332,7 @@ func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) err
 		return nil
 	}
 
-	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetThreatDetectorDaemonSetName(), v1.GetOptions{})
+	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetFalcoDaemonSetName(), v1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting falco daemonset: %w", err)
 	}
