@@ -136,16 +136,20 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	event, drop := p.parseAndFilter(body)
-	if drop {
+	raw, event, err := parseEvent(body)
+	if err != nil {
+		p.LogError(err, "failed to unmarshal falco event")
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-
-	sanitized, err := stripAikidoTags(body)
+	if p.shouldDrop(event) {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	sanitized, err := stripAikidoTags(raw, event.Tags)
 	if err != nil {
-		p.LogError(err, "failed to sanitize event tags")
-		http.Error(w, "failed to process event", http.StatusInternalServerError)
+		p.LogError(err, "failed to strip aikido tags")
+		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 
@@ -181,76 +185,57 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// parseAndFilter parses the event body and applies common filtering.
-// Events from filtered image repositories (agent image, Falco image) are always dropped,
-// regardless of which namespace they run in.
-// Host-level events with no namespace field pass through unconditionally after the image check.
-// Customer-configured excluded/included namespace lists are also applied.
-// Returns the parsed event and true if the event should be dropped.
-func (p *Proxy) parseAndFilter(body []byte) (FalcoPayload, bool) {
-	var event FalcoPayload
-	if err := json.Unmarshal(body, &event); err != nil {
-		p.LogError(err, "failed to unmarshal falco event")
-		return event, true
+func parseEvent(body []byte) (map[string]json.RawMessage, FalcoPayload, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, FalcoPayload{}, err
 	}
 
+	var event FalcoPayload
+	if v, ok := raw["rule"]; ok {
+		if err := json.Unmarshal(v, &event.Rule); err != nil {
+			return nil, FalcoPayload{}, fmt.Errorf("unmarshal rule: %w", err)
+		}
+	}
+	if v, ok := raw["tags"]; ok {
+		if err := json.Unmarshal(v, &event.Tags); err != nil {
+			return nil, FalcoPayload{}, fmt.Errorf("unmarshal tags: %w", err)
+		}
+	}
+	if v, ok := raw["output_fields"]; ok {
+		if err := json.Unmarshal(v, &event.OutputFields); err != nil {
+			return nil, FalcoPayload{}, fmt.Errorf("unmarshal output_fields: %w", err)
+		}
+	}
+
+	return raw, event, nil
+}
+
+func (p *Proxy) shouldDrop(event FalcoPayload) bool {
 	if imageRepoI, ok := event.OutputFields["container.image.repository"]; ok {
 		if imageRepo, ok := imageRepoI.(string); ok {
 			if slices.Contains(p.ignoredImageRepositories, imageRepo) {
-				return event, true
+				return true
 			}
 		}
 	}
 
-	nsI, ok := event.OutputFields["k8s.ns.name"]
-	if !ok {
-		return event, false
-	}
-
-	ns, ok := nsI.(string)
-	if !ok {
-		return event, false
-	}
-
-	if slices.Contains(p.GetExcludedNamespaces(), ns) {
-		return event, true
-	}
-
-	includedNamespaces := p.GetIncludedNamespaces()
-	if len(includedNamespaces) > 0 && !slices.Contains(includedNamespaces, ns) {
-		return event, true
-	}
-
-	return event, false
-}
-
-func hasAikidoTag(tags []string) bool {
-	for _, tag := range tags {
-		if strings.HasPrefix(tag, "aikido:") {
-			return true
+	if nsI, ok := event.OutputFields["k8s.ns.name"]; ok {
+		if ns, ok := nsI.(string); ok {
+			if slices.Contains(p.GetExcludedNamespaces(), ns) {
+				return true
+			}
+			includedNamespaces := p.GetIncludedNamespaces()
+			if len(includedNamespaces) > 0 && !slices.Contains(includedNamespaces, ns) {
+				return true
+			}
 		}
 	}
+
 	return false
 }
 
-// stripAikidoTags removes all tags with the "aikido:" prefix from the event JSON.
-// These tags are internal routing markers and must not be forwarded to downstream consumers.
-func stripAikidoTags(body []byte) (json.RawMessage, error) {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal event: %w", err)
-	}
-
-	tagsJSON, ok := raw["tags"]
-	if !ok {
-		return body, nil
-	}
-
-	var tags []string
-	if err := json.Unmarshal(tagsJSON, &tags); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal tags: %w", err)
-	}
-
+func stripAikidoTags(raw map[string]json.RawMessage, tags []string) (json.RawMessage, error) {
 	filtered := make([]string, 0, len(tags))
 	for _, tag := range tags {
 		if !strings.HasPrefix(tag, "aikido:") {
@@ -260,9 +245,18 @@ func stripAikidoTags(body []byte) (json.RawMessage, error) {
 
 	sanitizedTags, err := json.Marshal(filtered)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal sanitized tags: %w", err)
+		return nil, err
 	}
 	raw["tags"] = sanitizedTags
 
 	return json.Marshal(raw)
+}
+
+func hasAikidoTag(tags []string) bool {
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, "aikido:") {
+			return true
+		}
+	}
+	return false
 }
