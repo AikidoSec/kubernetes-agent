@@ -209,6 +209,22 @@ type falcoRuleExceptionBlock struct {
 	Override   falcoOverride         `yaml:"override"`
 }
 
+// parseInValues parses a comma-separated value list for the "in" operator,
+// trimming whitespace and skipping empty entries. Returns nil if all entries are empty.
+func parseInValues(raw string) []string {
+	parts := strings.Split(raw, ",")
+	trimmed := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			trimmed = append(trimmed, v)
+		}
+	}
+	if len(trimmed) == 0 {
+		return nil
+	}
+	return trimmed
+}
+
 func buildExceptionsYAML(exceptions []models.ThreatDetectionException) string {
 	// Group exceptions by rule name so each rule gets one override block.
 	byRule := make(map[string][]falcoExceptionEntry)
@@ -227,18 +243,12 @@ func buildExceptionsYAML(exceptions []models.ThreatDetectionException) string {
 		skip := false
 		for i, c := range exc.Conditions {
 			if c.Operator == "in" {
-				parts := strings.Split(c.Value, ",")
-				trimmed := make([]string, 0, len(parts))
-				for _, p := range parts {
-					if v := strings.TrimSpace(p); v != "" {
-						trimmed = append(trimmed, v)
-					}
-				}
-				if len(trimmed) == 0 {
+				values := parseInValues(c.Value)
+				if values == nil {
 					skip = true
 					break
 				}
-				tuple[i] = trimmed
+				tuple[i] = values
 			} else {
 				tuple[i] = c.Value
 			}
