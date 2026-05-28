@@ -87,7 +87,7 @@ func (p *Proxy) Start(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
 		p.LogInfo("falco event proxy listening")
-		if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := p.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			p.LogError(err, "proxy server failed")
 			errCh <- fmt.Errorf("proxy server failed: %w", err)
 		}
@@ -123,7 +123,7 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB — Falco events are typically <16KB
 	body, err := io.ReadAll(r.Body)
 	defer func() {
 		if err := r.Body.Close(); err != nil {
