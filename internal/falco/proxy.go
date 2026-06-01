@@ -79,9 +79,11 @@ func (p *Proxy) Start(ctx context.Context) error {
 	mux.HandleFunc("/detection", p.handleRequest)
 
 	p.server = &http.Server{
-		Addr:        ":" + strconv.Itoa(p.listenPort),
-		Handler:     mux,
-		ReadTimeout: 5 * time.Second,
+		Addr:              ":" + strconv.Itoa(p.listenPort),
+		Handler:           mux,
+		ReadTimeout:       5 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
