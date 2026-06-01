@@ -203,8 +203,9 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 
 	falcoVersion := s.GetFalcoVersion()
 	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
-		falcoVersion, err = loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName())
-		if err != nil {
+		if version, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName()); err == nil {
+			falcoVersion = version
+		} else {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
 		}
 	}
