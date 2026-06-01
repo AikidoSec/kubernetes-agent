@@ -212,19 +212,11 @@ func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) err
 	}
 
 	for i, container := range daemonSet.Spec.Template.Spec.Containers {
-		if updated, ok := updateImageTag(container.Image, newVersion); ok {
-			daemonSet.Spec.Template.Spec.Containers[i].Image = updated
-		} else {
-			s.logger.LogWarning(nil, "skipping falco container image update: digest-pinned or untagged reference", "image", container.Image)
-		}
+		daemonSet.Spec.Template.Spec.Containers[i].Image = updateImageTag(container.Image, newVersion)
 	}
 
 	for i, container := range daemonSet.Spec.Template.Spec.InitContainers {
-		if updated, ok := updateImageTag(container.Image, newVersion); ok {
-			daemonSet.Spec.Template.Spec.InitContainers[i].Image = updated
-		} else {
-			s.logger.LogWarning(nil, "skipping falco init container image update: digest-pinned or untagged reference", "image", container.Image)
-		}
+		daemonSet.Spec.Template.Spec.InitContainers[i].Image = updateImageTag(container.Image, newVersion)
 	}
 
 	daemonSet.Labels["app.kubernetes.io/version"] = newVersion
@@ -238,21 +230,15 @@ func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) err
 	return nil
 }
 
-// updateImageTag rewrites the tag portion of an image reference. Returns ok=false
-// for digest-pinned references (containing '@'): rewriting only the tag while keeping
-// the original digest would leave the image effectively pinned to the old version
-// (Kubernetes pulls by digest), silently breaking the version update. Once the heartbeat
-// payload carries both a tag and a digest, this guard can be relaxed to update both together.
-// Returns ok=false when no tag is present (e.g. "registry:5000/org/img"), since we don't
-// invent tags out of nothing.
-func updateImageTag(image, newTag string) (string, bool) {
-	if strings.Contains(image, "@") {
-		return "", false
-	}
+// updateImageTag rewrites the tag portion of a tagged image reference like
+// "falcosecurity/falco:0.43.0". Untagged references are returned unchanged.
+// Digest-pinned references are not handled yet — revisit when the heartbeat
+// payload starts carrying digests.
+func updateImageTag(image, newTag string) string {
 	lastColon := strings.LastIndex(image, ":")
 	lastSlash := strings.LastIndex(image, "/")
 	if lastColon <= lastSlash {
-		return "", false
+		return image
 	}
-	return image[:lastColon] + ":" + newTag, true
+	return image[:lastColon] + ":" + newTag
 }
