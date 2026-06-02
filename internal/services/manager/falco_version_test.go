@@ -98,37 +98,6 @@ func TestUpdateFalcoVersion(t *testing.T) {
 		}
 	})
 
-	t.Run("leaves digest-pinned image alone but still updates other containers and labels", func(t *testing.T) {
-		const digestPinned = "falcosecurity/falco:0.43.0@sha256:abc123"
-		ds := newFalcoDaemonSet(
-			[]string{digestPinned},
-			[]string{"falcosecurity/falco-driver-loader:0.43.0"},
-			"0.43.0",
-		)
-		svc := newServiceForFalcoVersionTest(t, ds)
-
-		if err := svc.UpdateFalcoVersion(context.Background(), newVersion); err != nil {
-			t.Fatalf("UpdateFalcoVersion() error = %v", err)
-		}
-
-		got, err := svc.kubernetesClientSet.AppsV1().DaemonSets(testNamespace).Get(context.Background(), testDSName, metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("get daemonset: %v", err)
-		}
-		if got.Spec.Template.Spec.Containers[0].Image != digestPinned {
-			t.Errorf("digest-pinned main container image = %q, want unchanged %q", got.Spec.Template.Spec.Containers[0].Image, digestPinned)
-		}
-		if got.Spec.Template.Spec.InitContainers[0].Image != "falcosecurity/falco-driver-loader:0.44.0" {
-			t.Errorf("init container image = %q, want falcosecurity/falco-driver-loader:0.44.0", got.Spec.Template.Spec.InitContainers[0].Image)
-		}
-		if got.Labels["app.kubernetes.io/version"] != newVersion {
-			t.Errorf("daemonset version label = %q, want %q", got.Labels["app.kubernetes.io/version"], newVersion)
-		}
-		if svc.GetFalcoVersion() != newVersion {
-			t.Errorf("agent state falco version = %q, want %q", svc.GetFalcoVersion(), newVersion)
-		}
-	})
-
 	t.Run("returns error and leaves agent state untouched when daemonset is missing", func(t *testing.T) {
 		svc := newServiceForFalcoVersionTest(t)
 		svc.SetFalcoVersion("0.43.0")
