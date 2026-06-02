@@ -121,13 +121,14 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		}
 	}
 
-	runtimeDetectionEnabledStr, exists := os.LookupEnv("RUNTIME_DETECTION_ENABLED")
-	if !exists {
-		runtimeDetectionEnabledStr = "false"
-	}
-	runtimeDetectionEnabled, err := strconv.ParseBool(runtimeDetectionEnabledStr)
-	if err != nil {
-		runtimeDetectionEnabled = false
+	runtimeDetectionEnabled := false
+	if runtimeDetectionEnabledStr, exists := os.LookupEnv("RUNTIME_DETECTION_ENABLED"); exists {
+		enabled, err := strconv.ParseBool(runtimeDetectionEnabledStr)
+		if err != nil {
+			errs = multierr.Append(errs, fmt.Errorf("invalid RUNTIME_DETECTION_ENABLED value: %s", runtimeDetectionEnabledStr))
+		} else {
+			runtimeDetectionEnabled = enabled
+		}
 	}
 
 	runtimeDetectionProxyPortStr, exists := os.LookupEnv("RUNTIME_DETECTION_PORT")
