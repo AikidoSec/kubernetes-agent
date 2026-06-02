@@ -9,7 +9,7 @@ import (
 
 type ThreatDetectionHeartbeat struct {
 	Enabled    bool                        `json:"enabled"`
-	Rules      []string                    `json:"rules"`
+	Rules      *[]string                   `json:"rules"`
 	Exceptions *[]ThreatDetectionException `json:"exceptions"`
 }
 

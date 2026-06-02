@@ -42,11 +42,15 @@ func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.
 	}
 
 	if wasEnabled && !nowEnabled {
-		// Disabling: clear both rule files so Falco doesn't try to append exceptions to rules that no longer exist.
+		// Disabling: clear in-memory state and rebuild all three ConfigMap files so they end up
+		// in a known-empty state.
 		s.SetFalcoVersion("")
 		s.SetEnabledThreatRules([]string{})
 		if err := s.ClearEmbeddedThreatRules(ctx); err != nil {
 			s.logger.ReportError(ctx, err, "error clearing embedded threat rules from configmap", "managerError")
+		}
+		if err := s.rebuildFalcoRulesConfig(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error clearing threat detection rules override from configmap", "managerError")
 		}
 		s.SetThreatDetectionExceptions([]models.ThreatDetectionException{})
 		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {
@@ -62,19 +66,16 @@ func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.
 		return
 	}
 
+	// null means the server could not load rules/exceptions — keep current state unchanged.
 	newEnabledRules := td.Rules
-	// null means the server could not load exceptions — keep current state unchanged.
 	newExceptions := td.Exceptions
 
-	// Force rulesChanged=true on the disabled→enabled transition so UpdateEnabledThreatRules always
-	// runs and overwrites any stale enables left in the override ConfigMap by the previous session
-	// (the disable path clears the embedded rules file but does not touch the override ConfigMap).
-	rulesChanged := !wasEnabled || !slices.Equal(s.GetEnabledThreatRules(), newEnabledRules)
-	exceptionsChanged := newExceptions != nil && !slices.EqualFunc(s.GetThreatDetectionExceptions(), *newExceptions, models.ThreatDetectionExceptionEqual)
+	rulesChanged := rulesChangedFromHeartbeat(s.GetEnabledThreatRules(), newEnabledRules)
+	exceptionsChanged := exceptionsChangedFromHeartbeat(s.GetThreatDetectionExceptions(), newExceptions)
 
 	if rulesChanged {
-		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", newEnabledRules)
-		if err := s.UpdateEnabledThreatRules(ctx, newEnabledRules); err != nil {
+		s.logger.LogInfo("threat detection rules changed from heartbeat response", "current rules", s.GetEnabledThreatRules(), "new rules", *newEnabledRules)
+		if err := s.UpdateEnabledThreatRules(ctx, *newEnabledRules); err != nil {
 			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
 		}
 	}
@@ -133,4 +134,24 @@ func (s *Service) ClearEmbeddedThreatRules(ctx context.Context) error {
 		return fmt.Errorf("error updating falco rules configmap %q: %w", cmName, err)
 	}
 	return nil
+}
+
+// rulesChangedFromHeartbeat decides whether the enabled-rules list should be rewritten.
+// next == nil means the server couldn't load rules this beat — keep current state.
+// Otherwise rewrite only if the lists differ.
+func rulesChangedFromHeartbeat(current []string, next *[]string) bool {
+	if next == nil {
+		return false
+	}
+	return !slices.Equal(current, *next)
+}
+
+// exceptionsChangedFromHeartbeat decides whether the exceptions list should be rewritten.
+// next == nil means the server couldn't load exceptions this beat — keep current state.
+// Otherwise rewrite only if the lists differ.
+func exceptionsChangedFromHeartbeat(current []models.ThreatDetectionException, next *[]models.ThreatDetectionException) bool {
+	if next == nil {
+		return false
+	}
+	return !slices.EqualFunc(current, *next, models.ThreatDetectionExceptionEqual)
 }

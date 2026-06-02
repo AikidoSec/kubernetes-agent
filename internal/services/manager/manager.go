@@ -513,7 +513,9 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	// Threat detection initialization
 	s.SetChartsRuntimeDetectionEnabled(environmentConfig.RuntimeDetectionEnabled)
 	s.SetThreatDetectionEnabled(hb.ThreatDetection.Enabled)
-	s.SetEnabledThreatRules(hb.ThreatDetection.Rules)
+	if hb.ThreatDetection.Rules != nil {
+		s.SetEnabledThreatRules(*hb.ThreatDetection.Rules)
+	}
 	if hb.ThreatDetection.Exceptions != nil {
 		s.SetThreatDetectionExceptions(*hb.ThreatDetection.Exceptions)
 	}

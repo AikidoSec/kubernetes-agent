@@ -120,14 +120,14 @@ func TestHandleThreatDetectionHeartbeat(t *testing.T) {
 		{
 			name:          "charts disabled: early return, no K8s ops regardless of enabled flag",
 			setup:         heartbeatTestSetup{chartsEnabled: false},
-			td:            models.ThreatDetectionHeartbeat{Enabled: true, Rules: []string{ruleA}},
+			td:            models.ThreatDetectionHeartbeat{Enabled: true, Rules: ptrOf([]string{ruleA})},
 			wantEnabled:   true, // in-memory state is still updated
 			wantRestarted: false,
 		},
 		{
 			name:  "enabling (false→true): writes embedded rules, rebuilds override, restarts",
 			setup: heartbeatTestSetup{chartsEnabled: true, initiallyEnabled: false},
-			td:    models.ThreatDetectionHeartbeat{Enabled: true, Rules: []string{ruleA}},
+			td:    models.ThreatDetectionHeartbeat{Enabled: true, Rules: ptrOf([]string{ruleA})},
 			wantEnabled:               true,
 			wantRules:                 []string{ruleA},
 			wantRestarted:             true,
@@ -155,7 +155,7 @@ func TestHandleThreatDetectionHeartbeat(t *testing.T) {
 			setup: heartbeatTestSetup{chartsEnabled: true, initiallyEnabled: false},
 			td: models.ThreatDetectionHeartbeat{
 				Enabled:    true,
-				Rules:      []string{ruleA},
+				Rules:      ptrOf([]string{ruleA}),
 				Exceptions: ptrOf(oneException),
 			},
 			wantEnabled:               true,
@@ -182,7 +182,7 @@ func TestHandleThreatDetectionHeartbeat(t *testing.T) {
 				initiallyEnabled: true,
 				initialRules:     []string{ruleA},
 			},
-			td:            models.ThreatDetectionHeartbeat{Enabled: true, Rules: []string{ruleA, ruleB}},
+			td:            models.ThreatDetectionHeartbeat{Enabled: true, Rules: ptrOf([]string{ruleA, ruleB})},
 			wantEnabled:   true,
 			wantRules:     []string{ruleA, ruleB},
 			wantRestarted: true,
@@ -196,7 +196,7 @@ func TestHandleThreatDetectionHeartbeat(t *testing.T) {
 			},
 			td: models.ThreatDetectionHeartbeat{
 				Enabled:    true,
-				Rules:      []string{ruleA},
+				Rules:      ptrOf([]string{ruleA}),
 				Exceptions: ptrOf(oneException),
 			},
 			wantEnabled:            true,
@@ -213,7 +213,7 @@ func TestHandleThreatDetectionHeartbeat(t *testing.T) {
 			},
 			td: models.ThreatDetectionHeartbeat{
 				Enabled:    true,
-				Rules:      []string{ruleA},
+				Rules:      ptrOf([]string{ruleA}),
 				Exceptions: ptrOf([]models.ThreatDetectionException{}),
 			},
 			wantEnabled:   true,
@@ -229,8 +229,23 @@ func TestHandleThreatDetectionHeartbeat(t *testing.T) {
 			},
 			td: models.ThreatDetectionHeartbeat{
 				Enabled:    true,
-				Rules:      []string{ruleA},
+				Rules:      ptrOf([]string{ruleA}),
 				Exceptions: nil,
+			},
+			wantEnabled:   true,
+			wantRules:     []string{ruleA},
+			wantRestarted: false,
+		},
+		{
+			name: "steady-state enabled, nil rules (server error): no rule change, no restart",
+			setup: heartbeatTestSetup{
+				chartsEnabled:    true,
+				initiallyEnabled: true,
+				initialRules:     []string{ruleA},
+			},
+			td: models.ThreatDetectionHeartbeat{
+				Enabled: true,
+				Rules:   nil,
 			},
 			wantEnabled:   true,
 			wantRules:     []string{ruleA},
@@ -287,14 +302,18 @@ func TestHandleThreatDetectionHeartbeat(t *testing.T) {
 	}
 }
 
-// TestHandleThreatDetectionHeartbeat_ReenableWithNoRulesClearsStaleOverride tests a multi-step
-// lifecycle: enable with rules → disable → re-enable with no rules. After the second enable,
-// rules-override.yaml must contain only the global disable, not the stale enables from before.
-func TestHandleThreatDetectionHeartbeat_ReenableWithNoRulesClearsStaleOverride(t *testing.T) {
+// TestHandleThreatDetectionHeartbeat_DisableClearsRulesOverride verifies that the disable
+// path resets rules-override.yaml to the empty (deny-all) state. This is what makes a
+// later re-enable safe: there are no stale per-rule enables left over.
+func TestHandleThreatDetectionHeartbeat_DisableClearsRulesOverride(t *testing.T) {
 	ruleA := "Read sensitive file untrusted"
 	ruleB := "Write below root"
 
 	staleOverride, err := buildRulesOverrideYAML([]string{ruleA, ruleB})
+	if err != nil {
+		t.Fatalf("buildRulesOverrideYAML: %v", err)
+	}
+	emptyOverride, err := buildRulesOverrideYAML([]string{})
 	if err != nil {
 		t.Fatalf("buildRulesOverrideYAML: %v", err)
 	}
@@ -307,14 +326,9 @@ func TestHandleThreatDetectionHeartbeat_ReenableWithNoRulesClearsStaleOverride(t
 	})
 
 	svc.handleThreatDetectionHeartbeat(context.Background(), models.ThreatDetectionHeartbeat{Enabled: false})
-	svc.handleThreatDetectionHeartbeat(context.Background(), models.ThreatDetectionHeartbeat{Enabled: true, Rules: []string{}})
 
 	got := getCMKey(t, fakeClient, "kubernetes-agent-falco-config", "rules-override.yaml")
-	want, err := buildRulesOverrideYAML([]string{})
-	if err != nil {
-		t.Fatalf("buildRulesOverrideYAML: %v", err)
-	}
-	if got != want {
-		t.Errorf("rules-override.yaml after disable then re-enable with no rules:\ngot:\n%s\nwant:\n%s", got, want)
+	if got != emptyOverride {
+		t.Errorf("rules-override.yaml after disable:\ngot:\n%s\nwant:\n%s", got, emptyOverride)
 	}
 }
