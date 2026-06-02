@@ -2,6 +2,12 @@
 # Update the embedded Falco rules to match a specific Falco version, preserving
 # all aikido: routing tags from the current file.
 #
+# Note: this fetches falcosecurity/rules/rules/falco_rules.yaml (the "stable" ruleset).
+# Falco also publishes falco-sandbox_rules.yaml and falco-incubating_rules.yaml in the
+# same repo; we deliberately don't pull those — they're less mature and not enabled by
+# default in upstream Falco. If we ever decide to route a sandbox/incubating rule, the
+# script would need extending.
+#
 # Usage:  ./scripts/update-falco-rules.sh <falco-version>
 # Example: ./scripts/update-falco-rules.sh 0.44.0
 #
