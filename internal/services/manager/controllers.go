@@ -256,7 +256,7 @@ func (s *Service) setupArgoprojControllers(ctx context.Context, serverResourcesG
 		setup   func() error
 	}
 
-	ctrl := func() argoproj.Controller {
+	apController := func() argoproj.Controller {
 		return argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter)
 	}
 
@@ -265,77 +265,77 @@ func (s *Service) setupArgoprojControllers(ctx context.Context, serverResourcesG
 			gvk:     argoproj.ApplicationGVK,
 			logName: "ArgoCD Application",
 			setup: func() error {
-				return (&argoproj.ApplicationController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.ApplicationController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.AppProjectGVK,
 			logName: "ArgoCD AppProject",
 			setup: func() error {
-				return (&argoproj.AppProjectController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.AppProjectController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.ApplicationSetGVK,
 			logName: "ArgoCD ApplicationSet",
 			setup: func() error {
-				return (&argoproj.ApplicationSetController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.ApplicationSetController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.WorkflowGVK,
 			logName: "Argo Workflows Workflow",
 			setup: func() error {
-				return (&argoproj.WorkflowController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.WorkflowController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.WorkflowTemplateGVK,
 			logName: "Argo Workflows WorkflowTemplate",
 			setup: func() error {
-				return (&argoproj.WorkflowTemplateController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.WorkflowTemplateController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.CronWorkflowGVK,
 			logName: "Argo Workflows CronWorkflow",
 			setup: func() error {
-				return (&argoproj.CronWorkflowController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.CronWorkflowController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.ClusterWorkflowTemplateGVK,
 			logName: "Argo Workflows ClusterWorkflowTemplate",
 			setup: func() error {
-				return (&argoproj.ClusterWorkflowTemplateController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.ClusterWorkflowTemplateController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.RolloutGVK,
 			logName: "Argo Rollouts Rollout",
 			setup: func() error {
-				return (&argoproj.RolloutController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.RolloutController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.AnalysisTemplateGVK,
 			logName: "Argo Rollouts AnalysisTemplate",
 			setup: func() error {
-				return (&argoproj.AnalysisTemplateController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.AnalysisTemplateController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.ClusterAnalysisTemplateGVK,
 			logName: "Argo Rollouts ClusterAnalysisTemplate",
 			setup: func() error {
-				return (&argoproj.ClusterAnalysisTemplateController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.ClusterAnalysisTemplateController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.AnalysisRunGVK,
 			logName: "Argo Rollouts AnalysisRun",
 			setup: func() error {
-				return (&argoproj.AnalysisRunController{Controller: ctrl()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.AnalysisRunController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 	}

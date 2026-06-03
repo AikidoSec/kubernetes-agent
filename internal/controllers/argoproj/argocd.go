@@ -81,7 +81,7 @@ func (l *ApplicationList) DeepCopyObject() runtime.Object {
 		return nil
 	}
 	out := &ApplicationList{TypeMeta: l.TypeMeta}
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
+	l.DeepCopyInto(&out.ListMeta)
 	out.Items = make([]Application, len(l.Items))
 	for i := range l.Items {
 		l.Items[i].DeepCopyInto(&out.Items[i])
@@ -127,7 +127,7 @@ func (l *AppProjectList) DeepCopyObject() runtime.Object {
 		return nil
 	}
 	out := &AppProjectList{TypeMeta: l.TypeMeta}
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
+	l.DeepCopyInto(&out.ListMeta)
 	out.Items = make([]AppProject, len(l.Items))
 	for i := range l.Items {
 		l.Items[i].DeepCopyInto(&out.Items[i])
@@ -173,7 +173,7 @@ func (l *ApplicationSetList) DeepCopyObject() runtime.Object {
 		return nil
 	}
 	out := &ApplicationSetList{TypeMeta: l.TypeMeta}
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
+	l.DeepCopyInto(&out.ListMeta)
 	out.Items = make([]ApplicationSet, len(l.Items))
 	for i := range l.Items {
 		l.Items[i].DeepCopyInto(&out.Items[i])
