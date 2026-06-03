@@ -10,12 +10,15 @@ import (
 
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/config"
 	"aikidoSec.kubernetesAgent/pkg/models"
 
 	"github.com/go-logr/logr"
+	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
+	rolloutv1alpha1 "github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	kongv1alpha1 "github.com/kong/kubernetes-configuration/v2/api/configuration/v1alpha1"
 	openshiftconfigv1 "github.com/openshift/api/config/v1"
 	operatorv1alpha1 "github.com/openshift/api/operator/v1alpha1"
@@ -49,6 +52,9 @@ func init() {
 	utilruntime.Must(traefikv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(gatewayv1.Install(scheme))
 	utilruntime.Must(kongv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(argoproj.AddArgoCDToScheme(scheme))
+	utilruntime.Must(wfv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(rolloutv1alpha1.AddToScheme(scheme))
 }
 
 // nolint:gocyclo

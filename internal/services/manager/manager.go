@@ -8,16 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sync"
 	"time"
 
-	"aikidoSec.kubernetesAgent/internal/controllers"
-	"aikidoSec.kubernetesAgent/internal/controllers/kong"
-	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
-	"aikidoSec.kubernetesAgent/internal/controllers/traefik"
 	internalhttp "aikidoSec.kubernetesAgent/internal/http"
 	httpcontrollers "aikidoSec.kubernetesAgent/internal/http/controllers"
-	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/sbom"
@@ -28,14 +22,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
@@ -484,190 +475,9 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.SetSBOMCollectorServiceAccount(sa)
 	}
 
-	watcherOptions := controller.Options{
-		CacheSyncTimeout: s.GetControllerCacheSyncTimeout(),
-	}
-
-	// Get the available resources from the Kubernetes API server.
-	_, serverResources, err := s.kubernetesClientSet.Discovery().ServerGroupsAndResources()
-	if err != nil {
-		if !discovery.IsGroupDiscoveryFailedError(err) {
-			s.logger.ReportError(ctx, err, "error getting server resources", "managerError")
-		}
-	}
-
-	// Build a map of available GVKs in the cluster for quick lookup.
-	// This is used to skip setting up watchers for resources that are not available in the cluster.
-	serverResourcesGVKs := make(map[string]struct{})
-	for _, apiResourceList := range serverResources {
-		for _, apiResource := range apiResourceList.APIResources {
-			gv, err := schema.ParseGroupVersion(apiResourceList.GroupVersion)
-			if err != nil {
-				s.logger.ReportError(ctx, err, "error parsing group version", "managerError")
-				continue
-			}
-
-			gvk := schema.GroupVersionKind{Group: gv.Group, Version: gv.Version, Kind: apiResource.Kind}
-
-			serverResourcesGVKs[gvk.String()] = struct{}{}
-		}
-	}
-
-	agentClusterRole, err := s.kubernetesClientSet.RbacV1().ClusterRoles().Get(ctx, s.GetAgentName(), v1.GetOptions{})
-	if err != nil {
-		s.logger.ReportError(ctx, err, "error getting agent cluster role", "managerError")
-		return fmt.Errorf("error getting agent cluster role: %w", err)
-	}
-
-	restMapper := runtimeManager.GetRESTMapper()
-
-	// Set up the resource watchers based on the monitored resources from the heartbeat
-	for _, v := range hb.MonitoredResources {
-		createController, err := s.shouldCreateController(serverResourcesGVKs, v, restMapper, agentClusterRole)
-		if err != nil {
-			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
-			return fmt.Errorf("error checking if controller should be created: %w", err)
-		}
-
-		if !createController {
-			continue
-		}
-
-		watcherSelector := models.WatcherSelector{
-			GroupVersionKind: v,
-			NamespaceFilter:  predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
-		}
-
-		if err = (&controllers.Watcher{
-			Logger:       s.logger,
-			Client:       runtimeManager.GetClient(),
-			Scheme:       runtimeManager.GetScheme(),
-			Watched:      watcherSelector,
-			OutputClient: assetsClient,
-			PendingMu:    sync.Mutex{},
-			Pending:      make(map[string]time.Time),
-			AgentState:   s.AgentState,
-		}).SetupWithManager(runtimeManager, watcherOptions); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new watcher", "managerError")
-			return fmt.Errorf("error creating watcher (%s): %w", v.String(), err)
-		}
-	}
-
-	// Check if ImageContentSourcePolicy is available in the cluster
-	createICSPController, err := s.shouldCreateController(serverResourcesGVKs, openshift.ImageContentSourcePolicyGVK, restMapper, agentClusterRole)
-	if err != nil {
-		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
-		return fmt.Errorf("error checking if controller should be created: %w", err)
-	}
-	if createICSPController {
-		s.logger.LogInfo("ImageContentSourcePolicy is available in the cluster")
-		s.SetImageMappingEnabled(true)
-		// Create an ImageContentSourcePolicy controller that will watch for policy changes and update the agent internal registry mappings.
-		if err = (&openshift.ImageContentSourcePolicyController{
-			AgentState: s.AgentState,
-			Logger:     s.logger,
-			Client:     runtimeManager.GetClient(),
-		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageContentSourcePolicy controller", "managerError")
-		}
-	}
-
-	// Check if ImageDigestMirrorSet is available in the cluster
-	createIDMSController, err := s.shouldCreateController(serverResourcesGVKs, openshift.ImageDigestMirrorSetGVK, restMapper, agentClusterRole)
-	if err != nil {
-		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
-		return fmt.Errorf("error checking if controller should be created: %w", err)
-	}
-	if createIDMSController {
-		s.logger.LogInfo("ImageDigestMirrorSet is available in the cluster")
-		s.SetImageMappingEnabled(true)
-		// Create an ImageDigestMirrorSet controller that will watch for policy changes and update the agent internal registry mappings.
-		if err = (&openshift.ImageDigestMirrorSetController{
-			AgentState: s.AgentState,
-			Logger:     s.logger,
-			Client:     runtimeManager.GetClient(),
-		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageDigestMirrorSet controller", "managerError")
-		}
-	}
-
-	// Check if ImageTagMirrorSet is available in the cluster
-	createITMSController, err := s.shouldCreateController(serverResourcesGVKs, openshift.ImageTagMirrorSetGVK, restMapper, agentClusterRole)
-	if err != nil {
-		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
-		return fmt.Errorf("error checking if controller should be created: %w", err)
-	}
-	if createITMSController {
-		s.logger.LogInfo("ImageTagMirrorSet is available in the cluster")
-		s.SetImageMappingEnabled(true)
-		// Create an ImageTagMirrorSet controller that will watch for policy changes and update the agent internal registry mappings.
-		if err = (&openshift.ImageTagMirrorSetController{
-			AgentState: s.AgentState,
-			Logger:     s.logger,
-			Client:     runtimeManager.GetClient(),
-		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new OpenShift ImageTagMirrorSet controller", "managerError")
-		}
-	}
-
-	// Check if IngressRoute is available in the cluster
-	createIngressRouteController, err := s.shouldCreateController(serverResourcesGVKs, traefik.IngressRouteGVK, restMapper, agentClusterRole)
-	if err != nil {
-		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
-		return fmt.Errorf("error checking if controller should be created: %w", err)
-	}
-	if createIngressRouteController {
-		s.logger.LogInfo("IngressRoute is available in the cluster")
-		if err = (&traefik.IngressRouteController{
-			Logger:          s.logger,
-			Client:          runtimeManager.GetClient(),
-			OutputClient:    assetsClient,
-			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
-			PendingMu:       sync.Mutex{},
-			Pending:         make(map[string]time.Time),
-		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new Traefik IngressRoute controller", "managerError")
-		}
-	}
-
-	// Check if KongService is available in the cluster
-	createKongServiceController, err := s.shouldCreateController(serverResourcesGVKs, kong.KongServiceGVK, restMapper, agentClusterRole)
-	if err != nil {
-		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
-		return fmt.Errorf("error checking if controller should be created: %w", err)
-	}
-	if createKongServiceController {
-		s.logger.LogInfo("KongService is available in the cluster")
-		if err = (&kong.KongServiceController{
-			Logger:          s.logger,
-			Client:          runtimeManager.GetClient(),
-			OutputClient:    assetsClient,
-			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
-			PendingMu:       sync.Mutex{},
-			Pending:         make(map[string]time.Time),
-		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new KongService controller", "managerError")
-		}
-	}
-
-	// Check if KongRoute is available in the cluster
-	createKongRouteController, err := s.shouldCreateController(serverResourcesGVKs, kong.KongRouteGVK, restMapper, agentClusterRole)
-	if err != nil {
-		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
-		return fmt.Errorf("error checking if controller should be created: %w", err)
-	}
-	if createKongRouteController {
-		s.logger.LogInfo("KongRoute is available in the cluster")
-		if err = (&kong.KongRouteController{
-			Logger:          s.logger,
-			Client:          runtimeManager.GetClient(),
-			OutputClient:    assetsClient,
-			NamespaceFilter: predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces),
-			PendingMu:       sync.Mutex{},
-			Pending:         make(map[string]time.Time),
-		}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new KongRoute controller", "managerError")
-		}
+	if err := s.setupControllers(ctx, runtimeManager, hb, assetsClient); err != nil {
+		s.logger.ReportError(ctx, err, "error setting up controllers", "managerError")
+		return fmt.Errorf("error setting up controllers: %w", err)
 	}
 
 	s.startHeartbeat()
