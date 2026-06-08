@@ -8,6 +8,7 @@ import (
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
+	"aikidoSec.kubernetesAgent/internal/controllers/keda"
 	"aikidoSec.kubernetesAgent/internal/controllers/kong"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
 	"aikidoSec.kubernetesAgent/internal/controllers/traefik"
@@ -105,7 +106,11 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 		return err
 	}
 
-	return s.setupArgoprojControllers(ctx, serverResourcesGVKs, restMapper, agentClusterRole, runtimeManager, assetsClient, nsFilter)
+	if err := s.setupArgoprojControllers(ctx, serverResourcesGVKs, restMapper, agentClusterRole, runtimeManager, assetsClient, nsFilter); err != nil {
+		return err
+	}
+
+	return s.setupKedaControllers(ctx, serverResourcesGVKs, restMapper, agentClusterRole, runtimeManager, assetsClient, nsFilter)
 }
 
 func (s *Service) setupOpenshiftControllers(ctx context.Context, serverResourcesGVKs map[string]struct{}, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole, runtimeManager manager.Manager) error {
@@ -246,6 +251,30 @@ func (s *Service) setupKongControllers(ctx context.Context, serverResourcesGVKs 
 		}
 	}
 
+	return nil
+}
+
+func (s *Service) setupKedaControllers(ctx context.Context, serverResourcesGVKs map[string]struct{}, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole, runtimeManager manager.Manager, assetsClient *batchclient.BatchClient, nsFilter *predicates.NamespaceFilter) error {
+	create, err := s.shouldCreateController(serverResourcesGVKs, keda.ScaledJobGVK, restMapper, agentClusterRole)
+	if err != nil {
+		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
+		return fmt.Errorf("error checking if controller should be created: %w", err)
+	}
+	if !create {
+		return nil
+	}
+	s.logger.LogInfo("ScaledJob is available in the cluster")
+	if err := (&keda.ScaledJobController{
+		Logger:          s.logger,
+		Client:          runtimeManager.GetClient(),
+		OutputClient:    assetsClient,
+		NamespaceFilter: nsFilter,
+		PendingMu:       sync.Mutex{},
+		Pending:         make(map[string]time.Time),
+	}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
+		s.logger.ReportError(ctx, err, "error creating new ScaledJob controller", "managerError")
+		return fmt.Errorf("error creating ScaledJob controller: %w", err)
+	}
 	return nil
 }
 
