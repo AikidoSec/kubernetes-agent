@@ -49,6 +49,7 @@ type Options struct {
 	ControllerCacheSyncTimeout        time.Duration
 	IsSBOMCollectorRunningAsDaemonSet bool
 	AutoUpdateEnabled                 bool
+	FalcoRulesConfigMapName           string
 }
 type Service struct {
 	*models.AgentState
@@ -89,6 +90,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		fmt.Sprintf("%s-sbom-collector", o.AgentName),
 		o.AutoUpdateEnabled,
 		fmt.Sprintf("%s-runtime-detection", o.AgentName),
+		o.FalcoRulesConfigMapName,
 	)
 
 	// Build the cluster configuration based on the environment.
@@ -330,6 +332,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	s.handleThreatDetectionHeartbeat(ctx, resp.ThreatDetection)
+	s.handleRuntimeSCAHeartbeat(ctx, resp.RuntimeSCA)
 
 	if s.GetAutoUpdateEnabled() {
 		if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
@@ -501,6 +504,15 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.SetSBOMCollectorServiceAccount(sa)
 	}
 
+	// Runtime SCA initialization (heartbeat-controlled).
+	// Set state before rebuildFalcoRulesConfig so SCA rules are included in the rebuild.
+	s.SetRuntimeSCAEnabled(hb.RuntimeSCA.Enabled)
+	if s.IsRuntimeSCAEnabled() {
+		if err := s.WriteEmbeddedRuntimeSCARules(ctx); err != nil {
+			s.logger.ReportError(ctx, err, "error writing embedded runtime SCA rules to configmap", "managerError")
+		}
+	}
+
 	// Threat detection initialization
 	s.SetChartsRuntimeDetectionEnabled(environmentConfig.RuntimeDetectionEnabled)
 	s.SetThreatDetectionEnabled(hb.ThreatDetection.Enabled)
@@ -511,20 +523,23 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.SetThreatDetectionExceptions(*hb.ThreatDetection.Exceptions)
 	}
 
-	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
-	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
+	// If runtime detection is deployed and either threat detection or SCA is enabled, write
+	// embedded rules and apply the enabled-rules and exceptions configs.
+	if s.IsChartsRuntimeDetectionEnabled() && (s.IsThreatDetectionEnabled() || s.IsRuntimeSCAEnabled()) {
 		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
 		}
 		s.SetFalcoVersion(falcoVersion)
 
-		if err := s.WriteEmbeddedThreatRules(ctx); err != nil {
-			s.logger.ReportError(ctx, err, "error writing embedded threat rules to configmap", "managerError")
+		if s.IsThreatDetectionEnabled() {
+			if err := s.WriteEmbeddedThreatRules(ctx); err != nil {
+				s.logger.ReportError(ctx, err, "error writing embedded threat rules to configmap", "managerError")
+			}
 		}
 
 		if err := s.rebuildFalcoRulesConfig(ctx); err != nil {
-			s.logger.ReportError(ctx, err, "error updating enabled threat detection rules", "managerError")
+			s.logger.ReportError(ctx, err, "error updating enabled rules config", "managerError")
 		}
 
 		if err := s.rebuildFalcoExceptionsConfig(ctx); err != nil {

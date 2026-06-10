@@ -15,4 +15,5 @@ type EnvironmentConfig struct {
 	AutoUpdateEnabled           bool
 	RuntimeDetectionEnabled     bool
 	RuntimeDetectionPort        int
+	FalcoRulesConfigMapName     string
 }

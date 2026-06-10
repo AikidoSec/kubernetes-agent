@@ -57,7 +57,7 @@ func newServiceForHeartbeatTest(t *testing.T, setup heartbeatTestSetup) (*Servic
 	state := models.NewEmptyAgentState()
 	state.SetInitialValues(
 		"test-agent-pod-abc123", testNamespace, "test-agent",
-		"", "", "", 0, false, "", false, testDSName,
+		"", "", "", 0, false, "", false, testDSName, "",
 	)
 	state.SetChartsRuntimeDetectionEnabled(setup.chartsEnabled)
 	state.SetThreatDetectionEnabled(setup.initiallyEnabled)
@@ -309,11 +309,11 @@ func TestHandleThreatDetectionHeartbeat_DisableClearsRulesOverride(t *testing.T)
 	ruleA := "Read sensitive file untrusted"
 	ruleB := "Write below root"
 
-	staleOverride, err := buildRulesOverrideYAML([]string{ruleA, ruleB})
+	staleOverride, err := buildRulesOverrideYAML([]string{ruleA, ruleB}, false)
 	if err != nil {
 		t.Fatalf("buildRulesOverrideYAML: %v", err)
 	}
-	emptyOverride, err := buildRulesOverrideYAML([]string{})
+	emptyOverride, err := buildRulesOverrideYAML([]string{}, false)
 	if err != nil {
 		t.Fatalf("buildRulesOverrideYAML: %v", err)
 	}

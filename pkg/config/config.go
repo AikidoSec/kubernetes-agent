@@ -141,6 +141,8 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		errs = multierr.Append(errs, fmt.Errorf("invalid RUNTIME_DETECTION_PORT value: %s", runtimeDetectionProxyPortStr))
 	}
 
+	falcoRulesConfigMapName := os.Getenv("FALCO_RULES_CONFIGMAP_NAME")
+
 	return models.EnvironmentConfig{
 		Namespace:                   namespace,
 		AgentName:                   agentName,
@@ -154,5 +156,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		AutoUpdateEnabled:           autoUpdateEnabled,
 		RuntimeDetectionEnabled:     runtimeDetectionEnabled,
 		RuntimeDetectionPort:        runtimeDetectionProxyPort,
+		FalcoRulesConfigMapName:     falcoRulesConfigMapName,
 	}, errs
 }
