@@ -8,14 +8,13 @@ import (
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
+	"aikidoSec.kubernetesAgent/internal/controllers/keda"
 	"aikidoSec.kubernetesAgent/internal/controllers/kong"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
 	"aikidoSec.kubernetesAgent/internal/controllers/traefik"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
-	rbacv1 "k8s.io/api/rbac/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
@@ -93,33 +92,18 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 		}
 	}
 
-	if err := s.setupOpenshiftControllers(ctx, serverResourcesGVKs, restMapper, agentClusterRole, runtimeManager); err != nil {
-		return err
-	}
-
-	if err := s.setupTraefikControllers(ctx, serverResourcesGVKs, restMapper, agentClusterRole, runtimeManager, assetsClient, nsFilter); err != nil {
-		return err
-	}
-
-	if err := s.setupKongControllers(ctx, serverResourcesGVKs, restMapper, agentClusterRole, runtimeManager, assetsClient, nsFilter); err != nil {
-		return err
-	}
-
-	return s.setupArgoprojControllers(ctx, serverResourcesGVKs, restMapper, agentClusterRole, runtimeManager, assetsClient, nsFilter)
-}
-
-func (s *Service) setupOpenshiftControllers(ctx context.Context, serverResourcesGVKs map[string]struct{}, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole, runtimeManager manager.Manager) error {
-	type openshiftController struct {
+	type vendorController struct {
 		gvk     schema.GroupVersionKind
 		logName string
 		setup   func() error
 	}
 
-	osControllers := []openshiftController{
+	vendorControllers := []vendorController{
 		{
 			gvk:     openshift.ImageContentSourcePolicyGVK,
 			logName: "ImageContentSourcePolicy",
 			setup: func() error {
+				s.SetImageMappingEnabled(true)
 				return (&openshift.ImageContentSourcePolicyController{
 					AgentState: s.AgentState,
 					Logger:     s.logger,
@@ -131,6 +115,7 @@ func (s *Service) setupOpenshiftControllers(ctx context.Context, serverResources
 			gvk:     openshift.ImageDigestMirrorSetGVK,
 			logName: "ImageDigestMirrorSet",
 			setup: func() error {
+				s.SetImageMappingEnabled(true)
 				return (&openshift.ImageDigestMirrorSetController{
 					AgentState: s.AgentState,
 					Logger:     s.logger,
@@ -142,6 +127,7 @@ func (s *Service) setupOpenshiftControllers(ctx context.Context, serverResources
 			gvk:     openshift.ImageTagMirrorSetGVK,
 			logName: "ImageTagMirrorSet",
 			setup: func() error {
+				s.SetImageMappingEnabled(true)
 				return (&openshift.ImageTagMirrorSetController{
 					AgentState: s.AgentState,
 					Logger:     s.logger,
@@ -149,58 +135,20 @@ func (s *Service) setupOpenshiftControllers(ctx context.Context, serverResources
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
-	}
-
-	for _, c := range osControllers {
-		create, err := s.shouldCreateController(serverResourcesGVKs, c.gvk, restMapper, agentClusterRole)
-		if err != nil {
-			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
-			return fmt.Errorf("error checking if controller should be created: %w", err)
-		}
-		if !create {
-			continue
-		}
-		s.logger.LogInfo(c.logName + " is available in the cluster")
-		s.SetImageMappingEnabled(true)
-		if err := c.setup(); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new OpenShift "+c.logName+" controller", "managerError")
-		}
-	}
-
-	return nil
-}
-
-func (s *Service) setupTraefikControllers(ctx context.Context, serverResourcesGVKs map[string]struct{}, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole, runtimeManager manager.Manager, assetsClient *batchclient.BatchClient, nsFilter *predicates.NamespaceFilter) error {
-	create, err := s.shouldCreateController(serverResourcesGVKs, traefik.IngressRouteGVK, restMapper, agentClusterRole)
-	if err != nil {
-		s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
-		return fmt.Errorf("error checking if controller should be created: %w", err)
-	}
-	if !create {
-		return nil
-	}
-	s.logger.LogInfo("IngressRoute is available in the cluster")
-	if err := (&traefik.IngressRouteController{
-		Logger:          s.logger,
-		Client:          runtimeManager.GetClient(),
-		OutputClient:    assetsClient,
-		NamespaceFilter: nsFilter,
-		PendingMu:       sync.Mutex{},
-		Pending:         make(map[string]time.Time),
-	}).SetupWithManager(runtimeManager, controller.Options{}); err != nil {
-		s.logger.ReportError(ctx, err, "error creating new Traefik IngressRoute controller", "managerError")
-	}
-	return nil
-}
-
-func (s *Service) setupKongControllers(ctx context.Context, serverResourcesGVKs map[string]struct{}, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole, runtimeManager manager.Manager, assetsClient *batchclient.BatchClient, nsFilter *predicates.NamespaceFilter) error {
-	type entry struct {
-		gvk     schema.GroupVersionKind
-		logName string
-		setup   func() error
-	}
-
-	kongControllers := []entry{
+		{
+			gvk:     traefik.IngressRouteGVK,
+			logName: "IngressRoute",
+			setup: func() error {
+				return (&traefik.IngressRouteController{
+					Logger:          s.logger,
+					Client:          runtimeManager.GetClient(),
+					OutputClient:    assetsClient,
+					NamespaceFilter: nsFilter,
+					PendingMu:       sync.Mutex{},
+					Pending:         make(map[string]time.Time),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
 		{
 			gvk:     kong.KongServiceGVK,
 			logName: "KongService",
@@ -229,55 +177,41 @@ func (s *Service) setupKongControllers(ctx context.Context, serverResourcesGVKs 
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
-	}
-
-	for _, c := range kongControllers {
-		create, err := s.shouldCreateController(serverResourcesGVKs, c.gvk, restMapper, agentClusterRole)
-		if err != nil {
-			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
-			return fmt.Errorf("error checking if controller should be created: %w", err)
-		}
-		if !create {
-			continue
-		}
-		s.logger.LogInfo(c.logName + " is available in the cluster")
-		if err := c.setup(); err != nil {
-			s.logger.ReportError(ctx, err, "error creating new Kong "+c.logName+" controller", "managerError")
-		}
-	}
-
-	return nil
-}
-
-func (s *Service) setupArgoprojControllers(ctx context.Context, serverResourcesGVKs map[string]struct{}, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole, runtimeManager manager.Manager, assetsClient *batchclient.BatchClient, nsFilter *predicates.NamespaceFilter) error {
-	type entry struct {
-		gvk     schema.GroupVersionKind
-		logName string
-		setup   func() error
-	}
-
-	apController := func() argoproj.Controller {
-		return argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter)
-	}
-
-	argoprojControllers := []entry{
 		{
 			gvk:     argoproj.ApplicationGVK,
 			logName: "ArgoCD Application",
 			setup: func() error {
-				return (&argoproj.ApplicationController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.ApplicationController{
+					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 		{
 			gvk:     argoproj.RolloutGVK,
 			logName: "Argo Rollouts Rollout",
 			setup: func() error {
-				return (&argoproj.RolloutController{Controller: apController()}).SetupWithManager(runtimeManager, controller.Options{})
+				return (&argoproj.RolloutController{
+					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
+		{
+			gvk:     keda.ScaledJobGVK,
+			logName: "ScaledJob",
+			setup: func() error {
+				return (&keda.ScaledJobController{
+					Logger:          s.logger,
+					Client:          runtimeManager.GetClient(),
+					OutputClient:    assetsClient,
+					NamespaceFilter: nsFilter,
+					PendingMu:       sync.Mutex{},
+					Pending:         make(map[string]time.Time),
+				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
 	}
 
-	for _, c := range argoprojControllers {
+	for _, c := range vendorControllers {
 		create, err := s.shouldCreateController(serverResourcesGVKs, c.gvk, restMapper, agentClusterRole)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
