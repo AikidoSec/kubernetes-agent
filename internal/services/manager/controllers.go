@@ -223,6 +223,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 		s.logger.LogInfo(c.logName + " is available in the cluster")
 		if err := c.setup(); err != nil {
 			s.logger.ReportError(ctx, err, "error creating "+c.logName+" controller", "managerError")
+			return fmt.Errorf("error creating %s controller: %w", c.logName, err)
 		}
 	}
 
