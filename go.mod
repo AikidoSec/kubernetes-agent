@@ -20,7 +20,7 @@ require (
 	github.com/kedacore/keda/v2 v2.20.0
 	github.com/kong/kubernetes-configuration/v2 v2.0.1
 	github.com/openshift/api v0.0.0-20251208101024-c2a41ea924bd
-	github.com/traefik/traefik/v3 v3.6.17
+	github.com/traefik/traefik/v3 v3.6.19
 	go.uber.org/multierr v1.11.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.0
@@ -43,7 +43,7 @@ require (
 	github.com/evanphx/json-patch v5.9.11+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/expr-lang/expr v1.17.8 // indirect
-	github.com/fsnotify/fsnotify v1.10.0 // indirect
+	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
 	github.com/go-acme/lego/v4 v4.35.2 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
