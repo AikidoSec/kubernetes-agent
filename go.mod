@@ -20,7 +20,7 @@ require (
 	github.com/kedacore/keda/v2 v2.20.0
 	github.com/kong/kubernetes-configuration/v2 v2.0.1
 	github.com/openshift/api v0.0.0-20251208101024-c2a41ea924bd
-	github.com/traefik/traefik/v3 v3.6.19
+	github.com/traefik/traefik/v3 v3.6.21
 	go.uber.org/multierr v1.11.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.0
