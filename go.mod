@@ -4,10 +4,15 @@ go 1.26.3
 
 // Pin k8s to v0.35.5 to match KEDA v2.20.0 and controller-runtime v0.23.3.
 replace (
+	// traefik/traefik/v3 publishes the go.mod file with a placeholder version for go-http-auth (github.com/abbot/go-http-auth@v0.0.0-00010101000000-000000000000)
+	// Because of this, tools that load the entire dependency graph (using `go list -m all`) will fail to resolve the dependency.
+	github.com/abbot/go-http-auth => github.com/abbot/go-http-auth v0.4.0
 	k8s.io/api => k8s.io/api v0.35.5
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.35.5
 	k8s.io/apimachinery => k8s.io/apimachinery v0.35.5
 	k8s.io/client-go => k8s.io/client-go v0.35.5
+	// Similarly to traefik, argoproj/argo-rollouts publishes the go.mod file with a placeholder version for k8s.io/kubelet (k8s.io/kubelet@v0.0.0)
+	k8s.io/kubelet => k8s.io/kubelet v0.35.5
 	k8s.io/metrics => k8s.io/metrics v0.35.5
 )
 
