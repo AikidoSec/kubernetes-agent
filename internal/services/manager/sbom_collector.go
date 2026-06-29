@@ -162,7 +162,7 @@ func (s *Service) updateSBOMCollectorDaemonSetVersion(ctx context.Context, newVe
 	return nil
 }
 
-func loadSBOMCollectorVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, ownerName string, isDaemonSet bool) (string, error) {
+func loadSBOMCollectorVersion(ctx context.Context, clientSet kubernetes.Interface, ns, ownerName string, isDaemonSet bool) (string, error) {
 	if isDaemonSet {
 		return loadDaemonSetVersion(ctx, clientSet, ns, ownerName)
 	}

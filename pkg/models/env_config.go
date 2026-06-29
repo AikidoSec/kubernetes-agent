@@ -13,4 +13,6 @@ type EnvironmentConfig struct {
 	AgentPodName                string
 	SBOMCollectorEnabled        *bool
 	AutoUpdateEnabled           bool
+	RuntimeDetectionEnabled     bool
+	RuntimeDetectionPort        int
 }
