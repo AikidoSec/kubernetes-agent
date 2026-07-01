@@ -9,17 +9,17 @@ import (
 	"slices"
 	"time"
 
+	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/falco"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
-	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/config"
 	"aikidoSec.kubernetesAgent/pkg/models"
 
-	"github.com/go-logr/logr"
 	rolloutv1alpha1 "github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
+	"github.com/go-logr/logr"
 	kongv1alpha1 "github.com/kong/kubernetes-configuration/v2/api/configuration/v1alpha1"
 	openshiftconfigv1 "github.com/openshift/api/config/v1"
 	operatorv1alpha1 "github.com/openshift/api/operator/v1alpha1"
@@ -42,6 +42,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
+//nolint:unused
 const (
 	imageAgentRepository         = "public.ecr.aws/aikido-cloud/kubernetes-agent"
 	imageSBOMCollectorRepository = "public.ecr.aws/aikido-cloud/kubernetes-sbom-collector"
@@ -203,7 +204,7 @@ func main() {
 			loggerService,
 			envCfg.RuntimeDetectionPort,
 			agentState,
-			[]string{imageAgentRepository, imageSBOMCollectorRepository, imageFalcoRepository},
+			[]string{},
 			[]falco.Route{
 				{
 					Tag:       "aikido:threat-detection",
