@@ -219,6 +219,13 @@ func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) err
 		daemonSet.Spec.Template.Spec.InitContainers[i].Image = updateImageTag(container.Image, newVersion)
 	}
 
+	if daemonSet.Labels == nil {
+		daemonSet.Labels = map[string]string{}
+	}
+	if daemonSet.Spec.Template.Labels == nil {
+		daemonSet.Spec.Template.Labels = map[string]string{}
+	}
+
 	daemonSet.Labels["app.kubernetes.io/version"] = newVersion
 	daemonSet.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
 

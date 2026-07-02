@@ -517,7 +517,10 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")
 		}
-		s.SetFalcoVersion(falcoVersion)
+
+		if err == nil {
+			s.SetFalcoVersion(falcoVersion)
+		}
 
 		if err := s.WriteEmbeddedThreatRules(ctx); err != nil {
 			s.logger.ReportError(ctx, err, "error writing embedded threat rules to configmap", "managerError")
