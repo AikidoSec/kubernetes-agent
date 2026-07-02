@@ -101,15 +101,15 @@ func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []s
 }
 
 func (s *Service) WriteEmbeddedThreatRules(ctx context.Context) error {
-	return s.WriteEmbeddedThreadRulesToConfigMap(ctx, string(falco.EmbeddedThreatRules))
+	return s.WriteEmbeddedThreatRulesToConfigMap(ctx, string(falco.EmbeddedThreatRules))
 }
 
 func (s *Service) ClearEmbeddedThreatRules(ctx context.Context) error {
-	return s.WriteEmbeddedThreadRulesToConfigMap(ctx, "")
+	return s.WriteEmbeddedThreatRulesToConfigMap(ctx, "")
 }
 
-// WriteEmbeddedThreadRulesToConfigMap writes the embedded threat detection rules to the kubernetes-agent-falco-rules ConfigMap.
-func (s *Service) WriteEmbeddedThreadRulesToConfigMap(ctx context.Context, rules string) error {
+// WriteEmbeddedThreatRulesToConfigMap writes the embedded threat detection rules to the kubernetes-agent-falco-rules ConfigMap.
+func (s *Service) WriteEmbeddedThreatRulesToConfigMap(ctx context.Context, rules string) error {
 	cmName := s.GetFalcoRulesConfigMapName()
 	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
 	if err != nil {
