@@ -101,24 +101,15 @@ func (s *Service) UpdateEnabledThreatRules(ctx context.Context, enabledRules []s
 }
 
 func (s *Service) WriteEmbeddedThreatRules(ctx context.Context) error {
-	cmName := s.GetFalcoRulesConfigMapName()
-	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("error getting falco rules configmap %q: %w", cmName, err)
-	}
-
-	if cm.Data == nil {
-		cm.Data = make(map[string]string)
-	}
-	cm.Data[threatDetectionRulesKey] = string(falco.EmbeddedThreatRules)
-
-	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating falco rules configmap %q: %w", cmName, err)
-	}
-	return nil
+	return s.WriteEmbeddedThreadRulesToConfigMap(ctx, string(falco.EmbeddedThreatRules))
 }
 
 func (s *Service) ClearEmbeddedThreatRules(ctx context.Context) error {
+	return s.WriteEmbeddedThreadRulesToConfigMap(ctx, "")
+}
+
+// WriteEmbeddedThreadRulesToConfigMap writes the embedded threat detection rules to the kubernetes-agent-falco-rules ConfigMap.
+func (s *Service) WriteEmbeddedThreadRulesToConfigMap(ctx context.Context, rules string) error {
 	cmName := s.GetFalcoRulesConfigMapName()
 	cm, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Get(ctx, cmName, v1.GetOptions{})
 	if err != nil {
@@ -128,7 +119,7 @@ func (s *Service) ClearEmbeddedThreatRules(ctx context.Context) error {
 	if cm.Data == nil {
 		cm.Data = make(map[string]string)
 	}
-	cm.Data[threatDetectionRulesKey] = ""
+	cm.Data[threatDetectionRulesKey] = rules
 
 	if _, err := s.kubernetesClientSet.CoreV1().ConfigMaps(s.GetAgentNamespace()).Update(ctx, cm, v1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("error updating falco rules configmap %q: %w", cmName, err)
