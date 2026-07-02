@@ -20,6 +20,7 @@ import (
 
 	rolloutv1alpha1 "github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	"github.com/go-logr/logr"
+	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kongv1alpha1 "github.com/kong/kubernetes-configuration/v2/api/configuration/v1alpha1"
 	openshiftconfigv1 "github.com/openshift/api/config/v1"
 	operatorv1alpha1 "github.com/openshift/api/operator/v1alpha1"
@@ -60,6 +61,7 @@ func init() {
 	utilruntime.Must(kongv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(argoproj.AddArgoCDToScheme(scheme))
 	utilruntime.Must(rolloutv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(kedav1alpha1.AddToScheme(scheme))
 }
 
 // nolint:gocyclo

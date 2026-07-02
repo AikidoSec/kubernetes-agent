@@ -537,8 +537,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	if err := s.setupControllers(ctx, runtimeManager, hb, assetsClient); err != nil {
-		s.logger.ReportError(ctx, err, "error setting up controllers", "managerError")
-		return fmt.Errorf("error setting up controllers: %w", err)
+		return err
 	}
 
 	s.startHeartbeat()
