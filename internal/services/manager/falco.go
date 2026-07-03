@@ -201,22 +201,44 @@ func buildExceptionsYAML(exceptions []models.ThreatDetectionException) string {
 
 // UpdateFalcoVersion updates all containers and init containers in the Falco DaemonSet to the new version.
 // Both are patched because some driver modes use an init container for driver loading.
-func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) error {
+func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) (bool, error) {
 	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
-		return nil
+		return false, nil
 	}
 
 	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetFalcoDaemonSetName(), v1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("error getting falco daemonset: %w", err)
+		return false, fmt.Errorf("error getting falco daemonset: %w", err)
+	}
+
+	for _, container := range daemonSet.Spec.Template.Spec.Containers {
+		if isDigestPinnedImage(container.Image) {
+			s.logger.LogInfo("skipping falco auto-update because a container image is digest-pinned", "image", container.Image)
+			return false, nil
+		}
+	}
+
+	for _, container := range daemonSet.Spec.Template.Spec.InitContainers {
+		if isDigestPinnedImage(container.Image) {
+			s.logger.LogInfo("skipping falco auto-update because an init container image is digest-pinned", "image", container.Image)
+			return false, nil
+		}
 	}
 
 	for i, container := range daemonSet.Spec.Template.Spec.Containers {
-		daemonSet.Spec.Template.Spec.Containers[i].Image = updateImageTag(container.Image, newVersion)
+		newImage, ok := updateImageTag(container.Image, newVersion)
+		if !ok {
+			return false, fmt.Errorf("invalid image format: %s", container.Image)
+		}
+		daemonSet.Spec.Template.Spec.Containers[i].Image = newImage
 	}
 
 	for i, container := range daemonSet.Spec.Template.Spec.InitContainers {
-		daemonSet.Spec.Template.Spec.InitContainers[i].Image = updateImageTag(container.Image, newVersion)
+		newImage, ok := updateImageTag(container.Image, newVersion)
+		if !ok {
+			return false, fmt.Errorf("invalid image format: %s", container.Image)
+		}
+		daemonSet.Spec.Template.Spec.InitContainers[i].Image = newImage
 	}
 
 	if daemonSet.Labels == nil {
@@ -230,22 +252,9 @@ func (s *Service) UpdateFalcoVersion(ctx context.Context, newVersion string) err
 	daemonSet.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
 
 	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, daemonSet, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating falco daemonset: %w", err)
+		return false, fmt.Errorf("error updating falco daemonset: %w", err)
 	}
 
 	s.SetFalcoVersion(newVersion)
-	return nil
-}
-
-// updateImageTag rewrites the tag portion of a tagged image reference like
-// "falcosecurity/falco:0.43.0". Untagged references are returned unchanged.
-// Digest-pinned references are not handled yet — revisit when the heartbeat
-// payload starts carrying digests.
-func updateImageTag(image, newTag string) string {
-	lastColon := strings.LastIndex(image, ":")
-	lastSlash := strings.LastIndex(image, "/")
-	if lastColon <= lastSlash {
-		return image
-	}
-	return image[:lastColon] + ":" + newTag
+	return true, nil
 }

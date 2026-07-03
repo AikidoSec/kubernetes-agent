@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,35 +59,38 @@ func (s *Service) restartDaemonSet(ctx context.Context, dsName string) error {
 }
 
 // updateAgentVersion updates the agent deployment with a new image version and updates the version labels
-func (s *Service) updateAgentVersion(ctx context.Context, newVersion string) error {
+func (s *Service) updateAgentVersion(ctx context.Context, newVersion string) (bool, error) {
 	if isLocalEnvironment() {
-		return nil
+		return false, nil
 	}
 
 	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetAgentName(), v1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("error getting agent deployment: %w", err)
+		return false, fmt.Errorf("error getting agent deployment: %w", err)
 	}
 
 	image := deployment.Spec.Template.Spec.Containers[0].Image
-	imageParts := strings.Split(image, ":")
-	if len(imageParts) != 2 {
-		return fmt.Errorf("invalid image format: %s", image)
+	newImage, ok := updateImageTag(image, newVersion)
+	if !ok {
+		if isDigestPinnedImage(image) {
+			s.logger.LogInfo("skipping agent auto-update because the image is digest-pinned", "image", image)
+			return false, nil
+		}
+		return false, fmt.Errorf("invalid image format: %s", image)
 	}
 
-	newImage := fmt.Sprintf("%s:%s", imageParts[0], newVersion)
 	deployment.Spec.Template.Spec.Containers[0].Image = newImage
 	deployment.Labels["app.kubernetes.io/version"] = newVersion
 	deployment.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
 
 	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update deployment: %w", err)
+		return false, fmt.Errorf("update deployment: %w", err)
 	}
 
 	// We're setting the agent version to prevent multiple updates of the deployment if the heartbeat interval is
 	// shorter than the time it takes for the deployment to roll out
 	s.SetAgentVersion(newVersion)
-	return nil
+	return true, nil
 }
 
 func (s *Service) getDeploymentAndChartsVersions(ctx context.Context, ns, deploymentName string) (string, string, error) {

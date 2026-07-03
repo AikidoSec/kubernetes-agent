@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -90,7 +89,7 @@ func (s *Service) restartSBOMCollector(ctx context.Context) error {
 	return s.restartDeployment(ctx, s.GetSBOMCollectorName())
 }
 
-func (s *Service) updateSBOMCollectorVersion(ctx context.Context, newVersion string) error {
+func (s *Service) updateSBOMCollectorVersion(ctx context.Context, newVersion string) (bool, error) {
 	if s.GetRunSBOMCollectorAsDaemonSet() {
 		return s.updateSBOMCollectorDaemonSetVersion(ctx, newVersion)
 	}
@@ -99,67 +98,73 @@ func (s *Service) updateSBOMCollectorVersion(ctx context.Context, newVersion str
 }
 
 // updateSBOMCollectorDeploymentVersion updates the sbom collector deployment with a new image version and updates the version labels
-func (s *Service) updateSBOMCollectorDeploymentVersion(ctx context.Context, newVersion string) error {
+func (s *Service) updateSBOMCollectorDeploymentVersion(ctx context.Context, newVersion string) (bool, error) {
 	if isLocalEnvironment() {
-		return nil
+		return false, nil
 	}
 
 	deployment, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("error getting sbom collector deployment: %w", err)
+		return false, fmt.Errorf("error getting sbom collector deployment: %w", err)
 	}
 
 	image := deployment.Spec.Template.Spec.Containers[0].Image
-	imageParts := strings.Split(image, ":")
-	if len(imageParts) != 2 {
-		return fmt.Errorf("invalid image format: %s", image)
+	newImage, ok := updateImageTag(image, newVersion)
+	if !ok {
+		if isDigestPinnedImage(image) {
+			s.logger.LogInfo("skipping sbom collector auto-update because the image is digest-pinned", "image", image)
+			return false, nil
+		}
+		return false, fmt.Errorf("invalid image format: %s", image)
 	}
 
-	newImage := fmt.Sprintf("%s:%s", imageParts[0], newVersion)
 	deployment.Spec.Template.Spec.Containers[0].Image = newImage
 	deployment.Labels["app.kubernetes.io/version"] = newVersion
 	deployment.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
 
 	if _, err := s.kubernetesClientSet.AppsV1().Deployments(s.GetAgentNamespace()).Update(ctx, deployment, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating sbom collector deployment: %w", err)
+		return false, fmt.Errorf("error updating sbom collector deployment: %w", err)
 	}
 
 	// We're setting the sbom collector version to prevent multiple updates of the deployment if the heartbeat interval is
 	// shorter than the time it takes for the deployment to roll out
 	s.SetSBOMCollectorVersion(newVersion)
-	return nil
+	return true, nil
 }
 
 // updateSBOMCollectorDaemonSetVersion updates the sbom collector daemonSet with a new image version and updates the version labels
-func (s *Service) updateSBOMCollectorDaemonSetVersion(ctx context.Context, newVersion string) error {
+func (s *Service) updateSBOMCollectorDaemonSetVersion(ctx context.Context, newVersion string) (bool, error) {
 	if isLocalEnvironment() {
-		return nil
+		return false, nil
 	}
 
 	daemonSet, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Get(ctx, s.GetSBOMCollectorName(), v1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("error getting sbom collector deployment: %w", err)
+		return false, fmt.Errorf("error getting sbom collector deployment: %w", err)
 	}
 
 	image := daemonSet.Spec.Template.Spec.Containers[0].Image
-	imageParts := strings.Split(image, ":")
-	if len(imageParts) != 2 {
-		return fmt.Errorf("invalid image format: %s", image)
+	newImage, ok := updateImageTag(image, newVersion)
+	if !ok {
+		if isDigestPinnedImage(image) {
+			s.logger.LogInfo("skipping sbom collector auto-update because the image is digest-pinned", "image", image)
+			return false, nil
+		}
+		return false, fmt.Errorf("invalid image format: %s", image)
 	}
 
-	newImage := fmt.Sprintf("%s:%s", imageParts[0], newVersion)
 	daemonSet.Spec.Template.Spec.Containers[0].Image = newImage
 	daemonSet.Labels["app.kubernetes.io/version"] = newVersion
 	daemonSet.Spec.Template.Labels["app.kubernetes.io/version"] = newVersion
 
 	if _, err := s.kubernetesClientSet.AppsV1().DaemonSets(s.GetAgentNamespace()).Update(ctx, daemonSet, v1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating sbom collector deployment: %w", err)
+		return false, fmt.Errorf("error updating sbom collector deployment: %w", err)
 	}
 
 	// We're setting the sbom collector version to prevent multiple updates of the deployment if the heartbeat interval is
 	// shorter than the time it takes for the deployment to roll out
 	s.SetSBOMCollectorVersion(newVersion)
-	return nil
+	return true, nil
 }
 
 func loadSBOMCollectorVersion(ctx context.Context, clientSet kubernetes.Interface, ns, ownerName string, isDaemonSet bool) (string, error) {

@@ -229,11 +229,14 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		// If the agent version has changed, update the deployment with the new image version which will also trigger a restart
 		if s.GetAgentVersion() != resp.Cluster.DesiredAgentVersion {
 			s.logger.LogInfo("agent version updated from heartbeat response", "current version", s.GetAgentVersion(), "new version", resp.Cluster.DesiredAgentVersion)
-			if err := s.updateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion); err != nil {
+			applied, err := s.updateAgentVersion(ctx, resp.Cluster.DesiredAgentVersion)
+			if err != nil {
 				s.logger.ReportError(ctx, err, "error updating agent version", "managerError")
 				return resp, err
 			}
-			s.SetAgentVersion(resp.Cluster.DesiredAgentVersion)
+			if applied {
+				s.SetAgentVersion(resp.Cluster.DesiredAgentVersion)
+			}
 		}
 	}
 
@@ -308,10 +311,12 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		// If the SBOM collector version has changed, update it in the service state
 		if s.IsChartsSBOMCollectorEnabled() && s.IsSBOMCollectorEnabled() && s.GetSBOMCollectorVersion() != resp.Cluster.DesiredSBOMCollectorVersion {
 			s.logger.LogInfo("sbom collector version updated from heartbeat response", "current version", s.GetSBOMCollectorVersion(), "new version", resp.Cluster.DesiredSBOMCollectorVersion)
-			if err := s.updateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion); err != nil {
+			applied, err := s.updateSBOMCollectorVersion(ctx, resp.Cluster.DesiredSBOMCollectorVersion)
+			if err != nil {
 				s.logger.ReportError(ctx, err, "error updating sbom collector version", "managerError")
+			} else if applied {
+				s.SetSBOMCollectorVersion(resp.Cluster.DesiredSBOMCollectorVersion)
 			}
-			s.SetSBOMCollectorVersion(resp.Cluster.DesiredSBOMCollectorVersion)
 		}
 	}
 
@@ -334,9 +339,10 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	if s.GetAutoUpdateEnabled() {
 		if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
 			s.logger.LogInfo("falco version updated from heartbeat response", "current version", s.GetFalcoVersion(), "new version", resp.Cluster.DesiredFalcoVersion)
-			if err := s.UpdateFalcoVersion(ctx, resp.Cluster.DesiredFalcoVersion); err != nil {
+			applied, err := s.UpdateFalcoVersion(ctx, resp.Cluster.DesiredFalcoVersion)
+			if err != nil {
 				s.logger.ReportError(ctx, err, "error updating falco version", "managerError")
-			} else {
+			} else if applied {
 				s.SetFalcoVersion(resp.Cluster.DesiredFalcoVersion)
 			}
 		}

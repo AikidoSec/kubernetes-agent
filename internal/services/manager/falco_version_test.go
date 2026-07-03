@@ -73,8 +73,12 @@ func TestUpdateFalcoVersion(t *testing.T) {
 		)
 		svc := newServiceForFalcoVersionTest(t, ds)
 
-		if err := svc.UpdateFalcoVersion(context.Background(), newVersion); err != nil {
+		applied, err := svc.UpdateFalcoVersion(context.Background(), newVersion)
+		if err != nil {
 			t.Fatalf("UpdateFalcoVersion() error = %v", err)
+		}
+		if !applied {
+			t.Fatal("UpdateFalcoVersion() applied = false, want true")
 		}
 
 		got, err := svc.kubernetesClientSet.AppsV1().DaemonSets(testNamespace).Get(context.Background(), testDSName, metav1.GetOptions{})
@@ -102,8 +106,36 @@ func TestUpdateFalcoVersion(t *testing.T) {
 		svc := newServiceForFalcoVersionTest(t)
 		svc.SetFalcoVersion("0.43.0")
 
-		if err := svc.UpdateFalcoVersion(context.Background(), newVersion); err == nil {
+		if _, err := svc.UpdateFalcoVersion(context.Background(), newVersion); err == nil {
 			t.Fatal("UpdateFalcoVersion() with missing daemonset: expected error, got nil")
+		}
+		if svc.GetFalcoVersion() != "0.43.0" {
+			t.Errorf("agent state falco version = %q, want unchanged %q", svc.GetFalcoVersion(), "0.43.0")
+		}
+	})
+
+	t.Run("skips digest-pinned images", func(t *testing.T) {
+		ds := newFalcoDaemonSet(
+			[]string{"falcosecurity/falco@sha256:0123456789abcdef"},
+			nil,
+			"0.43.0",
+		)
+		svc := newServiceForFalcoVersionTest(t, ds)
+
+		applied, err := svc.UpdateFalcoVersion(context.Background(), newVersion)
+		if err != nil {
+			t.Fatalf("UpdateFalcoVersion() error = %v", err)
+		}
+		if applied {
+			t.Fatal("UpdateFalcoVersion() applied = true, want false")
+		}
+
+		got, err := svc.kubernetesClientSet.AppsV1().DaemonSets(testNamespace).Get(context.Background(), testDSName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get daemonset: %v", err)
+		}
+		if got.Spec.Template.Spec.Containers[0].Image != "falcosecurity/falco@sha256:0123456789abcdef" {
+			t.Errorf("main container image = %q, want unchanged digest-pinned image", got.Spec.Template.Spec.Containers[0].Image)
 		}
 		if svc.GetFalcoVersion() != "0.43.0" {
 			t.Errorf("agent state falco version = %q, want unchanged %q", svc.GetFalcoVersion(), "0.43.0")
