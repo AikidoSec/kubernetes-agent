@@ -115,7 +115,7 @@ func (s *Service) getDeploymentAndChartsVersions(ctx context.Context, ns, deploy
 }
 
 // loadDeploymentVersion gets the deployment details from the API server and extracts the version from the labels
-func loadDeploymentVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, deploymentName string) (string, error) {
+func loadDeploymentVersion(ctx context.Context, clientSet kubernetes.Interface, ns, deploymentName string) (string, error) {
 	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
 		return defaultAgentVersion, nil
 	}
@@ -134,7 +134,7 @@ func loadDeploymentVersion(ctx context.Context, clientSet *kubernetes.Clientset,
 }
 
 // loadDaemonSetVersion gets the daemonSet details from the API server and extracts the version from the labels
-func loadDaemonSetVersion(ctx context.Context, clientSet *kubernetes.Clientset, ns, dsName string) (string, error) {
+func loadDaemonSetVersion(ctx context.Context, clientSet kubernetes.Interface, ns, dsName string) (string, error) {
 	if val, ok := os.LookupEnv("ENVIRONMENT"); ok && val == "local" {
 		return defaultAgentVersion, nil
 	}

@@ -30,20 +30,29 @@ type AgentState struct {
 	imageMirrorMappings         map[string]string
 	sbomCollectorServiceAccount *corev1.ServiceAccount
 
+	threatDetectionEnabled         bool
+	chartsRuntimeDetectionEnabled bool
+	falcoDaemonSetName            string
+	enabledThreatRules             []string
+	threatDetectionExceptions      []ThreatDetectionException
+	falcoVersion                   string
+
 	mu sync.Mutex
 }
 
 func NewEmptyAgentState() *AgentState {
 	return &AgentState{
-		excludedNamespaces:  make([]string, 0),
-		includedNamespaces:  make([]string, 0),
-		monitoredResources:  make([]string, 0),
-		imageMirrorMappings: make(map[string]string),
-		mu:                  sync.Mutex{},
+		excludedNamespaces:        make([]string, 0),
+		includedNamespaces:        make([]string, 0),
+		monitoredResources:        make([]string, 0),
+		imageMirrorMappings:       make(map[string]string),
+		enabledThreatRules:        make([]string, 0),
+		threatDetectionExceptions: make([]ThreatDetectionException, 0),
+		mu:                        sync.Mutex{},
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool) *AgentState {
+func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool, falcoDaemonSetName string) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -57,7 +66,7 @@ func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, a
 	a.agentPodName = agentPodName
 	a.sbomCollectorName = sbomCollectorName
 	a.autoUpdateEnabled = autoUpdate
-
+	a.falcoDaemonSetName = falcoDaemonSetName
 	return a
 }
 
@@ -167,6 +176,44 @@ func (a *AgentState) SetChartsSBOMCollectorEnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.chartsSBOMCollectorEnabled = enabled
+}
+
+func (a *AgentState) IsChartsRuntimeDetectionEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.chartsRuntimeDetectionEnabled
+}
+
+func (a *AgentState) SetChartsRuntimeDetectionEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.chartsRuntimeDetectionEnabled = enabled
+}
+
+func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.threatDetectionEnabled = enabled
+}
+
+func (a *AgentState) GetEnabledThreatRules() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.enabledThreatRules
+}
+
+func (a *AgentState) GetFalcoDaemonSetName() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.falcoDaemonSetName
+}
+
+func (a *AgentState) GetFalcoRulesConfigMapName() string {
+	return "kubernetes-agent-falco-rules"
+}
+
+func (a *AgentState) GetFalcoConfigMapName() string {
+	return "kubernetes-agent-falco-config"
 }
 
 func (a *AgentState) SetAgentVersion(version string) {
@@ -307,4 +354,40 @@ func (a *AgentState) SetSBOMCollectorServiceAccount(sa *corev1.ServiceAccount) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sbomCollectorServiceAccount = sa
+}
+
+func (a *AgentState) IsThreatDetectionEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.threatDetectionEnabled
+}
+
+func (a *AgentState) SetEnabledThreatRules(rules []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.enabledThreatRules = rules
+}
+
+func (a *AgentState) GetThreatDetectionExceptions() []ThreatDetectionException {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.threatDetectionExceptions
+}
+
+func (a *AgentState) SetThreatDetectionExceptions(exceptions []ThreatDetectionException) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.threatDetectionExceptions = exceptions
+}
+
+func (a *AgentState) GetFalcoVersion() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.falcoVersion
+}
+
+func (a *AgentState) SetFalcoVersion(version string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.falcoVersion = version
 }

@@ -121,6 +121,26 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		}
 	}
 
+	runtimeDetectionEnabled := false
+	if runtimeDetectionEnabledStr, exists := os.LookupEnv("RUNTIME_DETECTION_ENABLED"); exists {
+		enabled, err := strconv.ParseBool(runtimeDetectionEnabledStr)
+		if err != nil {
+			errs = multierr.Append(errs, fmt.Errorf("invalid RUNTIME_DETECTION_ENABLED value: %s", runtimeDetectionEnabledStr))
+		} else {
+			runtimeDetectionEnabled = enabled
+		}
+	}
+
+	runtimeDetectionProxyPortStr, exists := os.LookupEnv("RUNTIME_DETECTION_PORT")
+	if !exists {
+		runtimeDetectionProxyPortStr = "8241"
+	}
+
+	runtimeDetectionProxyPort, err := strconv.Atoi(runtimeDetectionProxyPortStr)
+	if err != nil {
+		errs = multierr.Append(errs, fmt.Errorf("invalid RUNTIME_DETECTION_PORT value: %s", runtimeDetectionProxyPortStr))
+	}
+
 	return models.EnvironmentConfig{
 		Namespace:                   namespace,
 		AgentName:                   agentName,
@@ -132,5 +152,7 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		MetricsPort:                 metricsPort,
 		SBOMCollectorEnabled:        sbomCollectorEnabled,
 		AutoUpdateEnabled:           autoUpdateEnabled,
+		RuntimeDetectionEnabled:     runtimeDetectionEnabled,
+		RuntimeDetectionPort:        runtimeDetectionProxyPort,
 	}, errs
 }
