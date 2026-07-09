@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"aikidoSec.kubernetesAgent/internal/controllers/actionsrunner"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/falco"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
@@ -62,6 +63,7 @@ func init() {
 	utilruntime.Must(argoproj.AddArgoCDToScheme(scheme))
 	utilruntime.Must(rolloutv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(kedav1alpha1.AddToScheme(scheme))
+	utilruntime.Must(actionsrunner.AddActionsRunnerToScheme(scheme))
 }
 
 // nolint:gocyclo
