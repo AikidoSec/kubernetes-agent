@@ -22,6 +22,35 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
+// builtinMonitoredResources are watched by the agent regardless of the server-provided
+// list.
+var builtinMonitoredResources = []schema.GroupVersionKind{
+	{Group: "networking.k8s.io", Version: "v1", Kind: "NetworkPolicy"},
+	{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"},
+	{Group: "networking.k8s.io", Version: "v1", Kind: "IngressClass"},
+}
+
+// mergeMonitoredResources returns the server-provided resources followed by any built-in
+// resources not already present, de-duplicated by GVK so a resource still sent by the
+// server is not watched twice.
+func mergeMonitoredResources(serverResources, builtin []schema.GroupVersionKind) []schema.GroupVersionKind {
+	seen := make(map[string]struct{}, len(serverResources)+len(builtin))
+	merged := make([]schema.GroupVersionKind, 0, len(serverResources)+len(builtin))
+	add := func(resources []schema.GroupVersionKind) {
+		for _, gvk := range resources {
+			key := gvk.String()
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, gvk)
+		}
+	}
+	add(serverResources)
+	add(builtin)
+	return merged
+}
+
 // setupControllers discovers available cluster resources, checks RBAC permissions, and
 // creates a controller for every GVK the agent is configured to watch.
 func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.Manager, hb models.HeartbeatResponse, assetsClient *batchclient.BatchClient) error {
@@ -61,8 +90,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 	restMapper := runtimeManager.GetRESTMapper()
 	nsFilter := predicates.NewNamespaceFilter(s.logger, hb.Cluster.ExcludedNamespaces, hb.Cluster.IncludedNamespaces)
 
-	// Set up the resource watchers based on the monitored resources from the heartbeat.
-	for _, v := range hb.MonitoredResources {
+	for _, v := range mergeMonitoredResources(hb.MonitoredResources, builtinMonitoredResources) {
 		createController, err := s.shouldCreateController(serverResourcesGVKs, v, restMapper, agentClusterRole)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
