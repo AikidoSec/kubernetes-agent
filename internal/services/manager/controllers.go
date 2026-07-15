@@ -25,9 +25,47 @@ import (
 // builtinMonitoredResources are watched by the agent regardless of the server-provided
 // list.
 var builtinMonitoredResources = []schema.GroupVersionKind{
+	// Core ("" group)
+	{Group: "", Version: "v1", Kind: "Pod"},
+	{Group: "", Version: "v1", Kind: "Endpoints"},
+	{Group: "", Version: "v1", Kind: "Service"},
+	{Group: "", Version: "v1", Kind: "Namespace"},
+	{Group: "", Version: "v1", Kind: "Node"},
+	{Group: "", Version: "v1", Kind: "ServiceAccount"},
+	{Group: "", Version: "v1", Kind: "ConfigMap"},
+	{Group: "", Version: "v1", Kind: "PersistentVolume"},
+	{Group: "", Version: "v1", Kind: "PersistentVolumeClaim"},
+
+	// apps
+	{Group: "apps", Version: "v1", Kind: "Deployment"},
+	{Group: "apps", Version: "v1", Kind: "DaemonSet"},
+	{Group: "apps", Version: "v1", Kind: "StatefulSet"},
+	{Group: "apps", Version: "v1", Kind: "ReplicaSet"},
+
+	// rbac.authorization.k8s.io
+	{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
+	{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
+	{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRole"},
+	{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRoleBinding"},
+
+	// networking.k8s.io
 	{Group: "networking.k8s.io", Version: "v1", Kind: "NetworkPolicy"},
 	{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"},
 	{Group: "networking.k8s.io", Version: "v1", Kind: "IngressClass"},
+
+	// gateway.networking.k8s.io
+	{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "Gateway"},
+	{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"},
+
+	// batch
+	{Group: "batch", Version: "v1", Kind: "Job"},
+	{Group: "batch", Version: "v1", Kind: "CronJob"},
+
+	// storage.k8s.io
+	{Group: "storage.k8s.io", Version: "v1", Kind: "StorageClass"},
+
+	// discovery.k8s.io
+	{Group: "discovery.k8s.io", Version: "v1", Kind: "EndpointSlice"},
 }
 
 // mergeMonitoredResources returns the server-provided resources followed by any built-in
