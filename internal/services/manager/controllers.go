@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
+	"aikidoSec.kubernetesAgent/internal/controllers/actionsrunner"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/controllers/keda"
 	"aikidoSec.kubernetesAgent/internal/controllers/kong"
@@ -272,6 +273,42 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					NamespaceFilter: nsFilter,
 					PendingMu:       sync.Mutex{},
 					Pending:         make(map[string]time.Time),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
+		{
+			gvk:     actionsrunner.RunnerGVK,
+			logName: "Runner",
+			setup: func() error {
+				return (&actionsrunner.RunnerController{
+					Controller: actionsrunner.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
+		{
+			gvk:     actionsrunner.RunnerDeploymentGVK,
+			logName: "RunnerDeployment",
+			setup: func() error {
+				return (&actionsrunner.RunnerDeploymentController{
+					Controller: actionsrunner.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
+		{
+			gvk:     actionsrunner.RunnerReplicaSetGVK,
+			logName: "RunnerReplicaSet",
+			setup: func() error {
+				return (&actionsrunner.RunnerReplicaSetController{
+					Controller: actionsrunner.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
+		{
+			gvk:     actionsrunner.RunnerSetGVK,
+			logName: "RunnerSet",
+			setup: func() error {
+				return (&actionsrunner.RunnerSetController{
+					Controller: actionsrunner.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
