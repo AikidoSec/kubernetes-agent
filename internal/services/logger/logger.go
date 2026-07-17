@@ -3,9 +3,9 @@ package logger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
@@ -31,7 +31,7 @@ func (s *Service) ReportError(ctx context.Context, err error, message string, er
 	}
 
 	// These errors might be caused by the automatic update process stopping the agent
-	if strings.Contains(err.Error(), "context canceled") {
+	if errors.Is(err, context.Canceled) {
 		return
 	}
 
@@ -47,7 +47,7 @@ func (s *Service) SendError(ctx context.Context, err error, message string, erro
 	}
 
 	// These errors might be caused by the automatic update process stopping the agent
-	if strings.Contains(err.Error(), "context canceled") {
+	if errors.Is(err, context.Canceled) {
 		return
 	}
 
@@ -60,7 +60,7 @@ func (s *Service) SendError(ctx context.Context, err error, message string, erro
 
 	reportedErrorJSON, err := json.Marshal(reportedError)
 	if err != nil {
-		s.logger.Error("error marshalling reported error: %s", err.Error())
+		s.logger.Error("error marshalling reported error: %s", "error", err.Error())
 		return
 	}
 
