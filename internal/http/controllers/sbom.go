@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -28,7 +27,6 @@ func (c *SBOMController) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sbom-collector/token", c.GetCollectorToken)
 	mux.HandleFunc("GET /sbom-collector/image-status", c.GetImageProcessingStatus)
 	mux.HandleFunc("POST /sbom-collector/image-status", c.SetImageProcessingStatus)
-	mux.HandleFunc("POST /sbom-collector/errors", c.ReportCollectorError)
 }
 
 func (c *SBOMController) GetCollectorConfig(rw http.ResponseWriter, r *http.Request) {
@@ -98,38 +96,6 @@ func (c *SBOMController) SetImageProcessingStatus(rw http.ResponseWriter, r *htt
 	err := c.service.HandleSetImageProcessingStatus(r.Context(), imageStatus)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("error setting image processing status: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	rw.WriteHeader(http.StatusOK)
-}
-
-func (c *SBOMController) ReportCollectorError(rw http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Content-Encoding") != "gzip" {
-		http.Error(rw, "Unsupported Content-Encoding", http.StatusUnsupportedMediaType)
-		return
-	}
-
-	// Wrap the body with a gzip reader
-	gz, err := gzip.NewReader(r.Body)
-	if err != nil {
-		http.Error(rw, "Failed to create gzip reader", http.StatusInternalServerError)
-		return
-	}
-	defer func() {
-		if err := gz.Close(); err != nil {
-			c.logger.Error("error closing gzip reader", slog.String("error", err.Error()))
-		}
-	}()
-
-	var payload models.AgentError
-	if err := json.NewDecoder(gz).Decode(&payload); err != nil {
-		http.Error(rw, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if err := c.service.HandleReportCollectorError(r.Context(), payload); err != nil {
-		http.Error(rw, fmt.Sprintf("error handling collector errors: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 

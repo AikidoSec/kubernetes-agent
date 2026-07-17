@@ -63,8 +63,3 @@ func (s *Service) HandleSetImageProcessingStatus(_ context.Context, imageStatus 
 	s.imagesCache.MarkImageAsProcessed(fmt.Sprintf("%s:%s", imageStatus.Image, imageStatus.Digest))
 	return nil
 }
-
-func (s *Service) HandleReportCollectorError(ctx context.Context, error models.AgentError) error {
-	s.logger.SendError(ctx, fmt.Errorf("%s", error.Error), error.ErrorType)
-	return nil
-}
