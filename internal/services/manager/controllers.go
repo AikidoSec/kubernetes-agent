@@ -66,6 +66,9 @@ var builtinMonitoredResources = []schema.GroupVersionKind{
 
 	// discovery.k8s.io
 	{Group: "discovery.k8s.io", Version: "v1", Kind: "EndpointSlice"},
+
+	// autoscaling
+	{Group: "autoscaling", Version: "v2", Kind: "HorizontalPodAutoscaler"},
 }
 
 // mergeMonitoredResources returns the server-provided resources followed by any built-in
