@@ -3,9 +3,9 @@ package logger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
@@ -31,52 +31,41 @@ func (s *Service) ReportError(ctx context.Context, err error, message string, er
 	}
 
 	// These errors might be caused by the automatic update process stopping the agent
-	if strings.Contains(err.Error(), "context canceled") {
+	if errors.Is(err, context.Canceled) {
 		return
 	}
 
 	s.logger.Error(fmt.Sprintf("%s: %s", message, err.Error()), args...)
 
-	s.SendError(ctx, err, errorType, args...)
+	s.SendError(ctx, err, message, errorType, args...)
 }
 
 // SendError sends an error to the output client
-func (s *Service) SendError(ctx context.Context, err error, errorType string, args ...any) {
-	// Build error message as JSON
-	builder := strings.Builder{}
-	builder.WriteString("{\"message\":")
-	errJSON, marshalErr := json.Marshal(err.Error())
-	if marshalErr != nil {
-		_, _ = fmt.Fprintf(&builder, `"%v"`, err.Error())
-	} else {
-		builder.WriteString(string(errJSON))
+func (s *Service) SendError(ctx context.Context, err error, message string, errorType string, args ...any) {
+	if err == nil {
+		return
 	}
 
+	// These errors might be caused by the automatic update process stopping the agent
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+
+	reportedError := make(map[string]any)
+	reportedError["message"] = message
+	reportedError["error"] = err.Error()
 	for i := 0; i < len(args)-1; i += 2 {
-		if i+1 >= len(args) {
-			break
-		}
-
-		key, ok := args[i].(string)
-		if !ok {
-			continue
-		}
-		builder.WriteString(",\"")
-		builder.WriteString(key)
-		builder.WriteString("\":")
-
-		argValue, marshalErr := json.Marshal(args[i+1])
-		if marshalErr != nil {
-			_, _ = fmt.Fprintf(&builder, `"%v"`, args[i+1])
-			continue
-		}
-		builder.WriteString(string(argValue))
+		reportedError[fmt.Sprintf("%v", args[i])] = args[i+1]
 	}
-	builder.WriteString("}")
-	errorMessage := builder.String()
+
+	reportedErrorJSON, err := json.Marshal(reportedError)
+	if err != nil {
+		s.logger.Error("error marshalling reported error: %s", "error", err.Error())
+		return
+	}
 
 	if err := s.OutputClient.SendContext(ctx, models.AgentError{
-		Error:     errorMessage,
+		Error:     string(reportedErrorJSON),
 		ErrorType: errorType,
 		SeenAt:    time.Now().UTC(),
 	}); err != nil {
