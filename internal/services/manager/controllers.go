@@ -278,6 +278,20 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
+		{
+			gvk:     keda.ScaledObjectGVK,
+			logName: "ScaledObject",
+			setup: func() error {
+				return (&keda.ScaledObjectController{
+					Logger:          s.logger,
+					Client:          runtimeManager.GetClient(),
+					OutputClient:    assetsClient,
+					NamespaceFilter: nsFilter,
+					PendingMu:       sync.Mutex{},
+					Pending:         make(map[string]time.Time),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
 	}
 
 	for _, c := range vendorControllers {
