@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/format"
@@ -32,34 +31,6 @@ type Watcher struct {
 	Scheme       *runtime.Scheme
 	Watched      models.WatcherSelector
 	OutputClient *batchclient.BatchClient
-
-	// Lock and map that ensures that objects are re-queued only once per defaultRequeueAfter period.
-	PendingMu sync.Mutex
-	Pending   map[string]time.Time
-}
-
-// shouldRequeue ensures an object is requeued at most once per defaultRequeueAfter period.
-// Returns true if the object should be requeued. It will return true the first time it is called for a given object or
-// after the defaultRequeueAfter period has passed since the last requeue for that object.
-// Returns false if the object was marked recently (within defaultRequeueAfter window).
-// This prevents duplicate requeues while allowing periodic processing every 12 hours.
-func (r *Watcher) shouldRequeue(key string) bool {
-	r.PendingMu.Lock()
-	defer r.PendingMu.Unlock()
-
-	lastRequeue, exists := r.Pending[key]
-	if exists && time.Since(lastRequeue) < defaultRequeueAfter {
-		return false
-	}
-
-	r.Pending[key] = time.Now()
-	return true
-}
-
-func (r *Watcher) clearPending(key string) {
-	r.PendingMu.Lock()
-	delete(r.Pending, key)
-	r.PendingMu.Unlock()
 }
 
 func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -84,16 +55,12 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	switch err := r.Get(ctx, req.NamespacedName, obj); {
 	case errors.IsNotFound(err):
 		eventType = models.DeletedEventType
-		r.clearPending(objectID)
 	case err != nil:
 		r.Logger.ReportError(ctx, err, "error getting object", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
 	default:
 		eventType = models.ModifiedEventType
-		// Only requeue once per object per defaultRequeueAfter period.
-		if r.shouldRequeue(objectID) {
-			requeueAfter = defaultRequeueAfter
-		}
+		requeueAfter = defaultRequeueAfter
 	}
 
 	if eventType == models.ModifiedEventType {

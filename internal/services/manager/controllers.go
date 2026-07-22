@@ -3,8 +3,6 @@ package manager
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
@@ -152,8 +150,6 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			Scheme:       runtimeManager.GetScheme(),
 			Watched:      watcherSelector,
 			OutputClient: assetsClient,
-			PendingMu:    sync.Mutex{},
-			Pending:      make(map[string]time.Time),
 			AgentState:   s.AgentState,
 		}).SetupWithManager(runtimeManager, watcherOptions); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new watcher", "managerError")
@@ -213,8 +209,6 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-					PendingMu:       sync.Mutex{},
-					Pending:         make(map[string]time.Time),
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
@@ -227,8 +221,6 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-					PendingMu:       sync.Mutex{},
-					Pending:         make(map[string]time.Time),
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
@@ -241,8 +233,6 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-					PendingMu:       sync.Mutex{},
-					Pending:         make(map[string]time.Time),
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
@@ -273,8 +263,6 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-					PendingMu:       sync.Mutex{},
-					Pending:         make(map[string]time.Time),
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
@@ -287,8 +275,6 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-					PendingMu:       sync.Mutex{},
-					Pending:         make(map[string]time.Time),
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},

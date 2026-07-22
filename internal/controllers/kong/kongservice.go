@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/predicates"
@@ -35,28 +34,6 @@ type KongServiceController struct {
 	Logger          *logger.Service
 	OutputClient    *batchclient.BatchClient
 	NamespaceFilter *predicates.NamespaceFilter
-
-	PendingMu sync.Mutex
-	Pending   map[string]time.Time
-}
-
-func (r *KongServiceController) shouldRequeue(key string) bool {
-	r.PendingMu.Lock()
-	defer r.PendingMu.Unlock()
-
-	lastRequeue, exists := r.Pending[key]
-	if exists && time.Since(lastRequeue) < defaultRequeueAfter {
-		return false
-	}
-
-	r.Pending[key] = time.Now()
-	return true
-}
-
-func (r *KongServiceController) clearPending(key string) {
-	r.PendingMu.Lock()
-	delete(r.Pending, key)
-	r.PendingMu.Unlock()
 }
 
 func (r *KongServiceController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -76,15 +53,12 @@ func (r *KongServiceController) Reconcile(ctx context.Context, req ctrl.Request)
 	switch err := r.Get(ctx, req.NamespacedName, &kongService); {
 	case errors.IsNotFound(err):
 		eventType = models.DeletedEventType
-		r.clearPending(objectID)
 	case err != nil:
 		r.Logger.ReportError(ctx, err, "error getting KongService", "watcherError", "name", req.Name, "namespace", req.Namespace)
 		return ctrl.Result{}, fmt.Errorf("could not get KongService %v: %w", req.NamespacedName, err)
 	default:
 		eventType = models.ModifiedEventType
-		if r.shouldRequeue(objectID) {
-			requeueAfter = defaultRequeueAfter
-		}
+		requeueAfter = defaultRequeueAfter
 	}
 
 	metadata, err := json.Marshal(kongService)
