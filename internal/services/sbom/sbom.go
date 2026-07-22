@@ -41,7 +41,6 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 		ExcludedNamespaces:         s.GetExcludedNamespaces(),
 		IncludedNamespaces:         s.GetIncludedNamespaces(),
 		ControllerCacheSyncTimeout: s.GetControllerCacheSyncTimeout(),
-		APIToken:                   s.GetAPIToken(),
 		Namespace:                  s.GetAgentNamespace(),
 		ServiceAccountName:         serviceAccountName,
 		ServiceAccountPullSecrets:  imagePullSecrets,
