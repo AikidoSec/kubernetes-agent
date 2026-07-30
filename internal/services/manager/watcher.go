@@ -11,7 +11,7 @@ import (
 func (s *Service) shouldCreateController(serverResourcesGVKs map[string]struct{}, gvk schema.GroupVersionKind, restMapper meta.RESTMapper, agentClusterRole *rbacv1.ClusterRole) (bool, error) {
 	// Skip the GVK if it's not available in the cluster
 	if _, found := serverResourcesGVKs[gvk.String()]; len(serverResourcesGVKs) > 0 && !found {
-		s.logger.LogWarning(fmt.Errorf("GVK %s not found in cluster", gvk.String()), "skipping watcher setup")
+		s.logger.LogInfo("skipping watcher setup", "reason", fmt.Sprintf("GVK %s not found in cluster", gvk.String()))
 		return false, nil
 	}
 
