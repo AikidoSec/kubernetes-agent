@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/fips140"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -78,6 +79,9 @@ func main() {
 
 	ctx := context.Background()
 	l := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	if fips140.Enabled() {
+		l.Info("fips140 mode enabled", "version", fips140.Version())
+	}
 
 	// Load the config from the file passed as argument
 	cfg, err := config.ParseConfigFromFile(configFile)
