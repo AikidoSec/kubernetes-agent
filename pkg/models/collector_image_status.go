@@ -5,4 +5,5 @@ type CollectorImageStatus struct {
 	Digest           string `json:"digest"`
 	IsProcessed      bool   `json:"isProcessed"`
 	MirrorRepository string `json:"mirrorRepository"`
+	IsReserved       bool   `json:"isReserved"`
 }

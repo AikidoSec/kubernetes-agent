@@ -3,6 +3,7 @@ package sbom
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/imagescache"
@@ -49,14 +50,25 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 }
 
 func (s *Service) HandleGetImageProcessingStatus(_ context.Context, image, digest string) (models.CollectorImageStatus, error) {
-	isProcessed := s.imagesCache.IsImageProcessed(fmt.Sprintf("%s:%s", image, digest))
+	imageKey := fmt.Sprintf("%s:%s", image, digest)
+	isProcessed := s.imagesCache.IsImageProcessed(imageKey)
 	mirrorRepository := s.GetImageMirrorMapping(image)
-
-	return models.CollectorImageStatus{
+	status := models.CollectorImageStatus{
 		Image:            image,
 		IsProcessed:      isProcessed,
 		MirrorRepository: mirrorRepository,
-	}, nil
+	}
+
+	if isProcessed {
+		return status, nil
+	}
+
+	reserved := s.TryReserveCollectorImageProcessing(imageKey, time.Now().Add(15*time.Minute))
+	if !reserved {
+		status.IsReserved = true
+	}
+
+	return status, nil
 }
 
 func (s *Service) HandleSetImageProcessingStatus(_ context.Context, imageStatus models.CollectorImageStatus) error {

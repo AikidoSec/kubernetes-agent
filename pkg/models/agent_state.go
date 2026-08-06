@@ -30,25 +30,28 @@ type AgentState struct {
 	imageMirrorMappings         map[string]string
 	sbomCollectorServiceAccount *corev1.ServiceAccount
 
-	threatDetectionEnabled         bool
+	threatDetectionEnabled        bool
 	chartsRuntimeDetectionEnabled bool
 	falcoDaemonSetName            string
-	enabledThreatRules             []string
-	threatDetectionExceptions      []ThreatDetectionException
-	falcoVersion                   string
+	enabledThreatRules            []string
+	threatDetectionExceptions     []ThreatDetectionException
+	falcoVersion                  string
+
+	collectorImageReservations map[string]time.Time
 
 	mu sync.Mutex
 }
 
 func NewEmptyAgentState() *AgentState {
 	return &AgentState{
-		excludedNamespaces:        make([]string, 0),
-		includedNamespaces:        make([]string, 0),
-		monitoredResources:        make([]string, 0),
-		imageMirrorMappings:       make(map[string]string),
-		enabledThreatRules:        make([]string, 0),
-		threatDetectionExceptions: make([]ThreatDetectionException, 0),
-		mu:                        sync.Mutex{},
+		excludedNamespaces:         make([]string, 0),
+		includedNamespaces:         make([]string, 0),
+		monitoredResources:         make([]string, 0),
+		imageMirrorMappings:        make(map[string]string),
+		enabledThreatRules:         make([]string, 0),
+		threatDetectionExceptions:  make([]ThreatDetectionException, 0),
+		collectorImageReservations: make(map[string]time.Time),
+		mu:                         sync.Mutex{},
 	}
 }
 
@@ -390,4 +393,28 @@ func (a *AgentState) SetFalcoVersion(version string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.falcoVersion = version
+}
+
+func (a *AgentState) TryReserveCollectorImageProcessing(image string, deadline time.Time) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	reservationExpiresAt := a.collectorImageReservations[image]
+	if reservationExpiresAt.IsZero() || reservationExpiresAt.Before(time.Now()) {
+		a.collectorImageReservations[image] = deadline
+		return true
+	}
+
+	return false
+}
+
+func (a *AgentState) CleanupCollectorReservedImages() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for imageKey, expiresAt := range a.collectorImageReservations {
+		if expiresAt.Before(time.Now()) {
+			delete(a.collectorImageReservations, imageKey)
+		}
+	}
 }
