@@ -55,12 +55,13 @@ type Service struct {
 	scannedImagesCache *imagescache.ImagesCache
 	logger             *logger.Service
 	// Channel to stop the heartbeat goroutine.
-	heartbeatStopChan   chan struct{}
-	kubernetesClientSet kubernetes.Interface
-	heartbeatService    *heartbeat.Service
-	assetsOutputClient  *batchclient.BatchClient
-	falcoProxy          *falco.Proxy
-	metricClient        *metricsclient.Clientset
+	heartbeatStopChan                 chan struct{}
+	kubernetesClientSet               kubernetes.Interface
+	heartbeatService                  *heartbeat.Service
+	assetsOutputClient                *batchclient.BatchClient
+	falcoProxy                        *falco.Proxy
+	metricClient                      *metricsclient.Clientset
+	cleanupImagesReservationsStopChan chan struct{}
 }
 
 func NewService(ctx context.Context, agentState *models.AgentState, o Options) (*Service, error) {
@@ -113,14 +114,15 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 	}
 
 	return &Service{
-		AgentState:          agentState,
-		heartbeatStopChan:   make(chan struct{}),
-		kubernetesClientSet: clientSet,
-		heartbeatService:    o.HeartbeatService,
-		logger:              o.Logger,
-		assetsOutputClient:  o.AssetsOutputClient,
-		metricClient:        mClient,
-		scannedImagesCache:  imagescache.NewImagesCache(),
+		AgentState:                        agentState,
+		heartbeatStopChan:                 make(chan struct{}),
+		kubernetesClientSet:               clientSet,
+		heartbeatService:                  o.HeartbeatService,
+		logger:                            o.Logger,
+		assetsOutputClient:                o.AssetsOutputClient,
+		metricClient:                      mClient,
+		scannedImagesCache:                imagescache.NewImagesCache(),
+		cleanupImagesReservationsStopChan: make(chan struct{}),
 	}, nil
 }
 
@@ -148,6 +150,29 @@ func (s *Service) startHeartbeat() {
 	}()
 }
 
+func (s *Service) cleanupOldReservedImages() {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.LogError(fmt.Errorf("panic recovered: %v", r), "panic recovered in reserved images cleanup")
+		}
+	}()
+
+	s.cleanupImagesReservationsStopChan = make(chan struct{})
+	ticker := time.NewTicker(time.Hour)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				s.CleanupCollectorReservedImages()
+			case <-s.cleanupImagesReservationsStopChan:
+				close(s.cleanupImagesReservationsStopChan)
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+}
+
 func (s *Service) stopHeartbeat() {
 	s.heartbeatStopChan <- struct{}{}
 }
@@ -158,6 +183,8 @@ func (s *Service) Close(ctx context.Context) {
 	if err := s.assetsOutputClient.Close(ctx); err != nil {
 		s.logger.ReportError(ctx, err, "error closing assets output client", "managerError")
 	}
+
+	s.cleanupImagesReservationsStopChan <- struct{}{}
 }
 
 // sendHeartbeat sends a heartbeat to the management server and processes the response
@@ -544,6 +571,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	s.startHeartbeat()
+	s.cleanupOldReservedImages()
 
 	s.logger.LogInfo("starting agent", "version", s.GetAgentVersion(), "excluded_namespaces", hb.Cluster.ExcludedNamespaces, "included_namespaces", hb.Cluster.IncludedNamespaces)
 

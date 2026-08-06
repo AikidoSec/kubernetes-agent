@@ -407,3 +407,14 @@ func (a *AgentState) TryReserveCollectorImageProcessing(image string, deadline t
 
 	return false
 }
+
+func (a *AgentState) CleanupCollectorReservedImages() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for imageKey, expiresAt := range a.collectorImageReservations {
+		if expiresAt.Before(time.Now()) {
+			delete(a.collectorImageReservations, imageKey)
+		}
+	}
+}
