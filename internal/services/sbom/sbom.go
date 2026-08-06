@@ -65,7 +65,7 @@ func (s *Service) HandleGetImageProcessingStatus(_ context.Context, image, diges
 
 	reserved := s.TryReserveCollectorImageProcessing(imageKey, time.Now().Add(15*time.Minute))
 	if !reserved {
-		status.IsBeingProcessedByAnotherCollector = true
+		status.IsReserved = true
 	}
 
 	return status, nil
