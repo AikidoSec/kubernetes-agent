@@ -55,6 +55,12 @@ var builtinMonitoredResources = []schema.GroupVersionKind{
 	{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "Gateway"},
 	{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"},
 
+	// route.openshift.io
+	{Group: "route.openshift.io", Version: "v1", Kind: "Route"},
+
+	// operator.openshift.io
+	{Group: "operator.openshift.io", Version: "v1", Kind: "IngressController"},
+
 	// batch
 	{Group: "batch", Version: "v1", Kind: "Job"},
 	{Group: "batch", Version: "v1", Kind: "CronJob"},

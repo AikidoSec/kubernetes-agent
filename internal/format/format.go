@@ -9,6 +9,8 @@ func FormatObject(obj client.Object, gvk string, state *models.AgentState) clien
 	switch gvk {
 	case "/v1, Kind=Pod":
 		return FormatPod(obj, state)
+	case "route.openshift.io/v1, Kind=Route":
+		return FormatRoute(obj)
 	}
 	return obj
 }

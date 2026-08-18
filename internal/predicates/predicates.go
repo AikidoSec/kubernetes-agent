@@ -30,7 +30,9 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 		return NewPodPredicate(nsFilter)
 	case "/v1, Kind=ServiceAccount":
 		return NewServiceAccountPredicate(nsFilter)
-	case "/v1, Kind=Service", "networking.k8s.io/v1, Kind=Ingress":
+	case "/v1, Kind=Service", "networking.k8s.io/v1, Kind=Ingress",
+		"route.openshift.io/v1, Kind=Route",
+		"operator.openshift.io/v1, Kind=IngressController":
 		return NewServicePredicate(nsFilter)
 	case "/v1, Kind=Endpoints":
 		return NewEndpointsPredicates(nsFilter)
