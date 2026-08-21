@@ -3,7 +3,7 @@ package argoproj
 import (
 	"context"
 
-	rolloutv1alpha1 "github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
+	rolloutv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/rollouts/v1alpha1"
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"

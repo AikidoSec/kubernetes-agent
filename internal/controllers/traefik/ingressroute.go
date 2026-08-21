@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	traefikv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/traefik/v1alpha1"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
-	traefikv1alpha1 "github.com/traefik/traefik/v3/pkg/provider/kubernetes/crd/traefikio/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"

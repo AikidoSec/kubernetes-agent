@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	kongv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/kong/v1alpha1"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
-	kongv1alpha1 "github.com/kong/kubernetes-configuration/v2/api/configuration/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"

@@ -1,0 +1,118 @@
+/*
+Copyright 2021 The KEDA Authors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1alpha1
+
+import (
+	batchv1 "k8s.io/api/batch/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// ScaledJob is the Schema for the scaledjobs API
+type ScaledJob struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   ScaledJobSpec   `json:"spec,omitempty"`
+	Status ScaledJobStatus `json:"status,omitempty"`
+}
+
+// ScaledJobSpec defines the desired state of ScaledJob
+type ScaledJobSpec struct {
+	JobTargetRef *batchv1.JobSpec `json:"jobTargetRef"`
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	PollingInterval *int32 `json:"pollingInterval,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	SuccessfulJobsHistoryLimit *int32 `json:"successfulJobsHistoryLimit,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	FailedJobsHistoryLimit *int32 `json:"failedJobsHistoryLimit,omitempty"`
+	// Deprecated: Use Rollout.Strategy instead (see https://github.com/kedacore/keda/issues/3596).
+	// +optional
+	// +kubebuilder:validation:Enum=gradual;immediate
+	RolloutStrategy string `json:"rolloutStrategy,omitempty"`
+	// +optional
+	Rollout Rollout `json:"rollout,omitempty"`
+	// +optional
+	EnvSourceContainerName string `json:"envSourceContainerName,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MinReplicaCount *int32 `json:"minReplicaCount,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxReplicaCount *int32 `json:"maxReplicaCount,omitempty"`
+	// +optional
+	ScalingStrategy ScalingStrategy `json:"scalingStrategy,omitempty"`
+	// +kubebuilder:validation:MinItems=1
+	Triggers []ScaleTriggers `json:"triggers"`
+}
+
+// ScaledJobStatus defines the observed state of ScaledJob
+// +optional
+type ScaledJobStatus struct {
+	// +optional
+	LastActiveTime *metav1.Time `json:"lastActiveTime,omitempty"`
+	// +optional
+	Conditions Conditions `json:"conditions,omitempty"`
+	// +optional
+	Paused string `json:"Paused,omitempty"`
+	// +optional
+	TriggersTypes *string `json:"triggersTypes,omitempty"`
+	// +optional
+	AuthenticationsTypes *string `json:"authenticationsTypes,omitempty"`
+	// +optional
+	ExternalMetricNames []string `json:"externalMetricNames,omitempty"`
+	// +optional
+	TriggersActivity map[string]TriggerActivityStatus `json:"triggersActivity,omitempty"`
+}
+
+// ScaledJobList contains a list of ScaledJob
+// +kubebuilder:object:root=true
+type ScaledJobList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ScaledJob `json:"items"`
+}
+
+// ScalingStrategy defines the strategy of Scaling
+// +optional
+type ScalingStrategy struct {
+	// +optional
+	// +kubebuilder:validation:Enum=custom;accurate;eager
+	Strategy string `json:"strategy,omitempty"`
+	// +optional
+	CustomScalingQueueLengthDeduction *int32 `json:"customScalingQueueLengthDeduction,omitempty"`
+	// +optional
+	CustomScalingRunningJobPercentage string `json:"customScalingRunningJobPercentage,omitempty"`
+	// +optional
+	PendingPodConditions []string `json:"pendingPodConditions,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Enum=min;avg;sum;max
+	MultipleScalersCalculation string `json:"multipleScalersCalculation,omitempty"`
+}
+
+// Rollout defines the strategy for job rollouts
+// +optional
+type Rollout struct {
+	// +optional
+	// +kubebuilder:validation:Enum=gradual;immediate
+	Strategy string `json:"strategy,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Enum=foreground;background
+	PropagationPolicy string `json:"propagationPolicy,omitempty"`
+}
