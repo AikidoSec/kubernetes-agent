@@ -3,6 +3,8 @@
 package v1alpha1
 
 // Copied from traefik's deepcopy-gen output, restricted to the IngressRoute closure.
+// The bare return each DeepCopyInto ended with is dropped, since staticcheck flags it
+// (S1023), so a re-sync diff is expected to show that.
 
 import (
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -16,7 +18,6 @@ func (in *Cookie) DeepCopyInto(out *Cookie) {
 		*out = new(string)
 		**out = **in
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new Cookie.
@@ -36,7 +37,6 @@ func (in *Domain) DeepCopyInto(out *Domain) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new Domain.
@@ -54,7 +54,6 @@ func (in *IngressRoute) DeepCopyInto(out *IngressRoute) {
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
 	in.Spec.DeepCopyInto(&out.Spec)
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new IngressRoute.
@@ -86,7 +85,6 @@ func (in *IngressRouteList) DeepCopyInto(out *IngressRouteList) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new IngressRouteList.
@@ -109,7 +107,6 @@ func (in *IngressRouteList) DeepCopyObject() runtime.Object {
 
 func (in *IngressRouteRef) DeepCopyInto(out *IngressRouteRef) {
 	*out = *in
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new IngressRouteRef.
@@ -146,7 +143,6 @@ func (in *IngressRouteSpec) DeepCopyInto(out *IngressRouteSpec) {
 		*out = make([]IngressRouteRef, len(*in))
 		copy(*out, *in)
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new IngressRouteSpec.
@@ -197,7 +193,6 @@ func (in *LoadBalancerSpec) DeepCopyInto(out *LoadBalancerSpec) {
 		*out = new(PassiveServerHealthCheck)
 		(*in).DeepCopyInto(*out)
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new LoadBalancerSpec.
@@ -212,7 +207,6 @@ func (in *LoadBalancerSpec) DeepCopy() *LoadBalancerSpec {
 
 func (in *MiddlewareRef) DeepCopyInto(out *MiddlewareRef) {
 	*out = *in
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new MiddlewareRef.
@@ -237,7 +231,6 @@ func (in *PassiveServerHealthCheck) DeepCopyInto(out *PassiveServerHealthCheck) 
 		*out = new(int)
 		**out = **in
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new PassiveServerHealthCheck.
@@ -252,7 +245,6 @@ func (in *PassiveServerHealthCheck) DeepCopy() *PassiveServerHealthCheck {
 
 func (in *ResponseForwarding) DeepCopyInto(out *ResponseForwarding) {
 	*out = *in
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new ResponseForwarding.
@@ -284,7 +276,6 @@ func (in *Route) DeepCopyInto(out *Route) {
 		*out = new(RouterObservabilityConfig)
 		(*in).DeepCopyInto(*out)
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new Route.
@@ -314,7 +305,6 @@ func (in *RouterObservabilityConfig) DeepCopyInto(out *RouterObservabilityConfig
 		*out = new(bool)
 		**out = **in
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new RouterObservabilityConfig.
@@ -356,7 +346,6 @@ func (in *ServerHealthCheck) DeepCopyInto(out *ServerHealthCheck) {
 			(*out)[key] = val
 		}
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new ServerHealthCheck.
@@ -372,7 +361,6 @@ func (in *ServerHealthCheck) DeepCopy() *ServerHealthCheck {
 func (in *Service) DeepCopyInto(out *Service) {
 	*out = *in
 	in.LoadBalancerSpec.DeepCopyInto(&out.LoadBalancerSpec)
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new Service.
@@ -392,7 +380,6 @@ func (in *Sticky) DeepCopyInto(out *Sticky) {
 		*out = new(Cookie)
 		(*in).DeepCopyInto(*out)
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new Sticky.
@@ -424,7 +411,6 @@ func (in *TLS) DeepCopyInto(out *TLS) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new TLS.
@@ -439,7 +425,6 @@ func (in *TLS) DeepCopy() *TLS {
 
 func (in *TLSOptionRef) DeepCopyInto(out *TLSOptionRef) {
 	*out = *in
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new TLSOptionRef.
@@ -454,7 +439,6 @@ func (in *TLSOptionRef) DeepCopy() *TLSOptionRef {
 
 func (in *TLSStoreRef) DeepCopyInto(out *TLSStoreRef) {
 	*out = *in
-	return
 }
 
 // DeepCopy is a deepcopy function, copying the receiver, creating a new TLSStoreRef.
