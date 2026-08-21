@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	kedav1alpha1 "aikidoSec.kubernetesAgent/internal/apis/keda/v1alpha1"
 	"github.com/google/uuid"
-	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
