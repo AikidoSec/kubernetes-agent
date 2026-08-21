@@ -100,21 +100,18 @@ func (r *Watcher) SetupWithManager(mgr ctrl.Manager, opts controller.Options) er
 		Complete(r)
 }
 
-// GetTypedObject returns an object to decode the watched resource into, falling back to
-// unstructured for kinds the scheme does not know. The watched set is server-driven, so
-// any GVK the cluster serves can arrive here; Scheme.New returns a nil object for those
-// and asserting it to client.Object would panic.
+// GetTypedObject returns the Go type registered for the watched kind. An unregistered
+// kind is a configuration error, so the caller reports it and skips the resource.
+// Scheme.New returns a nil object.
 func (r *Watcher) GetTypedObject() (client.Object, error) {
 	obj, err := r.Scheme.New(r.Watched.GroupVersionKind)
 	if err != nil {
-		unstructuredObj := &unstructured.Unstructured{}
-		unstructuredObj.SetGroupVersionKind(r.Watched.GroupVersionKind)
-		return unstructuredObj, nil
+		return nil, fmt.Errorf("could not determine type for GVK %s: %w", r.Watched.String(), err)
 	}
 
 	typedObj, ok := obj.(client.Object)
 	if !ok {
-		return nil, fmt.Errorf("%s is registered in the scheme but is not a client.Object", r.Watched.GroupVersionKind)
+		return nil, fmt.Errorf("%s is registered in the scheme but is not a client.Object", r.Watched.String())
 	}
 	return typedObj, nil
 }

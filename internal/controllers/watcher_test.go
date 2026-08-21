@@ -7,7 +7,6 @@ import (
 	traefikv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/traefik/v1alpha1"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -51,9 +50,6 @@ func TestGetTypedObjectRegisteredGVK(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if _, isUnstructured := obj.(*unstructured.Unstructured); isUnstructured {
-				t.Fatalf("registered GVK fell back to unstructured, losing its typed payload")
-			}
 			if got, want := fmt.Sprintf("%T", obj), fmt.Sprintf("%T", testCase.want); got != want {
 				t.Errorf("got %s, want %s", got, want)
 			}
@@ -61,9 +57,9 @@ func TestGetTypedObjectRegisteredGVK(t *testing.T) {
 	}
 }
 
-// TestGetTypedObjectUnregisteredGVK covers the reported crash. The watched set is
-// server-driven, so a GVK the scheme has never heard of is reachable in production; it
-// used to panic asserting Scheme.New's nil result to client.Object.
+// TestGetTypedObjectUnregisteredGVK covers the reported crash. An unregistered kind must
+// come back as an error for Reconcile to report and skip; it used to panic asserting
+// Scheme.New's nil result to client.Object.
 func TestGetTypedObjectUnregisteredGVK(t *testing.T) {
 	// A Kong kind the agent has no controller for, and an unrelated third-party CRD.
 	for _, gvk := range []schema.GroupVersionKind{
@@ -78,16 +74,11 @@ func TestGetTypedObjectUnregisteredGVK(t *testing.T) {
 			}()
 
 			obj, err := watcherFor(t, gvk).GetTypedObject()
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			if err == nil {
+				t.Fatalf("expected an error for an unregistered GVK, got %T", obj)
 			}
-
-			unstructuredObj, ok := obj.(*unstructured.Unstructured)
-			if !ok {
-				t.Fatalf("got %T, want *unstructured.Unstructured", obj)
-			}
-			if got := unstructuredObj.GroupVersionKind(); got != gvk {
-				t.Errorf("fallback carries %s, want %s", got, gvk)
+			if obj != nil {
+				t.Errorf("expected a nil object alongside the error, got %T", obj)
 			}
 		})
 	}
