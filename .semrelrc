@@ -1,0 +1,9 @@
+{
+  "plugins": {
+    "commit-analyzer": {
+      "options": {
+        "patch_release_rules": "fix,refactor"
+      }
+    }
+  }
+}
