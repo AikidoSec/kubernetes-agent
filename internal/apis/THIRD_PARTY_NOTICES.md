@@ -1,16 +1,9 @@
 # Third-party notices
 
 The packages under `internal/apis/` contain type declarations copied from upstream
-projects rather than imported from them. Each package's `doc.go` explains why, what was
-left out, and how to re-sync on a version bump. This file records provenance and
-licensing for the copied code.
-
-The agent watches these CRDs but only ever serializes them, never reads a field of
-their specs. Importing the upstream modules pulled roughly 50 modules into the build
-that the agent does not use, and coupled its Kubernetes library versions to whatever
-each project happened to require. Mirroring the types removes both problems while
-keeping the emitted JSON byte-identical, which is checked by the payload tests in each
-package against golden files generated from the upstream types.
+projects rather than imported from them. Each package's `doc.go` records what was
+copied, what was left out, and how to re-sync on a version bump. This file records
+provenance and licensing for the copied code.
 
 | Package | Upstream | Version | Licence |
 | --- | --- | --- | --- |
