@@ -11,7 +11,7 @@
 # Usage:  ./scripts/update-falco-rules.sh <falco-version>
 # Example: ./scripts/update-falco-rules.sh 0.44.0
 #
-# Requires: curl, python3 (stdlib only)
+# Requires: curl, python3 (stdlib only), yq, jq
 set -euo pipefail
 
 AIKIDO_TAG="aikido:threat-detection"
@@ -45,6 +45,15 @@ OLD_TAGGED_NAMES=$(awk '
 ' "$RULES_FILE" | sort)
 
 NEW_RULE_NAMES=$(echo "$NEW_RULES" | awk '/^- rule:/ { print substr($0, index($0, ": ") + 2) }' | sort)
+
+# Snapshot rule descriptions before overwriting, to detect upstream description drift.
+# Only tagged (routed) rules matter here: those are the ones hand-curated in
+# cloud-security's default_threat_rules.json. extract_conditions.sh (see
+# FALCO_UPGRADES.md) only syncs the `condition` field on upgrade — descriptions are
+# maintained separately and won't update on their own, so if upstream rewords a rule's
+# `desc:`, nothing else would ever flag that the curated copy may now be stale.
+OLD_DESCS=$(yq -o=json '[.[] | select(has("rule")) | {"rule": .rule, "desc": (.desc // "")}]' "$RULES_FILE")
+NEW_DESCS=$(echo "$NEW_RULES" | yq -o=json '[.[] | select(has("rule")) | {"rule": .rule, "desc": (.desc // "")}]' -)
 
 # Write tagged rule names to a temp file for awk lookup.
 TAGGED_FILE=$(mktemp)
@@ -87,6 +96,14 @@ NEW_UNTAGGED=$(comm -13 \
     <(echo "$OLD_RULE_NAMES" | grep -v '^$') \
     <(echo "$NEW_RULE_NAMES" | grep -v '^$') || true)
 
+# Report tagged rules whose upstream `desc:` text changed in this version.
+DESC_CHANGED=$(jq -r -n --argjson old "$OLD_DESCS" --argjson new "$NEW_DESCS" --arg tagged "$OLD_TAGGED_NAMES" '
+    ($tagged | split("\n") | map(select(length > 0))) as $tagged_list |
+    ($old | map({key: .rule, value: (.desc | rtrimstr("\n"))}) | from_entries) as $old_map |
+    ($new | map({key: .rule, value: (.desc | rtrimstr("\n"))}) | from_entries) as $new_map |
+    $tagged_list[] | select($old_map[.] != null and $new_map[.] != null and $old_map[.] != $new_map[.])
+')
+
 if [[ -n "$REMOVED" ]]; then
     echo ""
     echo "WARNING: These previously-tagged rules no longer exist in Falco ${VERSION}:"
@@ -99,6 +116,13 @@ if [[ -n "$NEW_UNTAGGED" ]]; then
     echo "INFO: New rules in Falco ${VERSION} (no ${AIKIDO_TAG} tag added):"
     echo "$NEW_UNTAGGED" | sed 's/^/  + /'
     echo "  Review and add '${AIKIDO_TAG}' to any that should route to threat detection."
+fi
+
+if [[ -n "$DESC_CHANGED" ]]; then
+    echo ""
+    echo "INFO: Upstream description changed for these routed rules in Falco ${VERSION}:"
+    echo "$DESC_CHANGED" | sed 's/^/  ~ /'
+    echo "  Review whether the curated description in cloud-security's default_threat_rules.json still holds."
 fi
 
 echo ""
