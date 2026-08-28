@@ -96,7 +96,6 @@ NEW_UNTAGGED=$(comm -13 \
     <(echo "$OLD_RULE_NAMES" | grep -v '^$') \
     <(echo "$NEW_RULE_NAMES" | grep -v '^$') || true)
 
-# Report tagged rules whose upstream `desc:` text changed in this version.
 DESC_CHANGED=$(jq -r -n --argjson old "$OLD_DESCS" --argjson new "$NEW_DESCS" --arg tagged "$OLD_TAGGED_NAMES" '
     ($tagged | split("\n") | map(select(length > 0))) as $tagged_list |
     ($old | map({key: .rule, value: (.desc | rtrimstr("\n"))}) | from_entries) as $old_map |
