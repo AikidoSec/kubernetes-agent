@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
+	"aikidoSec.kubernetesAgent/internal/controllers/arc"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/controllers/keda"
 	"aikidoSec.kubernetesAgent/internal/controllers/kong"
@@ -281,6 +282,33 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
+		{
+			gvk:     arc.EphemeralRunnerGVK,
+			logName: "GitHub ARC EphemeralRunner",
+			setup: func() error {
+				return (&arc.EphemeralRunnerController{
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
+		{
+			gvk:     arc.AutoscalingListenerGVK,
+			logName: "GitHub ARC AutoscalingListener",
+			setup: func() error {
+				return (&arc.AutoscalingListenerController{
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
+		{
+			gvk:     arc.RunnerGVK,
+			logName: "GitHub ARC Runner (summerwind)",
+			setup: func() error {
+				return (&arc.RunnerController{
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
