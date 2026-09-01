@@ -1,7 +1,9 @@
 package predicates
 
 import (
+	"bytes"
 	"encoding/json"
+	"reflect"
 
 	"github.com/gobwas/glob"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -47,52 +49,47 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 
 // IsSpecModified checks if the resource spec has been modified based on the update event
 func IsSpecModified(e event.UpdateEvent) bool {
-	oldSpecMap, ok := specMap(e.ObjectOld)
+	oldSpec, ok := specJSON(e.ObjectOld)
 	if !ok {
 		return false
 	}
 
-	newSpecMap, ok := specMap(e.ObjectNew)
+	newSpec, ok := specJSON(e.ObjectNew)
 	if !ok {
 		return false
 	}
 
-	oldSpec, err := json.Marshal(oldSpecMap)
-	if err != nil {
-		return false
-	}
-
-	newSpec, err := json.Marshal(newSpecMap)
-	if err != nil {
-		return false
-	}
-
-	return string(oldSpec) != string(newSpec)
+	return !bytes.Equal(oldSpec, newSpec)
 }
 
-// specMap returns an object's "spec" subtree as a map, handling both unstructured
-// objects and the typed objects For(&Typed{}) watches deliver (typed specs, including
-// runtime.RawExtension ones, are reached via the object's own JSON).
-func specMap(obj client.Object) (map[string]any, bool) {
+// specJSON returns the JSON of an object's spec. For typed objects it marshals only the
+// Spec field, avoiding a whole-object round-trip and keeping int64 values exact.
+func specJSON(obj client.Object) ([]byte, bool) {
 	if u, ok := obj.(*unstructured.Unstructured); ok {
 		spec, found, err := unstructured.NestedMap(u.Object, "spec")
 		if err != nil || !found {
 			return nil, false
 		}
-		return spec, true
+		b, err := json.Marshal(spec)
+		if err != nil {
+			return nil, false
+		}
+		return b, true
 	}
 
-	raw, err := json.Marshal(obj)
+	v := reflect.Indirect(reflect.ValueOf(obj))
+	if v.Kind() != reflect.Struct {
+		return nil, false
+	}
+	spec := v.FieldByName("Spec")
+	if !spec.IsValid() || !spec.CanInterface() {
+		return nil, false
+	}
+	b, err := json.Marshal(spec.Interface())
 	if err != nil {
 		return nil, false
 	}
-	var wrapper struct {
-		Spec map[string]any `json:"spec"`
-	}
-	if err := json.Unmarshal(raw, &wrapper); err != nil || wrapper.Spec == nil {
-		return nil, false
-	}
-	return wrapper.Spec, true
+	return b, true
 }
 
 type NamespaceFilter struct {

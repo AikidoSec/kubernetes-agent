@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	ghv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/arc/github/v1alpha1"
+	swv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/arc/summerwind/v1alpha1"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,6 +25,12 @@ func TestIsSpecModifiedTypedObjects(t *testing.T) {
 	// ArgoCD Application stores its spec as runtime.RawExtension.
 	application := func(specJSON string) client.Object {
 		return &argoproj.Application{Spec: runtime.RawExtension{Raw: []byte(specJSON)}}
+	}
+
+	runnerWithMTU := func(mtu int64) client.Object {
+		r := &swv1alpha1.Runner{}
+		r.Spec.DockerMTU = &mtu
+		return r
 	}
 
 	tests := []struct {
@@ -54,6 +61,12 @@ func TestIsSpecModifiedTypedObjects(t *testing.T) {
 			old:  application(`{"project":"default"}`),
 			new:  application(`{"project":"default"}`),
 			want: false,
+		},
+		{
+			name: "int64 spec change above 2^53 is detected",
+			old:  runnerWithMTU(1 << 53),
+			new:  runnerWithMTU((1 << 53) + 2),
+			want: true,
 		},
 	}
 
