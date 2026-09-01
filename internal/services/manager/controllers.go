@@ -290,7 +290,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			logName: "GitHub ARC EphemeralRunner",
 			setup: func() error {
 				return (&arc.EphemeralRunnerController{
-					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
@@ -299,7 +299,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			logName: "GitHub ARC AutoscalingListener",
 			setup: func() error {
 				return (&arc.AutoscalingListenerController{
-					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
@@ -308,7 +308,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			logName: "GitHub ARC Runner (summerwind)",
 			setup: func() error {
 				return (&arc.RunnerController{
-					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},

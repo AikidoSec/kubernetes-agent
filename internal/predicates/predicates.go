@@ -47,23 +47,13 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 
 // IsSpecModified checks if the resource spec has been modified based on the update event
 func IsSpecModified(e event.UpdateEvent) bool {
-	oldObj, ok := e.ObjectOld.(*unstructured.Unstructured)
+	oldSpecMap, ok := specMap(e.ObjectOld)
 	if !ok {
 		return false
 	}
 
-	newObj, ok := e.ObjectNew.(*unstructured.Unstructured)
+	newSpecMap, ok := specMap(e.ObjectNew)
 	if !ok {
-		return false
-	}
-
-	oldSpecMap, found, err := unstructured.NestedMap(oldObj.Object, "spec")
-	if err != nil || !found {
-		return false
-	}
-
-	newSpecMap, found, err := unstructured.NestedMap(newObj.Object, "spec")
-	if err != nil || !found {
 		return false
 	}
 
@@ -78,6 +68,31 @@ func IsSpecModified(e event.UpdateEvent) bool {
 	}
 
 	return string(oldSpec) != string(newSpec)
+}
+
+// specMap returns an object's "spec" subtree as a map, handling both unstructured
+// objects and the typed objects For(&Typed{}) watches deliver (typed specs, including
+// runtime.RawExtension ones, are reached via the object's own JSON).
+func specMap(obj client.Object) (map[string]any, bool) {
+	if u, ok := obj.(*unstructured.Unstructured); ok {
+		spec, found, err := unstructured.NestedMap(u.Object, "spec")
+		if err != nil || !found {
+			return nil, false
+		}
+		return spec, true
+	}
+
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		return nil, false
+	}
+	var wrapper struct {
+		Spec map[string]any `json:"spec"`
+	}
+	if err := json.Unmarshal(raw, &wrapper); err != nil || wrapper.Spec == nil {
+		return nil, false
+	}
+	return wrapper.Spec, true
 }
 
 type NamespaceFilter struct {

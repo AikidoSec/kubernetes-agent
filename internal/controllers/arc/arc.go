@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"aikidoSec.kubernetesAgent/internal/format"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
@@ -24,14 +25,16 @@ type Controller struct {
 	Logger          *logger.Service
 	OutputClient    *batchclient.BatchClient
 	NamespaceFilter *predicates.NamespaceFilter
+	AgentState      *models.AgentState
 }
 
-func NewController(c client.Client, l *logger.Service, output *batchclient.BatchClient, nsFilter *predicates.NamespaceFilter) Controller {
+func NewController(c client.Client, l *logger.Service, output *batchclient.BatchClient, nsFilter *predicates.NamespaceFilter, state *models.AgentState) Controller {
 	return Controller{
 		Client:          c,
 		Logger:          l,
 		OutputClient:    output,
 		NamespaceFilter: nsFilter,
+		AgentState:      state,
 	}
 }
 
@@ -59,6 +62,13 @@ func (b *Controller) reconcileObject(ctx context.Context, req ctrl.Request, gvk 
 	default:
 		eventType = models.ModifiedEventType
 		requeueAfter = defaultRequeueAfter
+	}
+
+	// Route through the shared formatter (same boundary the generic Watcher uses) so
+	// per-kind sanitization — e.g. stripping a Runner's registration token — is applied
+	// before the object is transmitted. No-op for kinds without a formatter.
+	if eventType == models.ModifiedEventType {
+		obj = format.FormatObject(obj, gvk.String(), b.AgentState)
 	}
 
 	metadata, err := json.Marshal(obj)
