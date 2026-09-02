@@ -10,6 +10,8 @@ import (
 	"slices"
 	"time"
 
+	arcgithubv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/arc/github/v1alpha1"
+	arcsummerwindv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/arc/summerwind/v1alpha1"
 	kedav1alpha1 "aikidoSec.kubernetesAgent/internal/apis/keda/v1alpha1"
 	kongv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/kong/v1alpha1"
 	rolloutv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/rollouts/v1alpha1"
@@ -67,6 +69,8 @@ func init() {
 	utilruntime.Must(argoproj.AddArgoCDToScheme(scheme))
 	utilruntime.Must(rolloutv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(kedav1alpha1.AddToScheme(scheme))
+	utilruntime.Must(arcgithubv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(arcsummerwindv1alpha1.AddToScheme(scheme))
 }
 
 // nolint:gocyclo

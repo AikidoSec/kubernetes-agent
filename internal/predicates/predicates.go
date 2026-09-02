@@ -1,7 +1,9 @@
 package predicates
 
 import (
+	"bytes"
 	"encoding/json"
+	"reflect"
 
 	"github.com/gobwas/glob"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -47,37 +49,47 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 
 // IsSpecModified checks if the resource spec has been modified based on the update event
 func IsSpecModified(e event.UpdateEvent) bool {
-	oldObj, ok := e.ObjectOld.(*unstructured.Unstructured)
+	oldSpec, ok := specJSON(e.ObjectOld)
 	if !ok {
 		return false
 	}
 
-	newObj, ok := e.ObjectNew.(*unstructured.Unstructured)
+	newSpec, ok := specJSON(e.ObjectNew)
 	if !ok {
 		return false
 	}
 
-	oldSpecMap, found, err := unstructured.NestedMap(oldObj.Object, "spec")
-	if err != nil || !found {
-		return false
+	return !bytes.Equal(oldSpec, newSpec)
+}
+
+// specJSON returns the JSON of an object's spec. For typed objects it marshals only the
+// Spec field, avoiding a whole-object round-trip and keeping int64 values exact.
+func specJSON(obj client.Object) ([]byte, bool) {
+	if u, ok := obj.(*unstructured.Unstructured); ok {
+		spec, found, err := unstructured.NestedMap(u.Object, "spec")
+		if err != nil || !found {
+			return nil, false
+		}
+		b, err := json.Marshal(spec)
+		if err != nil {
+			return nil, false
+		}
+		return b, true
 	}
 
-	newSpecMap, found, err := unstructured.NestedMap(newObj.Object, "spec")
-	if err != nil || !found {
-		return false
+	v := reflect.Indirect(reflect.ValueOf(obj))
+	if v.Kind() != reflect.Struct {
+		return nil, false
 	}
-
-	oldSpec, err := json.Marshal(oldSpecMap)
+	spec := v.FieldByName("Spec")
+	if !spec.IsValid() || !spec.CanInterface() {
+		return nil, false
+	}
+	b, err := json.Marshal(spec.Interface())
 	if err != nil {
-		return false
+		return nil, false
 	}
-
-	newSpec, err := json.Marshal(newSpecMap)
-	if err != nil {
-		return false
-	}
-
-	return string(oldSpec) != string(newSpec)
+	return b, true
 }
 
 type NamespaceFilter struct {
