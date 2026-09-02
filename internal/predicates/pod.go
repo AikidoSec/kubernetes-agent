@@ -14,12 +14,6 @@ import (
 func NewPodPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			// Pods that were not part of the initial snapshot that was received when the informer was created are
-			// excluded because they are in a transient state and may not have all fields populated yet.
-			if !e.IsInInitialList {
-				return false
-			}
-
 			if nsFilter.IsObjectExcluded(e.Object) {
 				return false
 			}
@@ -31,8 +25,7 @@ func NewPodPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 			}
 
 			// Only reconcile if pod is running, succeeded, or failed.
-			// Pending pods from the initial list are filtered out and will be reconciled later via UpdateFunc when
-			// they transition to a running state.
+			// Pending pods are filtered out and will be reconciled later via UpdateFunc when they transition to a running state.
 			if pod.Status.Phase != v1.PodRunning && pod.Status.Phase != v1.PodSucceeded && pod.Status.Phase != v1.PodFailed {
 				return false
 			}
@@ -169,22 +162,26 @@ func ContainerImageIDChanged(old []v1.ContainerStatus, new []v1.ContainerStatus)
 }
 
 func ArePodImagesResolved(pod v1.Pod) bool {
-	if !AreContainersImagesResolved(pod.Status.ContainerStatuses) {
+	if !AreContainersImagesResolved(pod.Status.ContainerStatuses, len(pod.Spec.Containers)) {
 		return false
 	}
 
-	if !AreContainersImagesResolved(pod.Status.InitContainerStatuses) {
+	if !AreContainersImagesResolved(pod.Status.InitContainerStatuses, len(pod.Spec.InitContainers)) {
 		return false
 	}
 
-	if !AreContainersImagesResolved(pod.Status.EphemeralContainerStatuses) {
+	if !AreContainersImagesResolved(pod.Status.EphemeralContainerStatuses, len(pod.Spec.EphemeralContainers)) {
 		return false
 	}
 
 	return true
 }
 
-func AreContainersImagesResolved(statuses []v1.ContainerStatus) bool {
+func AreContainersImagesResolved(statuses []v1.ContainerStatus, containersCount int) bool {
+	if len(statuses) != containersCount {
+		return false
+	}
+
 	for _, status := range statuses {
 		if status.ImageID == "" {
 			return false
