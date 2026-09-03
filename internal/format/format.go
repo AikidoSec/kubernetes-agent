@@ -13,6 +13,8 @@ func FormatObject(obj client.Object, gvk string, state *models.AgentState) clien
 		return FormatRoute(obj)
 	case "actions.summerwind.dev/v1alpha1, Kind=Runner":
 		return FormatRunner(obj)
+	case "vault.banzaicloud.com/v1alpha1, Kind=Vault":
+		return FormatVault(obj)
 	}
 	return obj
 }

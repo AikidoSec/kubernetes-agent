@@ -7,6 +7,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/controllers/arc"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
+	"aikidoSec.kubernetesAgent/internal/controllers/bankvaults"
 	"aikidoSec.kubernetesAgent/internal/controllers/keda"
 	"aikidoSec.kubernetesAgent/internal/controllers/kong"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
@@ -309,6 +310,19 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.RunnerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
+		{
+			gvk:     bankvaults.VaultGVK,
+			logName: "Bank-Vaults Vault",
+			setup: func() error {
+				return (&bankvaults.VaultController{
+					Logger:          s.logger,
+					Client:          runtimeManager.GetClient(),
+					OutputClient:    assetsClient,
+					NamespaceFilter: nsFilter,
+					AgentState:      s.AgentState,
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
