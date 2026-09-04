@@ -112,7 +112,7 @@ type NodePool struct {
 
 // PersistencConfig defines options for data persistence
 type PersistenceConfig struct {
-	PersistenceSource `json:","`
+	PersistenceSource `json:","` //nolint:staticcheck // tag kept as upstream declares it so the mirror stays a verbatim copy
 }
 
 type PersistenceSource struct {
