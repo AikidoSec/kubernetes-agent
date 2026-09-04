@@ -128,7 +128,7 @@ func mirroredFieldNames(root reflect.Type) map[string]bool {
 
 	var walk func(reflect.Type)
 	walk = func(t reflect.Type) {
-		for t.Kind() == reflect.Ptr || t.Kind() == reflect.Slice || t.Kind() == reflect.Map {
+		for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Map {
 			t = t.Elem()
 		}
 		if t.Kind() != reflect.Struct || t.PkgPath() != pkg || seen[t] {
