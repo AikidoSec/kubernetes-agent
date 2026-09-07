@@ -44,3 +44,31 @@ func TestFormatConfigMapRemovesBinaryDataAndArchiveDataKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatObjectDispatchesConfigMap(t *testing.T) {
+	configMap := &v1.ConfigMap{
+		Data: map[string]string{
+			"bundle.zip":      "zip content",
+			"application.yml": "enabled: true",
+		},
+		BinaryData: map[string][]byte{
+			"payload": []byte("binary content"),
+		},
+	}
+
+	formatted := format.FormatObject(configMap, "/v1, Kind=ConfigMap", nil)
+
+	got, ok := formatted.(*v1.ConfigMap)
+	if !ok {
+		t.Fatalf("FormatObject returned %T, want *v1.ConfigMap", formatted)
+	}
+	if got.BinaryData != nil {
+		t.Errorf("BinaryData = %v, want nil", got.BinaryData)
+	}
+	if _, ok := got.Data["bundle.zip"]; ok {
+		t.Errorf("archive data key was not removed")
+	}
+	if _, ok := got.Data["application.yml"]; !ok {
+		t.Errorf("non-archive data key was removed unexpectedly")
+	}
+}
