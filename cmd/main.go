@@ -214,6 +214,11 @@ func main() {
 			loggerService.ReportError(ctx, err, "error creating threat batch client", "agentSetupError")
 			os.Exit(1)
 		}
+		redactor, err := falco.NewRedactor()
+		if err != nil {
+			loggerService.ReportError(ctx, err, "error creating secret redactor", "agentSetupError")
+			os.Exit(1)
+		}
 		proxy := falco.NewProxy(
 			loggerService,
 			envCfg.RuntimeDetectionPort,
@@ -229,6 +234,7 @@ func main() {
 					},
 				},
 			},
+			redactor,
 		)
 		agentService.RegisterFalcoProxy(proxy)
 		if err := mgr.Add(proxy); err != nil {

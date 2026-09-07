@@ -54,15 +54,17 @@ type Proxy struct {
 	server                   *http.Server
 	routes                   []Route
 	ignoredImageRepositories []string
+	redactor                 *Redactor
 }
 
-func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentState, ignoredImageRepositories []string, routes []Route) *Proxy {
+func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentState, ignoredImageRepositories []string, routes []Route, redactor *Redactor) *Proxy {
 	return &Proxy{
 		AgentState:               agentState,
 		Service:                  logger,
 		listenPort:               listenPort,
 		routes:                   routes,
 		ignoredImageRepositories: ignoredImageRepositories,
+		redactor:                 redactor,
 	}
 }
 
@@ -145,6 +147,11 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.shouldDrop(event) {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	if err := redactSecrets(raw, p.redactor); err != nil {
+		p.LogError(err, "failed to redact secrets, dropping event to avoid leaking plaintext")
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
@@ -253,6 +260,70 @@ func stripAikidoTags(raw map[string]json.RawMessage, tags []string) (json.RawMes
 	raw["tags"] = sanitizedTags
 
 	return json.Marshal(raw)
+}
+
+// secretFields are the output_fields carrying user-controlled data where secrets
+// realistically appear. Other fields are structural (names, namespaces, images)
+// and are left unscanned to keep per-event redaction cost bounded.
+var secretFields = []string{"proc.cmdline", "proc.args", "proc.exeline", "proc.env", "evt.args"}
+
+func redactSecrets(raw map[string]json.RawMessage, redactor *Redactor) error {
+	if err := redactOutputString(raw, redactor); err != nil {
+		return err
+	}
+	return redactOutputFields(raw, redactor)
+}
+
+func redactOutputString(raw map[string]json.RawMessage, redactor *Redactor) error {
+	v, ok := raw["output"]
+	if !ok {
+		return nil
+	}
+	var output string
+	if err := json.Unmarshal(v, &output); err != nil {
+		return nil
+	}
+	marshaled, err := json.Marshal(redactor.RedactText(output))
+	if err != nil {
+		return fmt.Errorf("marshal redacted output: %w", err)
+	}
+	raw["output"] = marshaled
+	return nil
+}
+
+func redactOutputFields(raw map[string]json.RawMessage, redactor *Redactor) error {
+	v, ok := raw["output_fields"]
+	if !ok {
+		return nil
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(v, &fields); err != nil {
+		return nil
+	}
+
+	redactedAny := false
+	for _, key := range secretFields {
+		fieldValue, ok := fields[key]
+		if !ok {
+			continue
+		}
+		stringValue, ok := fieldValue.(string)
+		if !ok {
+			continue
+		}
+		fields[key] = redactor.RedactText(stringValue)
+		redactedAny = true
+	}
+	if !redactedAny {
+		return nil
+	}
+
+	marshaled, err := json.Marshal(fields)
+	if err != nil {
+		return fmt.Errorf("marshal redacted output_fields: %w", err)
+	}
+	raw["output_fields"] = marshaled
+	return nil
 }
 
 func hasAikidoTag(tags []string) bool {
