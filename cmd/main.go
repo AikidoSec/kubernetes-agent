@@ -18,6 +18,7 @@ import (
 	traefikv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/traefik/v1alpha1"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/falco"
+	"aikidoSec.kubernetesAgent/internal/format"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
@@ -164,9 +165,9 @@ func main() {
 					metaObj.SetManagedFields(nil)
 				}
 
-				// Remove binary data from ConfigMaps
+				// Remove data from ConfigMaps that should not be cached or sent in payloads.
 				if cm, ok := obj.(*corev1.ConfigMap); ok {
-					cm.BinaryData = nil
+					format.FormatConfigMap(cm)
 				}
 
 				// Skip caching Jobs older than 5 days
