@@ -203,7 +203,7 @@ func main() {
 	// deployed setup — it cannot activate threat detection if the Helm flag is false.
 	if envCfg.RuntimeDetectionEnabled {
 		threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
-			Endpoint:              cfg.APIEndpoint + "/api/threats/events",
+			Endpoint:              envCfg.RuntimeDetectionEndpoint,
 			MaxBatch:              1000,
 			FlushEvery:            time.Second * 10,
 			MaxConcurrentRequests: 5,
