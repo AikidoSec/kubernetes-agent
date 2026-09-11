@@ -181,12 +181,10 @@ func (c *BatchClient) flush() {
 	c.maxConcurrentRequests <- struct{}{}
 	c.sendWG.Add(1)
 
-	for {
-		isServerActive := c.heartbeatService.IsServerActive()
-		if isServerActive {
-			break
-		}
-
+	// Wait until the main-API heartbeat reports the server active, when a heartbeat service is
+	// wired. The threat client leaves it nil and relies on send()'s retry/backoff + ingest's own
+	// 429 backpressure instead, so a main-API outage can't stall runtime-detection uploads.
+	for c.heartbeatService != nil && !c.heartbeatService.IsServerActive() {
 		time.Sleep(c.heartbeatService.GetSendInterval())
 	}
 
