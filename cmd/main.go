@@ -208,8 +208,6 @@ func main() {
 			if envCfg.RuntimeDetectionEndpoint == "" {
 				return fmt.Errorf("RUNTIME_DETECTION_ENDPOINT is not set")
 			}
-			// HeartbeatService is nil on purpose: runtime-detection uploads must not gate on the
-			// main-API heartbeat — ingest applies its own 429 backpressure and send() retries with backoff.
 			threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
 				Endpoint:              envCfg.RuntimeDetectionEndpoint,
 				MaxBatch:              1000,
@@ -217,7 +215,7 @@ func main() {
 				MaxConcurrentRequests: 5,
 				CompressionEnabled:    true,
 				Token:                 cfg.APIToken,
-				HeartbeatService:      nil,
+				HeartbeatService:      heartbeatService,
 			})
 			if err != nil {
 				return fmt.Errorf("creating threat batch client: %w", err)
