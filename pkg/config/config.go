@@ -33,6 +33,7 @@ func ParseConfigFromFile(path string) (models.Config, error) {
 	if config.APIEndpoint[len(config.APIEndpoint)-1] == '/' {
 		config.APIEndpoint = config.APIEndpoint[:len(config.APIEndpoint)-1]
 	}
+	config.RuntimeDetectionEndpoint = strings.TrimSuffix(config.RuntimeDetectionEndpoint, "/")
 
 	return config, nil
 }
@@ -141,8 +142,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		errs = multierr.Append(errs, fmt.Errorf("invalid RUNTIME_DETECTION_PORT value: %s", runtimeDetectionProxyPortStr))
 	}
 
-	runtimeDetectionEndpoint := os.Getenv("RUNTIME_DETECTION_ENDPOINT")
-
 	return models.EnvironmentConfig{
 		Namespace:                   namespace,
 		AgentName:                   agentName,
@@ -156,6 +155,5 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		AutoUpdateEnabled:           autoUpdateEnabled,
 		RuntimeDetectionEnabled:     runtimeDetectionEnabled,
 		RuntimeDetectionPort:        runtimeDetectionProxyPort,
-		RuntimeDetectionEndpoint:    runtimeDetectionEndpoint,
 	}, errs
 }

@@ -205,11 +205,11 @@ func main() {
 		// Best-effort setup: on any failure, disable only runtime detection and keep the rest of the
 		// agent (SBOM collection, scanning) running.
 		setupRuntimeDetection := func() error {
-			if envCfg.RuntimeDetectionEndpoint == "" {
-				return fmt.Errorf("RUNTIME_DETECTION_ENDPOINT is not set")
+			if cfg.RuntimeDetectionEndpoint == "" {
+				return fmt.Errorf("runtimeDetectionEndpoint is not set")
 			}
 			threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
-				Endpoint:              envCfg.RuntimeDetectionEndpoint,
+				Endpoint:              cfg.RuntimeDetectionEndpoint + "/infra/v1/threats",
 				MaxBatch:              1000,
 				FlushEvery:            time.Second * 10,
 				MaxConcurrentRequests: 5,
