@@ -173,7 +173,7 @@ func main() {
 
 				// Strip terminal Jobs created more than 5 days ago.
 				if job, ok := obj.(*batchv1.Job); ok {
-					if job.CreationTimestamp.Time.Before(agentStartTime.AddDate(0, 0, -5)) && imformercache.IsJobFinished(job) {
+					if job.CreationTimestamp.Time.Before(agentStartTime.AddDate(0, 0, -5)) {
 						return imformercache.StripJob(job), nil
 					}
 				}

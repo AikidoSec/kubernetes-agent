@@ -2,7 +2,6 @@ package imformercache
 
 import (
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -20,17 +19,4 @@ func StripJob(job *batchv1.Job) *batchv1.Job {
 		},
 	}
 	return job
-}
-
-// IsJobFinished reports whether a Job has reached a terminal condition.
-// CompletionTime alone does not cover failed Jobs. FailureTarget and
-// SuccessCriteriaMet are not terminal: Pods may still be terminating.
-func IsJobFinished(job *batchv1.Job) bool {
-	for _, condition := range job.Status.Conditions {
-		if condition.Status == corev1.ConditionTrue &&
-			(condition.Type == batchv1.JobComplete || condition.Type == batchv1.JobFailed) {
-			return true
-		}
-	}
-	return false
 }
