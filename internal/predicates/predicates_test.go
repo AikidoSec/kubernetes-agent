@@ -6,11 +6,16 @@ import (
 	ghv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/arc/github/v1alpha1"
 	swv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/arc/summerwind/v1alpha1"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
+	imformercache "aikidoSec.kubernetesAgent/internal/informercache"
 	"aikidoSec.kubernetesAgent/internal/predicates"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 type testLogger struct{}
@@ -281,6 +286,64 @@ func TestIsSpecModifiedTypedObjects(t *testing.T) {
 			e := event.UpdateEvent{ObjectOld: tt.old, ObjectNew: tt.new}
 			if got := predicates.IsSpecModified(e); got != tt.want {
 				t.Errorf("IsSpecModified() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStrippedObjectPredicates(t *testing.T) {
+	filter := predicates.NewNamespaceFilter(&testLogger{}, []string{"excluded"}, nil)
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default"}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "nginx"}}}, Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Name: "app", ImageID: "sha256:abc"}}}}
+	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job", Namespace: "default"}, Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: pod.Spec}}}
+	toUnstructured := func(obj client.Object) client.Object {
+		t.Helper()
+		data, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &unstructured.Unstructured{Object: data}
+	}
+	for _, tc := range []struct {
+		name       string
+		pred       predicate.Predicate
+		live, stub client.Object
+	}{
+		{"pod", predicates.NewPodPredicate(filter), toUnstructured(pod), toUnstructured(imformercache.StripPod(pod.DeepCopy()))},
+		{"job unstructured", predicates.NewGenericPredicate(filter), toUnstructured(job), toUnstructured(imformercache.StripJob(job.DeepCopy()))},
+		{"job typed", predicates.NewGenericPredicate(filter), job, imformercache.StripJob(job.DeepCopy())},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, initial := range []bool{false, true} {
+				if tc.pred.Create(event.CreateEvent{Object: tc.stub, IsInInitialList: initial}) {
+					t.Fatal("stub create was accepted")
+				}
+				if !tc.pred.Create(event.CreateEvent{Object: tc.live, IsInInitialList: initial}) {
+					t.Fatal("eligible create was rejected")
+				}
+			}
+			if tc.pred.Create(event.CreateEvent{}) {
+				t.Fatal("nil create was accepted")
+			}
+			if tc.pred.Update(event.UpdateEvent{ObjectOld: tc.live}) {
+				t.Fatal("nil update was accepted")
+			}
+			if tc.pred.Update(event.UpdateEvent{ObjectOld: tc.live, ObjectNew: tc.stub}) {
+				t.Fatal("live-to-stub update was accepted")
+			}
+			if tc.pred.Update(event.UpdateEvent{ObjectOld: tc.stub, ObjectNew: tc.stub}) {
+				t.Fatal("stub-to-stub update was accepted")
+			}
+			if !tc.pred.Update(event.UpdateEvent{ObjectOld: tc.stub, ObjectNew: tc.live}) {
+				t.Fatal("stub becoming eligible was rejected")
+			}
+			// Deletion still needs to remove assets that may have been reported earlier.
+			if !tc.pred.Delete(event.DeleteEvent{Object: tc.stub}) {
+				t.Fatal("stub deletion was rejected")
+			}
+			excluded := tc.live.DeepCopyObject().(client.Object)
+			excluded.SetNamespace("excluded")
+			if tc.pred.Create(event.CreateEvent{Object: excluded}) || tc.pred.Update(event.UpdateEvent{ObjectOld: tc.stub, ObjectNew: excluded}) {
+				t.Fatal("namespace exclusion was bypassed")
 			}
 		})
 	}

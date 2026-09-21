@@ -19,6 +19,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/falco"
 	"aikidoSec.kubernetesAgent/internal/format"
+	imformercache "aikidoSec.kubernetesAgent/internal/informercache"
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
@@ -170,17 +171,38 @@ func main() {
 					format.FormatConfigMap(cm)
 				}
 
-				// Skip caching Jobs older than 5 days
+				// Strip terminal Jobs created more than 5 days ago.
 				if job, ok := obj.(*batchv1.Job); ok {
-					if job.CreationTimestamp.Time.Before(agentStartTime.AddDate(0, 0, -5)) {
-						return nil, nil
+					if job.CreationTimestamp.Time.Before(agentStartTime.AddDate(0, 0, -5)) && imformercache.IsJobFinished(job) {
+						return imformercache.StripJob(job), nil
 					}
 				}
 
 				if pod, ok := obj.(*corev1.Pod); ok {
 					// Skip caching Pods that are in Succeeded or Failed phase
 					if (pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed) && pod.DeletionTimestamp.IsZero() && pod.CreationTimestamp.Time.Before(agentStartTime) {
-						return nil, nil
+
+						lastContainerFinishedAt := time.Time{}
+						for _, status := range pod.Status.ContainerStatuses {
+							if status.State.Terminated == nil {
+								lastContainerFinishedAt = time.Time{}
+								break
+							}
+
+							if status.State.Terminated.FinishedAt.IsZero() {
+								lastContainerFinishedAt = time.Time{}
+								break
+							}
+
+							if status.State.Terminated.FinishedAt.After(lastContainerFinishedAt) {
+								lastContainerFinishedAt = status.State.Terminated.FinishedAt.Time
+							}
+						}
+
+						// Only strip Pods that completed before the collector started based on the latest container that was terminated
+						if !lastContainerFinishedAt.IsZero() && lastContainerFinishedAt.Before(agentStartTime) {
+							return imformercache.StripPod(pod), nil
+						}
 					}
 				}
 				return obj, nil
