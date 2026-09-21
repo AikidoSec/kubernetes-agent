@@ -8,18 +8,18 @@ import (
 
 // StripJob replaces an excluded job with an identity-only stub in place. Returning
 // a valid Job keeps atomic informer cache replacements working.
-func StripJob(pod *batchv1.Job) *batchv1.Job {
-	*pod = batchv1.Job{
-		TypeMeta: pod.TypeMeta,
+func StripJob(job *batchv1.Job) *batchv1.Job {
+	*job = batchv1.Job{
+		TypeMeta: job.TypeMeta,
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            pod.Name,
-			Namespace:       pod.Namespace,
-			UID:             pod.UID,
-			ResourceVersion: pod.ResourceVersion,
+			Name:            job.Name,
+			Namespace:       job.Namespace,
+			UID:             job.UID,
+			ResourceVersion: job.ResourceVersion,
 			Annotations:     map[string]string{strippedAnnotation: "true"},
 		},
 	}
-	return pod
+	return job
 }
 
 // IsJobFinished reports whether a Job has reached a terminal condition.
