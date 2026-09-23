@@ -46,12 +46,15 @@ func NewEndpointsPredicates(nsFilter *NamespaceFilter) predicate.Predicate {
 func endpointsFromUnstructured(obj client.Object) (v1.Endpoints, error) {
 	unstructuredObj, ok := obj.(*unstructured.Unstructured)
 	if !ok {
+		//nolint:staticcheck
 		return v1.Endpoints{}, nil
 	}
 
+	//nolint:staticcheck
 	var endpoints v1.Endpoints
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), &endpoints)
 	if err != nil {
+		//nolint:staticcheck
 		return v1.Endpoints{}, err
 	}
 
