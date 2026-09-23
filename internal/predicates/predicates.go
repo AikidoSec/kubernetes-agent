@@ -49,6 +49,8 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 		return NewGatewayPredicate(nsFilter)
 	case "/v1, Kind=ConfigMap":
 		return NewTopLevelFieldsPredicate(nsFilter, "data", "immutable")
+	case "storage.k8s.io/v1, Kind=StorageClass":
+		return NewTopLevelFieldsPredicate(nsFilter, "provisioner", "reclaimPolicy", "allowVolumeExpansion", "mountOptions", "volumeBindingMode", "parameters")
 	default:
 		return NewGenericPredicate(nsFilter)
 	}
