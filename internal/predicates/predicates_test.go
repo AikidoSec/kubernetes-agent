@@ -7,6 +7,8 @@ import (
 	swv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/arc/summerwind/v1alpha1"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/predicates"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -283,5 +285,67 @@ func TestIsSpecModifiedTypedObjects(t *testing.T) {
 				t.Errorf("IsSpecModified() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestConfigMapPredicate(t *testing.T) {
+	for _, tt := range []struct {
+		name             string
+		exclude, include []string
+		want             bool
+	}{
+		{name: "allowed", want: true},
+		{name: "excluded", exclude: []string{"app-*"}},
+		{name: "included", include: []string{"app-*"}, want: true},
+		{name: "not included", include: []string{"other-*"}},
+	} {
+		for _, representation := range []string{"typed", "unstructured"} {
+			t.Run(tt.name+"/"+representation, func(t *testing.T) {
+				filter := predicates.NewNamespaceFilter(&testLogger{}, tt.exclude, tt.include)
+				p := predicates.GetPredicatesForGVK("/v1, Kind=ConfigMap", filter)
+				asObject := func(cm *corev1.ConfigMap) client.Object {
+					if representation == "typed" {
+						return cm
+					}
+					obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(cm)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return &unstructured.Unstructured{Object: obj}
+				}
+				old := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: "app-prod"}, Data: map[string]string{"key": "old"}}
+				if got := p.Create(event.CreateEvent{Object: asObject(old)}); got != tt.want {
+					t.Errorf("Create() = %v, want %v", got, tt.want)
+				}
+				if got := p.Delete(event.DeleteEvent{Object: asObject(old)}); got != tt.want {
+					t.Errorf("Delete() = %v, want %v", got, tt.want)
+				}
+				for _, update := range []struct {
+					name   string
+					mutate func(*corev1.ConfigMap)
+					want   bool
+				}{
+					{name: "unchanged", mutate: func(_ *corev1.ConfigMap) {}},
+					{name: "resource version only", mutate: func(o *corev1.ConfigMap) { o.ResourceVersion = "2" }},
+					{name: "data added", mutate: func(o *corev1.ConfigMap) { o.Data["other"] = "value" }, want: true},
+					{name: "data changed", mutate: func(o *corev1.ConfigMap) { o.Data["key"] = "new" }, want: true},
+					{name: "data removed", mutate: func(o *corev1.ConfigMap) { o.Data = nil }, want: true},
+					// Binary data is stripped from the reported asset by FormatConfigMap.
+					{name: "binary data only", mutate: func(o *corev1.ConfigMap) { o.BinaryData = map[string][]byte{"key": {1, 2}} }},
+					{name: "immutable enabled", mutate: func(o *corev1.ConfigMap) { v := true; o.Immutable = &v }, want: true},
+					{name: "labels changed", mutate: func(o *corev1.ConfigMap) { o.Labels = map[string]string{"team": "platform"} }, want: true},
+					{name: "annotations changed", mutate: func(o *corev1.ConfigMap) { o.Annotations = map[string]string{"owner": "platform"} }, want: true},
+				} {
+					t.Run(update.name, func(t *testing.T) {
+						next := old.DeepCopy()
+						update.mutate(next)
+						want := tt.want && update.want
+						if got := p.Update(event.UpdateEvent{ObjectOld: asObject(old), ObjectNew: asObject(next)}); got != want {
+							t.Errorf("Update() = %v, want %v", got, want)
+						}
+					})
+				}
+			})
+		}
 	}
 }

@@ -48,7 +48,7 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 	case "gateway.networking.k8s.io/v1, Kind=Gateway", "gateway.networking.k8s.io/v1, Kind=HTTPRoute":
 		return NewGatewayPredicate(nsFilter)
 	case "/v1, Kind=ConfigMap":
-		return NewConfigmapPredicate(nsFilter)
+		return NewTopLevelFieldsPredicate(nsFilter, "data", "immutable")
 	default:
 		return NewGenericPredicate(nsFilter)
 	}
