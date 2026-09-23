@@ -3,6 +3,7 @@ package predicates
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"reflect"
 
 	"github.com/gobwas/glob"
@@ -18,7 +19,7 @@ func NewGenericPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return !nsFilter.IsObjectExcluded(e.ObjectNew) && IsSpecModified(e)
+			return !nsFilter.IsObjectExcluded(e.ObjectNew) && IsSpecOrMetadataChanged(e)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return !nsFilter.IsObjectExcluded(e.Object)
@@ -31,7 +32,11 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 	case "/v1, Kind=Pod":
 		return NewPodPredicate(nsFilter)
 	case "/v1, Kind=ServiceAccount":
-		return NewServiceAccountPredicate(nsFilter)
+		return NewTopLevelFieldsPredicate(nsFilter, "automountServiceAccountToken", "imagePullSecrets", "secrets")
+	case "rbac.authorization.k8s.io/v1, Kind=Role", "rbac.authorization.k8s.io/v1, Kind=ClusterRole":
+		return NewTopLevelFieldsPredicate(nsFilter, "rules", "aggregationRule")
+	case "rbac.authorization.k8s.io/v1, Kind=RoleBinding", "rbac.authorization.k8s.io/v1, Kind=ClusterRoleBinding":
+		return NewTopLevelFieldsPredicate(nsFilter, "subjects", "roleRef")
 	case "/v1, Kind=Service", "networking.k8s.io/v1, Kind=Ingress",
 		"route.openshift.io/v1, Kind=Route",
 		"operator.openshift.io/v1, Kind=IngressController":
@@ -42,9 +47,17 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 		return NewEndpointSlicePredicates(nsFilter)
 	case "gateway.networking.k8s.io/v1, Kind=Gateway", "gateway.networking.k8s.io/v1, Kind=HTTPRoute":
 		return NewGatewayPredicate(nsFilter)
+	case "/v1, Kind=ConfigMap":
+		return NewTopLevelFieldsPredicate(nsFilter, "data", "immutable")
+	case "storage.k8s.io/v1, Kind=StorageClass":
+		return NewTopLevelFieldsPredicate(nsFilter, "provisioner", "reclaimPolicy", "allowVolumeExpansion", "mountOptions", "volumeBindingMode", "parameters", "allowedTopologies")
 	default:
 		return NewGenericPredicate(nsFilter)
 	}
+}
+
+func IsSpecOrMetadataChanged(e event.UpdateEvent) bool {
+	return IsSpecModified(e) || AreAnnotationsChanged(e) || AreLabelsChanged(e)
 }
 
 // IsSpecModified checks if the resource spec has been modified based on the update event
@@ -60,6 +73,16 @@ func IsSpecModified(e event.UpdateEvent) bool {
 	}
 
 	return !bytes.Equal(oldSpec, newSpec)
+}
+
+// AreLabelsChanged checks if the resource labels has been modified based on the update event
+func AreLabelsChanged(e event.UpdateEvent) bool {
+	return !maps.Equal(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels())
+}
+
+// AreAnnotationsChanged checks if the resource annotations has been modified based on the update event
+func AreAnnotationsChanged(e event.UpdateEvent) bool {
+	return !maps.Equal(e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations())
 }
 
 // specJSON returns the JSON of an object's spec. For typed objects it marshals only the

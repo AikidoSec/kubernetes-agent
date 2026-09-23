@@ -67,7 +67,7 @@ func NewPodPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 			// - spec changed
 			if (oldPod.Status.Phase == v1.PodPending && newPod.Status.Phase == v1.PodRunning) ||
 				PodContainerStatusChanged(oldPod, newPod) ||
-				IsSpecModified(e) {
+				IsSpecOrMetadataChanged(e) {
 				return true
 			}
 
