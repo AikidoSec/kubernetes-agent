@@ -48,8 +48,7 @@ func TestMetadataChanges(t *testing.T) {
 	}
 }
 
-// Exercise dispatch as well as the predicates: only watchers that opt into
-// metadata updates should enqueue them, and namespace filters take priority.
+// Exercise dispatch as well as metadata updates; namespace filters take priority.
 func TestWatcherMetadataUpdates(t *testing.T) {
 	filter := predicates.NewNamespaceFilter(&testLogger{}, []string{"excluded"}, nil)
 	for _, watcher := range []struct {
@@ -59,12 +58,16 @@ func TestWatcherMetadataUpdates(t *testing.T) {
 		{"apps/v1, Kind=Deployment", true},
 		{"/v1, Kind=ServiceAccount", true},
 		{"/v1, Kind=Pod", true},
-		{"/v1, Kind=Service", false},
-		{"networking.k8s.io/v1, Kind=Ingress", false},
-		{"route.openshift.io/v1, Kind=Route", false},
-		{"operator.openshift.io/v1, Kind=IngressController", false},
-		{"gateway.networking.k8s.io/v1, Kind=Gateway", false},
-		{"gateway.networking.k8s.io/v1, Kind=HTTPRoute", false},
+		{"rbac.authorization.k8s.io/v1, Kind=Role", true},
+		{"rbac.authorization.k8s.io/v1, Kind=ClusterRole", true},
+		{"rbac.authorization.k8s.io/v1, Kind=RoleBinding", true},
+		{"rbac.authorization.k8s.io/v1, Kind=ClusterRoleBinding", true},
+		{"/v1, Kind=Service", true},
+		{"networking.k8s.io/v1, Kind=Ingress", true},
+		{"route.openshift.io/v1, Kind=Route", true},
+		{"operator.openshift.io/v1, Kind=IngressController", true},
+		{"gateway.networking.k8s.io/v1, Kind=Gateway", true},
+		{"gateway.networking.k8s.io/v1, Kind=HTTPRoute", true},
 	} {
 		for _, tt := range []struct {
 			name   string

@@ -14,7 +14,7 @@ func NewServicePredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return !nsFilter.IsObjectExcluded(e.ObjectNew) && (HasStatusChanged(e) || IsSpecModified(e))
+			return !nsFilter.IsObjectExcluded(e.ObjectNew) && (HasStatusChanged(e) || IsSpecOrMetadataChanged(e))
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return !nsFilter.IsObjectExcluded(e.Object)
