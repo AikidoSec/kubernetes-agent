@@ -1,7 +1,7 @@
 package predicates
 
 import (
-	"maps"
+	"reflect"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -43,5 +43,5 @@ func HasStatusChanged(e event.UpdateEvent) bool {
 		return false
 	}
 
-	return !maps.Equal(oldStatusMap, newStatusMap)
+	return !reflect.DeepEqual(oldStatusMap, newStatusMap)
 }
