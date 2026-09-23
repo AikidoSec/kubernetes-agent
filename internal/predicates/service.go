@@ -1,7 +1,7 @@
 package predicates
 
 import (
-	"encoding/json"
+	"maps"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -33,25 +33,15 @@ func HasStatusChanged(e event.UpdateEvent) bool {
 		return false
 	}
 
-	oldStatusMap, found, err := unstructured.NestedMap(oldObj.Object, "status")
-	if err != nil || !found {
-		return false
-	}
-
-	newStatusMap, found, err := unstructured.NestedMap(newObj.Object, "status")
-	if err != nil || !found {
-		return false
-	}
-
-	oldStatus, err := json.Marshal(oldStatusMap)
+	oldStatusMap, _, err := unstructured.NestedMap(oldObj.Object, "status")
 	if err != nil {
 		return false
 	}
 
-	newStatus, err := json.Marshal(newStatusMap)
+	newStatusMap, _, err := unstructured.NestedMap(newObj.Object, "status")
 	if err != nil {
 		return false
 	}
 
-	return string(oldStatus) != string(newStatus)
+	return !maps.Equal(oldStatusMap, newStatusMap)
 }
