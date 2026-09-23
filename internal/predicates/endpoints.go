@@ -43,6 +43,7 @@ func NewEndpointsPredicates(nsFilter *NamespaceFilter) predicate.Predicate {
 	}
 }
 
+//nolint:staticcheck
 func endpointsFromUnstructured(obj client.Object) (v1.Endpoints, error) {
 	unstructuredObj, ok := obj.(*unstructured.Unstructured)
 	if !ok {
