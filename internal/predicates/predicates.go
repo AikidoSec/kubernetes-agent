@@ -32,7 +32,7 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 	case "/v1, Kind=Pod":
 		return NewPodPredicate(nsFilter)
 	case "/v1, Kind=ServiceAccount":
-		return NewServiceAccountPredicate(nsFilter)
+		return NewTopLevelFieldsPredicate(nsFilter, "automountServiceAccountToken", "imagePullSecrets", "secrets")
 	case "rbac.authorization.k8s.io/v1, Kind=Role", "rbac.authorization.k8s.io/v1, Kind=ClusterRole":
 		return NewTopLevelFieldsPredicate(nsFilter, "rules", "aggregationRule")
 	case "rbac.authorization.k8s.io/v1, Kind=RoleBinding", "rbac.authorization.k8s.io/v1, Kind=ClusterRoleBinding":
