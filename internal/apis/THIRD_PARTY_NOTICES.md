@@ -21,6 +21,7 @@ package against golden files generated from the upstream types.
 | `rollouts/v1alpha1` | github.com/argoproj/argo-rollouts | v1.9.0 | Apache-2.0 |
 | `arc/github/v1alpha1` | github.com/actions/actions-runner-controller | gha-runner-scale-set-0.14.2 | Apache-2.0 |
 | `arc/summerwind/v1alpha1` | github.com/actions/actions-runner-controller | gha-runner-scale-set-0.14.2 | Apache-2.0 |
+| `opensearch/v1` | github.com/opensearch-project/opensearch-k8s-operator | v2.8.0 | Apache-2.0 |
 
 Files copied from the Apache-2.0 projects retain their upstream copyright headers where
 upstream carried them, as that licence requires. Traefik distributes under MIT with a
@@ -55,8 +56,8 @@ SOFTWARE.
 
 ## Apache-2.0 projects
 
-KEDA, kubernetes-configuration, sdk-konnect-go, argo-rollouts and
-actions-runner-controller are all distributed
+KEDA, kubernetes-configuration, sdk-konnect-go, argo-rollouts,
+actions-runner-controller and opensearch-k8s-operator are all distributed
 under the Apache License, Version 2.0, available at
 <http://www.apache.org/licenses/LICENSE-2.0>. None of the copied files were modified in
 ways that change their behaviour; the deviations that do exist are listed in each

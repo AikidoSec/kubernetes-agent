@@ -9,6 +9,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
 	"aikidoSec.kubernetesAgent/internal/controllers/keda"
 	"aikidoSec.kubernetesAgent/internal/controllers/kong"
+	"aikidoSec.kubernetesAgent/internal/controllers/opensearch"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
 	"aikidoSec.kubernetesAgent/internal/controllers/traefik"
 	"aikidoSec.kubernetesAgent/internal/predicates"
@@ -300,6 +301,18 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.AutoscalingListenerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+				}).SetupWithManager(runtimeManager, controller.Options{})
+			},
+		},
+		{
+			gvk:     opensearch.OpenSearchClusterGVK,
+			logName: "OpenSearchCluster",
+			setup: func() error {
+				return (&opensearch.OpenSearchClusterController{
+					Logger:          s.logger,
+					Client:          runtimeManager.GetClient(),
+					OutputClient:    assetsClient,
+					NamespaceFilter: nsFilter,
 				}).SetupWithManager(runtimeManager, controller.Options{})
 			},
 		},
