@@ -347,6 +347,8 @@ func TestStrippedObjectPredicates(t *testing.T) {
 				t.Fatal("namespace exclusion was bypassed")
 			}
 		})
+	}
+}
 
 func TestConfigMapPredicate(t *testing.T) {
 	for _, tt := range []struct {
