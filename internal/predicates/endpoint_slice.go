@@ -1,9 +1,13 @@
 package predicates
 
 import (
+	"log"
 	"reflect"
 
 	v1 "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
@@ -18,13 +22,15 @@ func NewEndpointSlicePredicates(nsFilter *NamespaceFilter) predicate.Predicate {
 				return false
 			}
 
-			oldObj, ok := e.ObjectOld.(*v1.EndpointSlice)
-			if !ok {
+			oldObj, err := endpointSliceFromUnstructured(e.ObjectOld)
+			if err != nil {
+				log.Println("error converting old object to EndpointSlice:", err)
 				return false
 			}
 
-			newObj, ok := e.ObjectNew.(*v1.EndpointSlice)
-			if !ok {
+			newObj, err := endpointSliceFromUnstructured(e.ObjectNew)
+			if err != nil {
+				log.Println("error converting new object to EndpointSlice:", err)
 				return false
 			}
 
@@ -43,4 +49,19 @@ func NewEndpointSlicePredicates(nsFilter *NamespaceFilter) predicate.Predicate {
 			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 	}
+}
+
+func endpointSliceFromUnstructured(obj client.Object) (v1.EndpointSlice, error) {
+	unstructuredObj, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return v1.EndpointSlice{}, nil
+	}
+
+	var endpoints v1.EndpointSlice
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), &endpoints)
+	if err != nil {
+		return v1.EndpointSlice{}, err
+	}
+
+	return endpoints, nil
 }
