@@ -206,7 +206,11 @@ func main() {
 		// agent (SBOM collection, scanning) running.
 		setupRuntimeDetection := func() error {
 			if cfg.RuntimeDetectionEndpoint == "" {
-				return fmt.Errorf("runtimeDetectionEndpoint is not set")
+				derived, err := config.DeriveRuntimeDetectionEndpoint(cfg.APIEndpoint)
+				if err != nil {
+					return fmt.Errorf("runtimeDetectionEndpoint is not set and could not be derived from apiEndpoint: %w", err)
+				}
+				cfg.RuntimeDetectionEndpoint = derived
 			}
 			threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
 				Endpoint:              cfg.RuntimeDetectionEndpoint + "/infra/v1/threats",
