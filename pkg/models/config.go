@@ -5,8 +5,9 @@ import (
 )
 
 type Config struct {
-	APIToken    string `yaml:"apiToken"`
-	APIEndpoint string `yaml:"apiEndpoint"`
+	APIToken                 string `yaml:"apiToken"`
+	APIEndpoint              string `yaml:"apiEndpoint"`
+	RuntimeDetectionEndpoint string `yaml:"runtimeDetectionEndpoint"`
 }
 
 func (c *Config) Validate() error {

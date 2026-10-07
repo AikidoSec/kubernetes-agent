@@ -33,6 +33,7 @@ func ParseConfigFromFile(path string) (models.Config, error) {
 	if config.APIEndpoint[len(config.APIEndpoint)-1] == '/' {
 		config.APIEndpoint = config.APIEndpoint[:len(config.APIEndpoint)-1]
 	}
+	config.RuntimeDetectionEndpoint = strings.TrimSuffix(config.RuntimeDetectionEndpoint, "/")
 
 	return config, nil
 }
