@@ -220,7 +220,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	falcoVersion := s.GetFalcoVersion()
-	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
+	if s.IsRuntimeDetectionAvailable() && s.IsThreatDetectionEnabled() {
 		if version, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName()); err == nil {
 			falcoVersion = version
 		} else {
@@ -359,7 +359,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	s.handleThreatDetectionHeartbeat(ctx, resp.ThreatDetection)
 
 	if s.GetAutoUpdateEnabled() {
-		if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
+		if s.IsRuntimeDetectionAvailable() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
 			s.logger.LogInfo("falco version updated from heartbeat response", "current version", s.GetFalcoVersion(), "new version", resp.Cluster.DesiredFalcoVersion)
 			if err := s.UpdateFalcoVersion(ctx, resp.Cluster.DesiredFalcoVersion); err != nil {
 				s.logger.ReportError(ctx, err, "error updating falco version", "managerError")
@@ -539,7 +539,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
-	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
+	if s.IsRuntimeDetectionAvailable() && s.IsThreatDetectionEnabled() {
 		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")

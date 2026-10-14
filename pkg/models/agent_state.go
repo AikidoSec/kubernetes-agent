@@ -32,6 +32,7 @@ type AgentState struct {
 
 	threatDetectionEnabled        bool
 	chartsRuntimeDetectionEnabled bool
+	runtimeDetectionSetupFailed   bool
 	falcoDaemonSetName            string
 	enabledThreatRules            []string
 	threatDetectionExceptions     []ThreatDetectionException
@@ -191,6 +192,18 @@ func (a *AgentState) SetChartsRuntimeDetectionEnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.chartsRuntimeDetectionEnabled = enabled
+}
+
+func (a *AgentState) SetRuntimeDetectionSetupFailed(failed bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.runtimeDetectionSetupFailed = failed
+}
+
+func (a *AgentState) IsRuntimeDetectionAvailable() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.chartsRuntimeDetectionEnabled && !a.runtimeDetectionSetupFailed
 }
 
 func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {

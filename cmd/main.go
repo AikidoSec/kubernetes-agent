@@ -192,11 +192,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := agentService.InitializeAgent(ctx, cfg, mgr, envCfg); err != nil {
-		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
-		os.Exit(1)
-	}
-
 	// RuntimeDetectionEnabled is a static Helm flag that controls whether runtime detection
 	// infrastructure is deployed (Falco DaemonSet subchart + proxy HTTP server). The per-cluster
 	// DB flag (resp.ThreatDetection.Enabled) is a runtime on/off switch within an already
@@ -247,8 +242,14 @@ func main() {
 			return nil
 		}
 		if err := setupRuntimeDetection(); err != nil {
+			agentService.SetRuntimeDetectionSetupFailed(true)
 			loggerService.ReportError(ctx, err, "runtime detection disabled; other agent functions (SBOM collection, scanning) are unaffected", "runtimeDetectionSetupError")
 		}
+	}
+
+	if err := agentService.InitializeAgent(ctx, cfg, mgr, envCfg); err != nil {
+		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
+		os.Exit(1)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
