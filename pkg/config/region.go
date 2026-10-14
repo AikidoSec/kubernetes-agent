@@ -30,7 +30,7 @@ func DeriveRuntimeDetectionEndpoint(apiEndpoint string) (string, error) {
 	return host, nil
 }
 
-func parseEnvAndRegion(apiEndpoint string) (env, region string, err error) {
+func parseEnvAndRegion(apiEndpoint string) (string, string, error) {
 	u, parseErr := url.Parse(apiEndpoint)
 	if parseErr != nil || u.Host == "" {
 		return "", "", fmt.Errorf("could not parse apiEndpoint %q", apiEndpoint)
