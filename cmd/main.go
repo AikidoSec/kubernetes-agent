@@ -127,6 +127,7 @@ func main() {
 		Logger:                            loggerService,
 		AgentNamespace:                    envCfg.Namespace,
 		AgentName:                         envCfg.AgentName,
+		FalcoDaemonSetName:                envCfg.FalcoDaemonSetName,
 		ConfigSecretName:                  envCfg.ConfigSecretName,
 		AgentPodName:                      envCfg.AgentPodName,
 		APIToken:                          cfg.APIToken,
@@ -192,50 +193,64 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := agentService.InitializeAgent(ctx, cfg, mgr, envCfg); err != nil {
-		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
-		os.Exit(1)
-	}
-
 	// RuntimeDetectionEnabled is a static Helm flag that controls whether runtime detection
 	// infrastructure is deployed (Falco DaemonSet subchart + proxy HTTP server). The per-cluster
 	// DB flag (resp.ThreatDetection.Enabled) is a runtime on/off switch within an already
 	// deployed setup — it cannot activate threat detection if the Helm flag is false.
 	if envCfg.RuntimeDetectionEnabled {
-		threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
-			Endpoint:              cfg.APIEndpoint + "/api/threats/events",
-			MaxBatch:              1000,
-			FlushEvery:            time.Second * 10,
-			MaxConcurrentRequests: 5,
-			CompressionEnabled:    true,
-			Token:                 cfg.APIToken,
-			HeartbeatService:      heartbeatService,
-		})
-		if err != nil {
-			loggerService.ReportError(ctx, err, "error creating threat batch client", "agentSetupError")
-			os.Exit(1)
-		}
-		proxy := falco.NewProxy(
-			loggerService,
-			envCfg.RuntimeDetectionPort,
-			agentState,
-			[]string{},
-			[]falco.Route{
-				{
-					Tag:       "aikido:threat-detection",
-					Client:    threatBatchClient,
-					IsEnabled: agentState.IsThreatDetectionEnabled,
-					ShouldSkip: func(e falco.Event) bool {
-						return !slices.Contains(agentState.GetEnabledThreatRules(), e.Rule)
+		// Best-effort setup: on any failure, disable only runtime detection and keep the rest of the
+		// agent (SBOM collection, scanning) running.
+		setupRuntimeDetection := func() error {
+			if cfg.RuntimeDetectionEndpoint == "" {
+				derived, err := config.DeriveRuntimeDetectionEndpoint(cfg.APIEndpoint)
+				if err != nil {
+					return fmt.Errorf("runtimeDetectionEndpoint is not set and could not be derived from apiEndpoint: %w", err)
+				}
+				cfg.RuntimeDetectionEndpoint = derived
+			}
+			threatBatchClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
+				Endpoint:              cfg.RuntimeDetectionEndpoint + "/infra/v1/threats",
+				MaxBatch:              1000,
+				FlushEvery:            time.Second * 10,
+				MaxConcurrentRequests: 5,
+				CompressionEnabled:    true,
+				Token:                 cfg.APIToken,
+				HeartbeatService:      heartbeatService,
+			})
+			if err != nil {
+				return fmt.Errorf("creating threat batch client: %w", err)
+			}
+			proxy := falco.NewProxy(
+				loggerService,
+				envCfg.RuntimeDetectionPort,
+				agentState,
+				[]string{},
+				[]falco.Route{
+					{
+						Tag:       "aikido:threat-detection",
+						Client:    threatBatchClient,
+						IsEnabled: agentState.IsThreatDetectionEnabled,
+						ShouldSkip: func(e falco.Event) bool {
+							return !slices.Contains(agentState.GetEnabledThreatRules(), e.Rule)
+						},
 					},
 				},
-			},
-		)
-		agentService.RegisterFalcoProxy(proxy)
-		if err := mgr.Add(proxy); err != nil {
-			l.Error("Unable to add falco event proxy to manager", "error", err)
-			os.Exit(1)
+			)
+			agentService.RegisterFalcoProxy(proxy)
+			if err := mgr.Add(proxy); err != nil {
+				return fmt.Errorf("adding falco event proxy to manager: %w", err)
+			}
+			return nil
 		}
+		if err := setupRuntimeDetection(); err != nil {
+			agentService.SetRuntimeDetectionSetupFailed(true)
+			loggerService.ReportError(ctx, err, "runtime detection disabled; other agent functions (SBOM collection, scanning) are unaffected", "runtimeDetectionSetupError")
+		}
+	}
+
+	if err := agentService.InitializeAgent(ctx, cfg, mgr, envCfg); err != nil {
+		loggerService.ReportError(ctx, err, "error initializing agent", "agentSetupError")
+		os.Exit(1)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

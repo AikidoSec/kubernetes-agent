@@ -25,7 +25,7 @@ func (s *Service) handleThreatDetectionHeartbeat(ctx context.Context, td models.
 		s.SetThreatDetectionEnabled(nowEnabled)
 	}
 
-	if !s.IsChartsRuntimeDetectionEnabled() {
+	if !s.IsRuntimeDetectionAvailable() {
 		return
 	}
 

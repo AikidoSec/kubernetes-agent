@@ -33,6 +33,7 @@ func ParseConfigFromFile(path string) (models.Config, error) {
 	if config.APIEndpoint[len(config.APIEndpoint)-1] == '/' {
 		config.APIEndpoint = config.APIEndpoint[:len(config.APIEndpoint)-1]
 	}
+	config.RuntimeDetectionEndpoint = strings.TrimSuffix(config.RuntimeDetectionEndpoint, "/")
 
 	return config, nil
 }
@@ -99,6 +100,11 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		configSecretName = agentName
 	}
 
+	falcoDaemonSetName, exists := os.LookupEnv("FALCO_DAEMONSET_NAME")
+	if !exists {
+		falcoDaemonSetName = fmt.Sprintf("%s-runtime-detection", agentName)
+	}
+
 	var sbomCollectorEnabled *bool
 	sbomCollectorEnabledStr, exists := os.LookupEnv("SBOM_COLLECTOR_ENABLED")
 	if exists {
@@ -154,5 +160,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		AutoUpdateEnabled:           autoUpdateEnabled,
 		RuntimeDetectionEnabled:     runtimeDetectionEnabled,
 		RuntimeDetectionPort:        runtimeDetectionProxyPort,
+		FalcoDaemonSetName:          falcoDaemonSetName,
 	}, errs
 }
