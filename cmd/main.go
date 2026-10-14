@@ -127,6 +127,7 @@ func main() {
 		Logger:                            loggerService,
 		AgentNamespace:                    envCfg.Namespace,
 		AgentName:                         envCfg.AgentName,
+		FalcoDaemonSetName:                envCfg.FalcoDaemonSetName,
 		ConfigSecretName:                  envCfg.ConfigSecretName,
 		AgentPodName:                      envCfg.AgentPodName,
 		APIToken:                          cfg.APIToken,

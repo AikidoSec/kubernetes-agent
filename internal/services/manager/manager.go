@@ -38,6 +38,7 @@ const (
 type Options struct {
 	AgentNamespace                    string
 	AgentName                         string
+	FalcoDaemonSetName                string
 	APIToken                          string
 	APIEndpoint                       string
 	ConfigSecretName                  string
@@ -89,7 +90,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		o.IsSBOMCollectorRunningAsDaemonSet,
 		fmt.Sprintf("%s-sbom-collector", o.AgentName),
 		o.AutoUpdateEnabled,
-		fmt.Sprintf("%s-runtime-detection", o.AgentName),
+		o.FalcoDaemonSetName,
 	)
 
 	// Build the cluster configuration based on the environment.
