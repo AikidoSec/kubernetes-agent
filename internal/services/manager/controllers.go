@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
@@ -323,6 +324,18 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 		if !create {
 			continue
 		}
+
+		// Vendor controllers watch typed objects, unlike the unstructured generic
+		// watchers, so a drifted CRD would hang the shared cache at startup.
+		if err := probeTypedDecode(ctx, runtimeManager.GetAPIReader(), runtimeManager.GetScheme(), c.gvk); err != nil {
+			var mismatch *schemaMismatchError
+			if errors.As(err, &mismatch) {
+				s.logger.ReportError(ctx, err, "skipping "+c.logName+" controller", "managerError", "asset_type", c.gvk.String())
+				continue
+			}
+			s.logger.LogWarning(err, "could not verify "+c.logName+" payload, creating the controller anyway")
+		}
+
 		s.logger.LogInfo(c.logName + " is available in the cluster")
 		if err := c.setup(); err != nil {
 			s.logger.ReportError(ctx, err, "error creating "+c.logName+" controller", "managerError")
