@@ -154,6 +154,32 @@ func TestProbeTypedDecodeBoundsAStalledList(t *testing.T) {
 	}
 }
 
+// setupControllers probes vendor controllers in sequence, so a per-probe deadline alone
+// would not bound the pass. One shared ctx bounds the sum.
+func TestProbeTypedDecodeSharesABudgetAcrossProbes(t *testing.T) {
+	released := make(chan struct{})
+	reader, scheme := newProbeClient(t, func(http.ResponseWriter, *http.Request) {
+		<-released
+	})
+	t.Cleanup(func() { close(released) })
+
+	const budget = 400 * time.Millisecond
+	probeCtx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+
+	started := time.Now()
+	for i := range 13 {
+		if err := probeTypedDecode(probeCtx, reader, scheme, ephemeralRunnerGVK); err == nil {
+			t.Fatalf("probe %d: want an error against a stalled server", i)
+		}
+	}
+	elapsed := time.Since(started)
+
+	if elapsed > 4*budget {
+		t.Errorf("13 probes took %s, want the shared budget of %s to bound them", elapsed, budget)
+	}
+}
+
 // Paging must not run unbounded against a server that always returns a continue token.
 func TestProbeTypedDecodeBoundsEndlessPaging(t *testing.T) {
 	var requests int

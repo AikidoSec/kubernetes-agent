@@ -315,6 +315,9 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 		},
 	}
 
+	probeCtx, cancelProbes := context.WithTimeout(ctx, decodeProbeBudget)
+	defer cancelProbes()
+
 	for _, c := range vendorControllers {
 		create, err := s.shouldCreateController(serverResourcesGVKs, c.gvk, restMapper, agentClusterRole)
 		if err != nil {
@@ -327,7 +330,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 
 		// Vendor controllers watch typed objects, unlike the unstructured generic
 		// watchers, so a drifted CRD would hang the shared cache at startup.
-		if err := probeTypedDecode(ctx, runtimeManager.GetAPIReader(), runtimeManager.GetScheme(), c.gvk); err != nil {
+		if err := probeTypedDecode(probeCtx, runtimeManager.GetAPIReader(), runtimeManager.GetScheme(), c.gvk); err != nil {
 			var mismatch *schemaMismatchError
 			if errors.As(err, &mismatch) {
 				s.logger.ReportError(ctx, err, "skipping "+c.logName+" controller", "managerError", "asset_type", c.gvk.String())

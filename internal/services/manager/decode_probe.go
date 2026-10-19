@@ -18,6 +18,7 @@ const (
 	decodeProbePageSize = 100
 	decodeProbeMaxPages = 50
 	decodeProbeTimeout  = 60 * time.Second
+	decodeProbeBudget   = 2 * time.Minute
 )
 
 // schemaMismatchError marks a payload the mirrored Go type cannot decode.
@@ -33,12 +34,11 @@ func (e *schemaMismatchError) Error() string {
 func (e *schemaMismatchError) Unwrap() error { return e.err }
 
 // probeTypedDecode lists gvk uncached to check the mirrored type decodes what the
-// cluster serves. A typed informer that fails its initial LIST never syncs, and
-// controller-runtime waits on every informer in the shared cache, so one drifted CRD
-// blocks the whole agent. A *schemaMismatchError means skip the controller; any other
-// error means the probe could not run and the caller should still create it. It runs
-// before mgr.Start against a REST config with no timeout, so a deadline and a page
-// budget bound it; exhausting either counts as not having run.
+// cluster serves: an informer failing its initial LIST never syncs, and
+// controller-runtime waits on every informer in the shared cache. A
+// *schemaMismatchError means skip the controller; any other error means the probe could
+// not run, so still create it. Callers share one decodeProbeBudget-bounded ctx across a
+// pass, since the per-probe deadline does not bound their sum.
 func probeTypedDecode(ctx context.Context, reader client.Reader, scheme *runtime.Scheme, gvk schema.GroupVersionKind) error {
 	ctx, cancel := context.WithTimeout(ctx, decodeProbeTimeout)
 	defer cancel()
@@ -55,8 +55,6 @@ func probeTypedDecode(ctx context.Context, reader client.Reader, scheme *runtime
 		return fmt.Errorf("%s is registered in the scheme but is not a client.ObjectList", listGVK)
 	}
 
-	// Every page has to decode: a clean first page says nothing about the one carrying
-	// the drifted field.
 	token := ""
 	for page := 1; ; page++ {
 		if page > decodeProbeMaxPages {
