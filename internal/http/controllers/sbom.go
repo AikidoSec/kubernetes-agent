@@ -23,13 +23,22 @@ func NewSBOMController(logger *slog.Logger, svc *sbom.Service) *SBOMController {
 }
 
 func (c *SBOMController) RegisterRoutes(mux *http.ServeMux) {
+	// SECURITY NOTE: These endpoints expose sensitive information including API tokens.
+	// They should only be accessible from trusted sources (e.g., the SBOM collector pod).
+	// Ensure proper network policies are in place to restrict access to these endpoints.
 	mux.HandleFunc("GET /sbom-collector/config", c.GetCollectorConfig)
-	mux.HandleFunc("GET /sbom-collector/token", c.GetCollectorToken)
+	// The /sbom-collector/token endpoint has been removed as it's redundant.
+	// The API token is already included in the /sbom-collector/config response.
 	mux.HandleFunc("GET /sbom-collector/image-status", c.GetImageProcessingStatus)
 	mux.HandleFunc("POST /sbom-collector/image-status", c.SetImageProcessingStatus)
 }
 
 func (c *SBOMController) GetCollectorConfig(rw http.ResponseWriter, r *http.Request) {
+	// Log access to this sensitive endpoint
+	c.logger.Info("SBOM collector config requested",
+		slog.String("remoteAddr", r.RemoteAddr),
+		slog.String("userAgent", r.UserAgent()))
+
 	cfg, err := c.service.HandleGetCollectorConfig(r.Context())
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("error generating SBOM collector config: %s", err.Error()), http.StatusInternalServerError)
@@ -39,16 +48,6 @@ func (c *SBOMController) GetCollectorConfig(rw http.ResponseWriter, r *http.Requ
 	rw.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(rw).Encode(cfg); err != nil {
-		http.Error(rw, fmt.Sprintf("error encoding response: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-}
-
-func (c *SBOMController) GetCollectorToken(rw http.ResponseWriter, _ *http.Request) {
-	t := c.service.GetAPIToken()
-	rw.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(rw).Encode(models.CollectorToken{Token: t}); err != nil {
 		http.Error(rw, fmt.Sprintf("error encoding response: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
