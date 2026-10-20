@@ -2,7 +2,9 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/controllers/arc"
@@ -314,15 +316,45 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 		},
 	}
 
+	available := make([]vendorController, 0, len(vendorControllers))
 	for _, c := range vendorControllers {
 		create, err := s.shouldCreateController(serverResourcesGVKs, c.gvk, restMapper, agentClusterRole)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 			return fmt.Errorf("error checking if controller should be created: %w", err)
 		}
-		if !create {
-			continue
+		if create {
+			available = append(available, c)
 		}
+	}
+
+	probeCtx, cancelProbes := context.WithTimeout(ctx, decodeProbeBudget)
+	defer cancelProbes()
+
+	probeErrs := make([]error, len(available))
+	slots := make(chan struct{}, decodeProbeConcurrency)
+	var probing sync.WaitGroup
+
+	for i, c := range available {
+		probing.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer func() { <-slots; probing.Done() }()
+			probeErrs[i] = probeTypedDecode(probeCtx, runtimeManager.GetAPIReader(), runtimeManager.GetScheme(), c.gvk)
+		}()
+	}
+	probing.Wait()
+
+	for i, c := range available {
+		if err := probeErrs[i]; err != nil {
+			var mismatch *schemaMismatchError
+			if errors.As(err, &mismatch) {
+				s.logger.ReportError(ctx, err, "skipping "+c.logName+" controller", "managerError", "asset_type", c.gvk.String())
+				continue
+			}
+			s.logger.LogWarning(err, "could not verify "+c.logName+" payload, creating the controller anyway")
+		}
+
 		s.logger.LogInfo(c.logName + " is available in the cluster")
 		if err := c.setup(); err != nil {
 			s.logger.ReportError(ctx, err, "error creating "+c.logName+" controller", "managerError")

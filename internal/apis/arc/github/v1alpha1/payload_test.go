@@ -86,6 +86,57 @@ func TestDeepCopyPreservesPayload(t *testing.T) {
 	}
 }
 
+// TestFailuresAcceptsBothARCSchemas covers startup against older ARC: status.failures
+// is map[string]bool up to gha-runner-scale-set-0.11.0 and map[string]metav1.Time from
+// 0.12.0 on. A typed informer that cannot decode one of them never syncs, which blocks
+// every controller sharing the cache, so both shapes must survive decode untouched.
+func TestFailuresAcceptsBothARCSchemas(t *testing.T) {
+	for name, failures := range map[string]string{
+		"bool up to 0.11.0":      `{"runner-abc":true}`,
+		"timestamp from 0.12.0":  `{"runner-abc":"2024-12-12T10:40:00Z"}`,
+		"mixed across a rollout": `{"runner-abc":true,"runner-def":"2024-12-12T10:40:00Z"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			payload := []byte(`{"apiVersion":"actions.github.com/v1alpha1","kind":"EphemeralRunner",` +
+				`"metadata":{"name":"runner-1"},"status":{"failures":` + failures + `}}`)
+
+			var runner v1alpha1.EphemeralRunner
+			if err := json.Unmarshal(payload, &runner); err != nil {
+				t.Fatalf("decoding ephemeral runner: %v", err)
+			}
+			actual, err := json.Marshal(runner.Status.Failures)
+			if err != nil {
+				t.Fatalf("marshalling failures: %v", err)
+			}
+			if string(actual) != failures {
+				t.Errorf("failures diverged\nwant: %s\ngot:  %s", failures, actual)
+			}
+
+			copied := runner.DeepCopy()
+			copied.Status.Failures["runner-abc"][0] = 'X'
+			if string(runner.Status.Failures["runner-abc"]) == string(copied.Status.Failures["runner-abc"]) {
+				t.Error("deep copy aliased the raw failure bytes")
+			}
+		})
+	}
+}
+
+// TestListDecodeToleratesLegacyFailures mirrors the informer's initial LIST: a single
+// undecodable item fails the whole list, not just that runner.
+func TestListDecodeToleratesLegacyFailures(t *testing.T) {
+	payload := []byte(`{"apiVersion":"actions.github.com/v1alpha1","kind":"EphemeralRunnerList","items":[` +
+		`{"metadata":{"name":"current"},"status":{"failures":{"a":"2024-12-12T10:40:00Z"}}},` +
+		`{"metadata":{"name":"legacy"},"status":{"failures":{"b":true}}}]}`)
+
+	var list v1alpha1.EphemeralRunnerList
+	if err := json.Unmarshal(payload, &list); err != nil {
+		t.Fatalf("decoding ephemeral runner list: %v", err)
+	}
+	if len(list.Items) != 2 {
+		t.Fatalf("decoded %d items, want 2", len(list.Items))
+	}
+}
+
 func readGolden(t *testing.T, name string) []byte {
 	t.Helper()
 	payload, err := os.ReadFile(filepath.Join("testdata", name))
