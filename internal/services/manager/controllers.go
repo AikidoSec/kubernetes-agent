@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/controllers/arc"
@@ -315,22 +316,37 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 		},
 	}
 
-	probeCtx, cancelProbes := context.WithTimeout(ctx, decodeProbeBudget)
-	defer cancelProbes()
-
+	available := make([]vendorController, 0, len(vendorControllers))
 	for _, c := range vendorControllers {
 		create, err := s.shouldCreateController(serverResourcesGVKs, c.gvk, restMapper, agentClusterRole)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 			return fmt.Errorf("error checking if controller should be created: %w", err)
 		}
-		if !create {
-			continue
+		if create {
+			available = append(available, c)
 		}
+	}
 
-		// Vendor controllers watch typed objects, unlike the unstructured generic
-		// watchers, so a drifted CRD would hang the shared cache at startup.
-		if err := probeTypedDecode(probeCtx, runtimeManager.GetAPIReader(), runtimeManager.GetScheme(), c.gvk); err != nil {
+	probeCtx, cancelProbes := context.WithTimeout(ctx, decodeProbeBudget)
+	defer cancelProbes()
+
+	probeErrs := make([]error, len(available))
+	slots := make(chan struct{}, decodeProbeConcurrency)
+	var probing sync.WaitGroup
+
+	for i, c := range available {
+		probing.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer func() { <-slots; probing.Done() }()
+			probeErrs[i] = probeTypedDecode(probeCtx, runtimeManager.GetAPIReader(), runtimeManager.GetScheme(), c.gvk)
+		}()
+	}
+	probing.Wait()
+
+	for i, c := range available {
+		if err := probeErrs[i]; err != nil {
 			var mismatch *schemaMismatchError
 			if errors.As(err, &mismatch) {
 				s.logger.ReportError(ctx, err, "skipping "+c.logName+" controller", "managerError", "asset_type", c.gvk.String())

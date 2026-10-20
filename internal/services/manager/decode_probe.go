@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	decodeProbePageSize = 100
-	decodeProbeMaxPages = 50
-	decodeProbeTimeout  = 60 * time.Second
-	decodeProbeBudget   = 2 * time.Minute
+	decodeProbePageSize    = 100
+	decodeProbeMaxPages    = 50
+	decodeProbeTimeout     = 60 * time.Second
+	decodeProbeBudget      = 2 * time.Minute
+	decodeProbeConcurrency = 8
 )
 
 // schemaMismatchError marks a payload the mirrored Go type cannot decode.

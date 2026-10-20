@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -154,8 +155,8 @@ func TestProbeTypedDecodeBoundsAStalledList(t *testing.T) {
 	}
 }
 
-// setupControllers probes vendor controllers in sequence, so a per-probe deadline alone
-// would not bound the pass. One shared ctx bounds the sum.
+// Concurrency is capped, so a pass with more vendors than slots still runs in waves and
+// a per-probe deadline alone would not bound it. One shared ctx bounds the sum.
 func TestProbeTypedDecodeSharesABudgetAcrossProbes(t *testing.T) {
 	released := make(chan struct{})
 	reader, scheme := newProbeClient(t, func(http.ResponseWriter, *http.Request) {
@@ -177,6 +178,41 @@ func TestProbeTypedDecodeSharesABudgetAcrossProbes(t *testing.T) {
 
 	if elapsed > 4*budget {
 		t.Errorf("13 probes took %s, want the shared budget of %s to bound them", elapsed, budget)
+	}
+}
+
+// Concurrent probes cost the slowest vendor rather than their sum.
+func TestProbeTypedDecodeConcurrentlyCostsTheSlowest(t *testing.T) {
+	const delay = 200 * time.Millisecond
+	reader, scheme := newProbeClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(delay)
+		writeJSON(t, w, http.StatusOK, listBody("", `{"metadata":{"name":"runner-1"},"status":{}}`))
+	})
+
+	probes := decodeProbeConcurrency
+	errs := make([]error, probes)
+	slots := make(chan struct{}, decodeProbeConcurrency)
+	var probing sync.WaitGroup
+
+	started := time.Now()
+	for i := range probes {
+		probing.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer func() { <-slots; probing.Done() }()
+			errs[i] = probeTypedDecode(context.Background(), reader, scheme, ephemeralRunnerGVK)
+		}()
+	}
+	probing.Wait()
+	elapsed := time.Since(started)
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("probe %d: %v", i, err)
+		}
+	}
+	if elapsed > time.Duration(probes)*delay/2 {
+		t.Errorf("%d probes took %s, want roughly one %s delay, not their sum", probes, elapsed, delay)
 	}
 }
 
