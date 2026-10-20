@@ -1,0 +1,119 @@
+{
+  "comment": [
+    "Machine-readable pins for the third-party types mirrored under internal/apis.",
+    "Each entry records the upstream repo, the tag the mirror was extracted from, and the",
+    "upstream files it derives from. scripts/check-mirror-drift.py diffs those files between",
+    "the pinned tag and the newest matching tag, so upstream changes surface without waiting",
+    "for someone to re-extract. A source without `files` is diffed as a whole directory.",
+    "Keep `tag` in step with the version named in each package's doc.go."
+  ],
+  "mirrors": [
+    {
+      "name": "arc-github",
+      "repo": "actions/actions-runner-controller",
+      "tag": "gha-runner-scale-set-0.14.2",
+      "tagPattern": "gha-runner-scale-set-",
+      "localPath": "internal/apis/arc/github/v1alpha1",
+      "sources": [
+        {
+          "path": "apis/actions.github.com/v1alpha1",
+          "files": [
+            "ephemeralrunner_types.go",
+            "autoscalinglistener_types.go",
+            "common.go",
+            "autoscalingrunnerset_types.go"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arc-summerwind",
+      "repo": "actions/actions-runner-controller",
+      "tag": "gha-runner-scale-set-0.14.2",
+      "tagPattern": "gha-runner-scale-set-",
+      "localPath": "internal/apis/arc/summerwind/v1alpha1",
+      "sources": [
+        {
+          "path": "apis/actions.summerwind.net/v1alpha1",
+          "files": ["runner_types.go"]
+        }
+      ]
+    },
+    {
+      "name": "keda",
+      "repo": "kedacore/keda",
+      "tag": "v2.20.0",
+      "tagPattern": "v",
+      "localPath": "internal/apis/keda/v1alpha1",
+      "sources": [
+        {
+          "path": "apis/keda/v1alpha1",
+          "files": [
+            "condition_types.go",
+            "gvkr_types.go",
+            "scaledjob_types.go",
+            "scaledobject_types.go",
+            "scaletriggers_types.go"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "kong-kubernetes-configuration",
+      "repo": "Kong/kubernetes-configuration",
+      "tag": "v2.0.1",
+      "tagPattern": "v",
+      "localPath": "internal/apis/kong/v1alpha1",
+      "sources": [
+        {
+          "path": "api/configuration/v1alpha1",
+          "files": ["kongroute_types.go", "kongservice_types.go"]
+        },
+        { "path": "api/common/v1alpha1" },
+        { "path": "api/konnect/v1alpha2" }
+      ]
+    },
+    {
+      "name": "kong-sdk-konnect-go",
+      "repo": "Kong/sdk-konnect-go",
+      "tag": "v0.9.1",
+      "tagPattern": "v",
+      "localPath": "internal/apis/kong/v1alpha1",
+      "sources": [
+        {
+          "path": "models/components",
+          "files": ["routejson.go", "serviceoutput.go"]
+        }
+      ]
+    },
+    {
+      "name": "rollouts",
+      "repo": "argoproj/argo-rollouts",
+      "tag": "v1.9.0",
+      "tagPattern": "v",
+      "localPath": "internal/apis/rollouts/v1alpha1",
+      "sources": [
+        {
+          "path": "pkg/apis/rollouts/v1alpha1",
+          "files": ["types.go", "analysis_types.go", "experiment_types.go"]
+        }
+      ]
+    },
+    {
+      "name": "traefik",
+      "repo": "traefik/traefik",
+      "tag": "v3.6.25",
+      "tagPattern": "v",
+      "localPath": "internal/apis/traefik/v1alpha1",
+      "sources": [
+        {
+          "path": "pkg/provider/kubernetes/crd/traefikio/v1alpha1",
+          "files": ["ingressroute.go"]
+        },
+        { "path": "pkg/config/dynamic", "files": ["http_config.go"] },
+        { "path": "pkg/types", "files": ["domains.go"] },
+        { "path": "pkg/observability/types", "files": ["tracing.go"] }
+      ]
+    }
+  ]
+}
