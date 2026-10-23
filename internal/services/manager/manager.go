@@ -419,8 +419,14 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetAgentVersion(agentVersion)
 
 	clusterIdentifier, err := s.getClusterIdentifier(ctx)
+	s.heartbeatService.SetClusterIdentifier(clusterIdentifier)
 	if err != nil {
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
+	}
+
+	if err := s.heartbeatService.VerifyToken(ctx, clusterIdentifier); err != nil {
+		s.logger.ReportError(ctx, err, "error verifying agent token", "managerError")
+		return fmt.Errorf("error verifying agent token: %w", err)
 	}
 
 	// List all events from the agent namespace.

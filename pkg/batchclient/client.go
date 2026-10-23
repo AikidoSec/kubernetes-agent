@@ -246,6 +246,9 @@ func (c *BatchClient) send(events []any) error {
 	}
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+token)
+	if c.heartbeatService != nil {
+		req.Header.Set("X-Cluster-Identifier", c.heartbeatService.GetClusterIdentifier())
+	}
 
 	if c.compressionEnabled {
 		req.Header.Set("Content-Encoding", "gzip")
