@@ -38,6 +38,7 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 	}
 
 	return models.CollectorConfig{
+		ClusterIdentifier:          s.GetClusterIdentifier(),
 		APIHost:                    s.GetAPIEndpoint(),
 		ExcludedNamespaces:         s.GetExcludedNamespaces(),
 		IncludedNamespaces:         s.GetIncludedNamespaces(),

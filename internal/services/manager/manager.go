@@ -420,6 +420,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	clusterIdentifier, err := s.getClusterIdentifier(ctx)
 	s.heartbeatService.SetClusterIdentifier(clusterIdentifier)
+	s.SetClusterIdentifier(clusterIdentifier)
 	if err != nil {
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}

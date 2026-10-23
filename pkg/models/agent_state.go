@@ -8,6 +8,7 @@ import (
 )
 
 type AgentState struct {
+	clusterIdentifier          string
 	agentVersion               string
 	agentNamespace             string
 	agentName                  string
@@ -41,6 +42,18 @@ type AgentState struct {
 	collectorImageReservations map[string]time.Time
 
 	mu sync.Mutex
+}
+
+func (a *AgentState) SetClusterIdentifier(identifier string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.clusterIdentifier = identifier
+}
+
+func (a *AgentState) GetClusterIdentifier() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.clusterIdentifier
 }
 
 func NewEmptyAgentState() *AgentState {
