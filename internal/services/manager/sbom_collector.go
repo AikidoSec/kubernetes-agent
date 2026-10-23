@@ -177,6 +177,7 @@ func (s *Service) listCollectorScannedImages(ctx context.Context) ([]models.Scan
 
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+s.GetAPIToken())
+	req.Header.Set("X-Cluster-Identifier", s.heartbeatService.GetClusterIdentifier())
 
 	res, err := sbomHTTPClient.Do(req)
 	if err != nil {
