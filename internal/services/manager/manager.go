@@ -409,13 +409,13 @@ func (s *Service) sendInitialHeartbeat(ctx context.Context, clusterIdentifier st
 	}
 }
 
-// validateToken retries until the token is accepted or the pod is killed by the startup probe.
-func (s *Service) validateToken(ctx context.Context) error {
+// validateStartupToken retries until the token is accepted or the pod is killed by the startup probe.
+func (s *Service) validateStartupToken(ctx context.Context) error {
 	for attempt := 1; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		err := s.heartbeatService.ValidateToken(ctx)
+		err := s.heartbeatService.ValidateStartupToken(ctx)
 		if err == nil {
 			return nil
 		}
@@ -451,7 +451,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}
 
-	if err := s.validateToken(ctx); err != nil {
+	if err := s.validateStartupToken(ctx); err != nil {
 		s.logger.ReportError(ctx, err, "error validating agent token", "managerError")
 		return fmt.Errorf("error validating agent token: %w", err)
 	}

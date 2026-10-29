@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-func (s *Service) ValidateToken(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.APIEndpoint+"/api/validateToken", nil)
+func (s *Service) ValidateStartupToken(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.APIEndpoint+"/api/validateStartupToken", nil)
 	if err != nil {
 		return fmt.Errorf("error creating token validation request: %w", err)
 	}
