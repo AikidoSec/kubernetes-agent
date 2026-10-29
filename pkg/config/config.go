@@ -24,6 +24,14 @@ func ParseConfigFromFile(path string) (models.Config, error) {
 	if err := yaml.Unmarshal(content, &config); err != nil {
 		return models.Config{}, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
+	if value := os.Getenv("SHARED_TOKEN_ENABLED"); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return models.Config{}, fmt.Errorf("invalid SHARED_TOKEN_ENABLED: %w", err)
+		}
+		config.SharedToken.Enabled = enabled
+	}
+	config.SharedToken.ClusterIdentifier = os.Getenv("SHARED_TOKEN_CLUSTER_IDENTIFIER")
 
 	if err := config.Validate(); err != nil {
 		return models.Config{}, fmt.Errorf("invalid config file %s: %w", path, err)
