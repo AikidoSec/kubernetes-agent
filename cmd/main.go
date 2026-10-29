@@ -99,7 +99,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	heartbeatService := heartbeat.NewService(cfg.APIEndpoint, cfg.APIToken, time.Second*time.Duration(heartbeatIntervalSeconds))
+	agentState := models.NewEmptyAgentState()
+	agentState.SetSharedTokenConfig(cfg.SharedToken)
+
+	heartbeatService := heartbeat.NewService(cfg.APIEndpoint, cfg.APIToken, time.Second*time.Duration(heartbeatIntervalSeconds), agentState)
+
 	errorsClient, err := batchclient.NewBatchClient(l, batchclient.ClientOptions{
 		Endpoint:              cfg.APIEndpoint + "/api/errors",
 		MaxBatch:              1000,
@@ -108,6 +112,7 @@ func main() {
 		CompressionEnabled:    true,
 		Token:                 cfg.APIToken,
 		HeartbeatService:      heartbeatService,
+		AgentState:            agentState,
 	})
 	if err != nil {
 		l.Error("error creating batch client", "error", err)
@@ -122,7 +127,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	agentState := models.NewEmptyAgentState()
 	agentService, err := manager.NewService(ctx, agentState, manager.Options{
 		Logger:                            loggerService,
 		AgentNamespace:                    envCfg.Namespace,
@@ -216,6 +220,7 @@ func main() {
 				CompressionEnabled:    true,
 				Token:                 cfg.APIToken,
 				HeartbeatService:      heartbeatService,
+				AgentState:            agentState,
 			})
 			if err != nil {
 				return fmt.Errorf("creating threat batch client: %w", err)

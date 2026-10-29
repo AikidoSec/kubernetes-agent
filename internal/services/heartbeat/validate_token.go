@@ -8,13 +8,15 @@ import (
 	"time"
 )
 
-func (s *Service) ValidateToken(ctx context.Context, clusterIdentifier string) error {
+func (s *Service) ValidateToken(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.APIEndpoint+"/api/validateToken", nil)
 	if err != nil {
 		return fmt.Errorf("error creating token validation request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+s.APIToken)
-	req.Header.Set("X-Cluster-Identifier", clusterIdentifier)
+	req.Header.Set("X-Cluster-Identifier", s.agentState.GetClusterIdentifier())
+	req.Header.Set("X-Shared-Token-Enabled", s.agentState.GetSharedTokenEnabled())
+	req.Header.Set("X-Shared-Token-Cluster-Identifier", s.agentState.GetSharedTokenClusterIdentifier())
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	res, err := client.Do(req)

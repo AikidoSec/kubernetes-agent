@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
 func TestValidateToken(t *testing.T) {
@@ -17,14 +19,25 @@ func TestValidateToken(t *testing.T) {
 				if r.Header.Get("Authorization") != "Bearer test-token" {
 					t.Error("missing bearer token")
 				}
-				if r.Header.Get("X-Cluster-Identifier") != "test-cluster" {
-					t.Error("missing cluster identifier")
+
+				if r.Header.Get("X-Shared-Token-Enabled") != "true" || r.Header.Get("X-Shared-Token-Cluster-Identifier") != "test-cluster" {
+					t.Error("missing shared token routing headers")
+				}
+
+				if r.Header.Get("X-Cluster-Identifier") != "cluster-uid" {
+					t.Error("missing cluster identifier header")
 				}
 				w.WriteHeader(status)
 			}))
 			defer server.Close()
-			s := NewService(server.URL, "test-token", 0)
-			err := s.ValidateToken(context.Background(), "test-cluster")
+
+			state := models.NewEmptyAgentState()
+			state.SetClusterIdentifier("cluster-uid")
+			state.SetSharedTokenConfig(models.SharedTokenConfig{Enabled: true, ClusterIdentifier: "test-cluster"})
+
+			s := NewService(server.URL, "test-token", 0, state)
+
+			err := s.ValidateToken(context.Background())
 			if (err != nil) != (status != http.StatusOK) {
 				t.Fatalf("status %d: unexpected error: %v", status, err)
 			}

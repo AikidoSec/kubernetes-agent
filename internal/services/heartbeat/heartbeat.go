@@ -7,38 +7,25 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
 type Service struct {
-	APIEndpoint         string
-	APIToken            string
-	isServerActive      bool
-	sendInterval        time.Duration
-	clusterIdentifier   string
-	clusterIdentifierMu sync.RWMutex
+	APIEndpoint    string
+	APIToken       string
+	isServerActive bool
+	sendInterval   time.Duration
+	agentState     *models.AgentState
 }
 
-func (s *Service) SetClusterIdentifier(identifier string) {
-	s.clusterIdentifierMu.Lock()
-	defer s.clusterIdentifierMu.Unlock()
-	s.clusterIdentifier = identifier
-}
-
-func (s *Service) GetClusterIdentifier() string {
-	s.clusterIdentifierMu.RLock()
-	defer s.clusterIdentifierMu.RUnlock()
-	return s.clusterIdentifier
-}
-
-func NewService(apiEndpoint, apiToken string, sendInterval time.Duration) *Service {
+func NewService(apiEndpoint, apiToken string, sendInterval time.Duration, agentState *models.AgentState) *Service {
 	return &Service{
 		APIEndpoint:  apiEndpoint,
 		APIToken:     apiToken,
 		sendInterval: sendInterval,
+		agentState:   agentState,
 	}
 }
 
@@ -84,7 +71,9 @@ func (s *Service) sendHeartbeatRequest(ctx context.Context, heartbeatPayload mod
 	}
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+s.APIToken)
-	req.Header.Set("X-Cluster-Identifier", s.GetClusterIdentifier())
+	req.Header.Set("X-Cluster-Identifier", s.agentState.GetClusterIdentifier())
+	req.Header.Set("X-Shared-Token-Enabled", s.agentState.GetSharedTokenEnabled())
+	req.Header.Set("X-Shared-Token-Cluster-Identifier", s.agentState.GetSharedTokenClusterIdentifier())
 
 	res, err := client.Do(req)
 	if err != nil {

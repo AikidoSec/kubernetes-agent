@@ -5,20 +5,26 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
+	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
-func TestSendIncludesClusterIdentifier(t *testing.T) {
+func TestSendIncludesSharedTokenConfiguration(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("X-Cluster-Identifier"); got != "test-cluster" {
-			t.Errorf("cluster identifier = %q, want test-cluster", got)
+		if r.Header.Get("X-Shared-Token-Enabled") != "true" || r.Header.Get("X-Shared-Token-Cluster-Identifier") != "test-cluster" {
+			t.Error("missing shared token routing headers")
+		}
+		if r.Header.Get("X-Cluster-Identifier") != "cluster-uid" {
+			t.Error("missing cluster identifier header")
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
-	hb := heartbeat.NewService(server.URL, "token", 0)
-	hb.SetClusterIdentifier("test-cluster")
-	client := &BatchClient{endpoint: server.URL, apiToken: "token", heartbeatService: hb, httpClient: server.Client()}
+
+	state := models.NewEmptyAgentState()
+	state.SetClusterIdentifier("cluster-uid")
+	state.SetSharedTokenConfig(models.SharedTokenConfig{Enabled: true, ClusterIdentifier: "test-cluster"})
+
+	client := &BatchClient{endpoint: server.URL, apiToken: "token", agentState: state, httpClient: server.Client()}
 	if err := client.send([]any{"event"}); err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,8 @@ import (
 
 type AgentState struct {
 	clusterIdentifier          string
+	sharedToken                SharedTokenConfig
+	sharedTokenEnabled         string
 	agentVersion               string
 	agentNamespace             string
 	agentName                  string
@@ -54,6 +56,45 @@ func (a *AgentState) GetClusterIdentifier() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.clusterIdentifier
+}
+
+func (a *AgentState) SetSharedTokenConfig(config SharedTokenConfig) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.sharedToken = config
+	a.sharedTokenEnabled = "false"
+	if config.Enabled {
+		a.sharedTokenEnabled = "true"
+	}
+}
+
+func (a *AgentState) GetSharedTokenConfig() SharedTokenConfig {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return a.sharedToken
+}
+
+func (a *AgentState) IsSharedTokenEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sharedToken.Enabled
+}
+
+func (a *AgentState) GetSharedTokenEnabled() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sharedTokenEnabled == "" {
+		return "false"
+	}
+	return a.sharedTokenEnabled
+}
+
+func (a *AgentState) GetSharedTokenClusterIdentifier() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sharedToken.ClusterIdentifier
 }
 
 func NewEmptyAgentState() *AgentState {

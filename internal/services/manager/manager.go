@@ -410,12 +410,12 @@ func (s *Service) sendInitialHeartbeat(ctx context.Context, clusterIdentifier st
 }
 
 // validateToken retries until the token is accepted or the pod is killed by the startup probe.
-func (s *Service) validateToken(ctx context.Context, clusterIdentifier string) error {
+func (s *Service) validateToken(ctx context.Context) error {
 	for attempt := 1; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		err := s.heartbeatService.ValidateToken(ctx, clusterIdentifier)
+		err := s.heartbeatService.ValidateToken(ctx)
 		if err == nil {
 			return nil
 		}
@@ -446,13 +446,12 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetAgentVersion(agentVersion)
 
 	clusterIdentifier, err := s.getClusterIdentifier(ctx)
-	s.heartbeatService.SetClusterIdentifier(clusterIdentifier)
 	s.SetClusterIdentifier(clusterIdentifier)
 	if err != nil {
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
 	}
 
-	if err := s.validateToken(ctx, clusterIdentifier); err != nil {
+	if err := s.validateToken(ctx); err != nil {
 		s.logger.ReportError(ctx, err, "error validating agent token", "managerError")
 		return fmt.Errorf("error validating agent token: %w", err)
 	}
@@ -503,6 +502,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		CompressionEnabled:    true,
 		Token:                 cfg.APIToken,
 		HeartbeatService:      s.heartbeatService,
+		AgentState:            s.AgentState,
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error creating assets batch client", "managerError")
