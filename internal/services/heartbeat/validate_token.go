@@ -14,9 +14,9 @@ func (s *Service) ValidateToken(ctx context.Context) error {
 		return fmt.Errorf("error creating token validation request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+s.APIToken)
-	req.Header.Set("X-Cluster-Identifier", s.agentState.GetClusterIdentifier())
-	req.Header.Set("X-Shared-Token-Enabled", s.agentState.GetSharedTokenEnabled())
-	req.Header.Set("X-Shared-Token-Cluster-Identifier", s.agentState.GetSharedTokenClusterIdentifier())
+	req.Header.Set("X-Cluster-Identifier", s.GetClusterIdentifier())
+	req.Header.Set("X-Shared-Token-Enabled", s.GetSharedTokenEnabled())
+	req.Header.Set("X-Shared-Token-Cluster-Identifier", s.GetSharedTokenClusterIdentifier())
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	res, err := client.Do(req)
