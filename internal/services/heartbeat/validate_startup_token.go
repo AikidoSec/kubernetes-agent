@@ -3,6 +3,7 @@ package heartbeat
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -30,7 +31,11 @@ func (s *Service) ValidateStartupToken(ctx context.Context) error {
 	}()
 
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("token validation returned non-200 response: %d", res.StatusCode)
+		body, err := io.ReadAll(io.LimitReader(res.Body, 8*1024))
+		if err != nil {
+			return fmt.Errorf("startup token validation failed (HTTP %s): could not read API response: %w", res.Status, err)
+		}
+		return fmt.Errorf("startup token validation failed (HTTP %s): %s", res.Status, body)
 	}
 	return nil
 }
