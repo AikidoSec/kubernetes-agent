@@ -3,6 +3,7 @@ package predicates
 import (
 	"log"
 
+	imformercache "aikidoSec.kubernetesAgent/internal/informercache"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -14,6 +15,10 @@ import (
 func NewPodPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
+			if e.Object == nil || imformercache.IsObjectStripped(e.Object) {
+				return false
+			}
+
 			if nsFilter.IsObjectExcluded(e.Object) {
 				return false
 			}
@@ -35,6 +40,10 @@ func NewPodPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 			return ArePodImagesResolved(pod)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectNew == nil || imformercache.IsObjectStripped(e.ObjectNew) {
+				return false
+			}
+
 			if nsFilter.IsObjectExcluded(e.ObjectNew) {
 				return false
 			}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/format"
+	imformercache "aikidoSec.kubernetesAgent/internal/informercache"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
@@ -61,6 +62,10 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	default:
 		eventType = models.ModifiedEventType
 		requeueAfter = defaultRequeueAfter
+	}
+
+	if imformercache.IsObjectStripped(obj) {
+		return ctrl.Result{}, nil
 	}
 
 	if eventType == models.ModifiedEventType {

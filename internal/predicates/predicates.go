@@ -6,6 +6,7 @@ import (
 	"maps"
 	"reflect"
 
+	imformercache "aikidoSec.kubernetesAgent/internal/informercache"
 	"github.com/gobwas/glob"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -16,9 +17,17 @@ import (
 func NewGenericPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
+			if e.Object == nil || imformercache.IsObjectStripped(e.Object) {
+				return false
+			}
+
 			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectNew == nil || imformercache.IsObjectStripped(e.ObjectNew) {
+				return false
+			}
+
 			return !nsFilter.IsObjectExcluded(e.ObjectNew) && IsSpecOrMetadataChanged(e)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
