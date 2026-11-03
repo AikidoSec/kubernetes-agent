@@ -16,7 +16,7 @@ type RunnerSetFields struct {
 }
 
 func (in *RunnerSetFields) deepCopyInto(out *RunnerSetFields) {
-	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.DeepCopyInto(&out.ObjectMeta)
 	out.Spec = append(json.RawMessage(nil), in.Spec...)
 	out.Status = append(json.RawMessage(nil), in.Status...)
 }
@@ -31,7 +31,7 @@ func (in *EphemeralRunnerSet) DeepCopyObject() runtime.Object {
 		return nil
 	}
 	out := *in
-	in.RunnerSetFields.deepCopyInto(&out.RunnerSetFields)
+	in.deepCopyInto(&out.RunnerSetFields)
 	return &out
 }
 
@@ -46,12 +46,12 @@ func (in *EphemeralRunnerSetList) DeepCopyObject() runtime.Object {
 		return nil
 	}
 	out := *in
-	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	in.DeepCopyInto(&out.ListMeta)
 	if in.Items != nil {
 		out.Items = make([]EphemeralRunnerSet, len(in.Items))
 		for i := range in.Items {
 			out.Items[i] = in.Items[i]
-			in.Items[i].RunnerSetFields.deepCopyInto(&out.Items[i].RunnerSetFields)
+			in.Items[i].deepCopyInto(&out.Items[i].RunnerSetFields)
 		}
 	}
 	return &out
@@ -67,7 +67,7 @@ func (in *AutoscalingRunnerSet) DeepCopyObject() runtime.Object {
 		return nil
 	}
 	out := *in
-	in.RunnerSetFields.deepCopyInto(&out.RunnerSetFields)
+	in.deepCopyInto(&out.RunnerSetFields)
 	return &out
 }
 
@@ -82,12 +82,12 @@ func (in *AutoscalingRunnerSetList) DeepCopyObject() runtime.Object {
 		return nil
 	}
 	out := *in
-	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	in.DeepCopyInto(&out.ListMeta)
 	if in.Items != nil {
 		out.Items = make([]AutoscalingRunnerSet, len(in.Items))
 		for i := range in.Items {
 			out.Items[i] = in.Items[i]
-			in.Items[i].RunnerSetFields.deepCopyInto(&out.Items[i].RunnerSetFields)
+			in.Items[i].deepCopyInto(&out.Items[i].RunnerSetFields)
 		}
 	}
 	return &out
