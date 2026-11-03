@@ -310,6 +310,24 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			},
 		},
 		{
+			gvk:     arc.EphemeralRunnerSetGVK,
+			logName: "GitHub ARC EphemeralRunnerSet",
+			setup: func() error {
+				return (&arc.EphemeralRunnerSetController{
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+				}).SetupWithManager(runtimeManager, watcherOptions)
+			},
+		},
+		{
+			gvk:     arc.AutoscalingRunnerSetGVK,
+			logName: "GitHub ARC AutoscalingRunnerSet",
+			setup: func() error {
+				return (&arc.AutoscalingRunnerSetController{
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+				}).SetupWithManager(runtimeManager, watcherOptions)
+			},
+		},
+		{
 			gvk:     arc.RunnerGVK,
 			logName: "GitHub ARC Runner (summerwind)",
 			setup: func() error {
