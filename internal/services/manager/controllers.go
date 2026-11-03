@@ -74,6 +74,10 @@ var builtinMonitoredResources = []schema.GroupVersionKind{
 	// discovery.k8s.io
 	{Group: "discovery.k8s.io", Version: "v1", Kind: "EndpointSlice"},
 
+	// actions.github.com
+	{Group: "actions.github.com", Version: "v1alpha1", Kind: "EphemeralRunnerSet"},
+	{Group: "actions.github.com", Version: "v1alpha1", Kind: "AutoscalingRunnerSet"},
+
 	// autoscaling
 	{Group: "autoscaling", Version: "v2", Kind: "HorizontalPodAutoscaler"},
 }

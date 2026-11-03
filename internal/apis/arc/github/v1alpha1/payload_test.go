@@ -48,6 +48,8 @@ func TestSchemeRegistration(t *testing.T) {
 	for _, object := range []runtime.Object{
 		&v1alpha1.EphemeralRunner{}, &v1alpha1.EphemeralRunnerList{},
 		&v1alpha1.AutoscalingListener{}, &v1alpha1.AutoscalingListenerList{},
+		&v1alpha1.EphemeralRunnerSet{}, &v1alpha1.EphemeralRunnerSetList{},
+		&v1alpha1.AutoscalingRunnerSet{}, &v1alpha1.AutoscalingRunnerSetList{},
 	} {
 		kinds, _, err := scheme.ObjectKinds(object)
 		if err != nil {
