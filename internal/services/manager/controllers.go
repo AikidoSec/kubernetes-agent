@@ -182,7 +182,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					AgentState: s.AgentState,
 					Logger:     s.logger,
 					Client:     runtimeManager.GetClient(),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -194,7 +194,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					AgentState: s.AgentState,
 					Logger:     s.logger,
 					Client:     runtimeManager.GetClient(),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -206,7 +206,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					AgentState: s.AgentState,
 					Logger:     s.logger,
 					Client:     runtimeManager.GetClient(),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -218,7 +218,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -230,7 +230,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -242,7 +242,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -251,7 +251,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&argoproj.ApplicationController{
 					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -260,7 +260,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&argoproj.RolloutController{
 					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -272,7 +272,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -284,7 +284,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -293,7 +293,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.EphemeralRunnerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -302,7 +302,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.AutoscalingListenerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -329,7 +329,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.RunnerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 	}
