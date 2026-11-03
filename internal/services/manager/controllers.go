@@ -74,10 +74,6 @@ var builtinMonitoredResources = []schema.GroupVersionKind{
 	// discovery.k8s.io
 	{Group: "discovery.k8s.io", Version: "v1", Kind: "EndpointSlice"},
 
-	// actions.github.com
-	{Group: "actions.github.com", Version: "v1alpha1", Kind: "EphemeralRunnerSet"},
-	{Group: "actions.github.com", Version: "v1alpha1", Kind: "AutoscalingRunnerSet"},
-
 	// autoscaling
 	{Group: "autoscaling", Version: "v2", Kind: "HorizontalPodAutoscaler"},
 }
@@ -186,7 +182,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					AgentState: s.AgentState,
 					Logger:     s.logger,
 					Client:     runtimeManager.GetClient(),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -198,7 +194,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					AgentState: s.AgentState,
 					Logger:     s.logger,
 					Client:     runtimeManager.GetClient(),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -210,7 +206,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					AgentState: s.AgentState,
 					Logger:     s.logger,
 					Client:     runtimeManager.GetClient(),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -222,7 +218,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -234,7 +230,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -246,7 +242,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -255,7 +251,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&argoproj.ApplicationController{
 					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -264,7 +260,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&argoproj.RolloutController{
 					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -276,7 +272,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -288,7 +284,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -297,7 +293,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.EphemeralRunnerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -306,7 +302,25 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.AutoscalingListenerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
+			},
+		},
+		{
+			gvk:     arc.EphemeralRunnerSetGVK,
+			logName: "GitHub ARC EphemeralRunnerSet",
+			setup: func() error {
+				return (&arc.EphemeralRunnerSetController{
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+				}).SetupWithManager(runtimeManager, watcherOptions)
+			},
+		},
+		{
+			gvk:     arc.AutoscalingRunnerSetGVK,
+			logName: "GitHub ARC AutoscalingRunnerSet",
+			setup: func() error {
+				return (&arc.AutoscalingRunnerSetController{
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -315,7 +329,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.RunnerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 	}
