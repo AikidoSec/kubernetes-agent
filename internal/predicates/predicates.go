@@ -51,6 +51,9 @@ func GetPredicatesForGVK(gvk string, nsFilter *NamespaceFilter) predicate.Predic
 		return NewTopLevelFieldsPredicate(nsFilter, "data", "immutable")
 	case "storage.k8s.io/v1, Kind=StorageClass":
 		return NewTopLevelFieldsPredicate(nsFilter, "provisioner", "reclaimPolicy", "allowVolumeExpansion", "mountOptions", "volumeBindingMode", "parameters", "allowedTopologies")
+	case "actions.github.com/v1alpha1, Kind=EphemeralRunnerSet",
+		"actions.github.com/v1alpha1, Kind=AutoscalingRunnerSet":
+		return NewTopLevelFieldsPredicate(nsFilter, "spec", "status")
 	default:
 		return NewGenericPredicate(nsFilter)
 	}
