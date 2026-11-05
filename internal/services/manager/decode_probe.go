@@ -22,19 +22,19 @@ const (
 	decodeProbeConcurrency = 8
 )
 
-// schemaMismatchError marks a payload the mirrored Go type cannot decode.
+// schemaMismatchError marks a payload the registered Go type cannot decode.
 type schemaMismatchError struct {
 	gvk schema.GroupVersionKind
 	err error
 }
 
 func (e *schemaMismatchError) Error() string {
-	return fmt.Sprintf("cluster payload for %s does not match the mirrored type: %s", e.gvk, e.err)
+	return fmt.Sprintf("cluster payload for %s does not match the registered type: %s", e.gvk, e.err)
 }
 
 func (e *schemaMismatchError) Unwrap() error { return e.err }
 
-// probeTypedDecode lists gvk uncached to check the mirrored type decodes what the
+// probeTypedDecode lists gvk uncached to check the registered type decodes what the
 // cluster serves: an informer failing its initial LIST never syncs, and
 // controller-runtime waits on every informer in the shared cache. A
 // *schemaMismatchError means skip the controller; any other error means the probe could

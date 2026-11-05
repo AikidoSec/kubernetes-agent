@@ -1,7 +1,5 @@
 package v1alpha1
 
-// Upstream registers ten kinds; the scheme only needs the ones the client touches.
-//
 // ArgoCD's Application shares this group and is registered separately, from the stub
 // in internal/controllers/argoproj/argocd.go.
 
@@ -11,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// SchemeGroupVersion is group version used to register these objects
+// SchemeGroupVersion is the group version used to register these objects.
 var SchemeGroupVersion = schema.GroupVersion{Group: "argoproj.io", Version: "v1alpha1"}
 
 var (
@@ -19,7 +17,7 @@ var (
 	AddToScheme   = SchemeBuilder.AddToScheme
 )
 
-// Adds the list of known types to Scheme.
+// The scheme only needs the kinds the client touches.
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&Rollout{},

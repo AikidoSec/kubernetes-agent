@@ -1,9 +1,11 @@
-// Package v1alpha1 mirrors the KEDA ScaledObject and ScaledJob types the agent
-// watches, copied verbatim from KEDA v2.20.0 (apis/keda/v1alpha1, upstream file names
-// preserved). Why they are mirrored rather than imported:
-// ../../THIRD_PARTY_NOTICES.md.
+// Package v1alpha1 holds stubs for the KEDA kinds the agent watches. Spec and status
+// stay as the bytes the API server served, so every field survives whatever CRD version
+// a cluster runs, and an upstream schema change cannot fail the decode. Why:
+// ../../README.md.
 //
-// To bump: diff against the upstream sources, port the changes, then regenerate
-// testdata/ from the new upstream types, never from the mirror, or the golden stops
-// being independent evidence. Then re-run the payload tests.
+// zz_generated.deepcopy.go is generated:
+//
+//	go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.23.0 object paths=.
+//
+// +kubebuilder:object:generate=true
 package v1alpha1

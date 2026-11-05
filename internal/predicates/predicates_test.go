@@ -1,6 +1,7 @@
 package predicates_test
 
 import (
+	"fmt"
 	"testing"
 
 	ghv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/arc/github/v1alpha1"
@@ -224,21 +225,17 @@ func TestNamespaceFilterIsObjectExcluded(t *testing.T) {
 // For(&Typed{}) vendor-CRD watches — the case that previously always returned false,
 // leaving CRD spec edits un-enqueued until the scheduled requeue.
 func TestIsSpecModifiedTypedObjects(t *testing.T) {
+	// The vendor stubs and ArgoCD Application store their spec as runtime.RawExtension.
 	ephemeralRunner := func(url string) client.Object {
-		er := &ghv1alpha1.EphemeralRunner{}
-		er.Spec.GitHubConfigUrl = url
-		return er
+		return &ghv1alpha1.EphemeralRunner{Spec: runtime.RawExtension{Raw: []byte(`{"githubConfigUrl":"` + url + `"}`)}}
 	}
 
-	// ArgoCD Application stores its spec as runtime.RawExtension.
 	application := func(specJSON string) client.Object {
 		return &argoproj.Application{Spec: runtime.RawExtension{Raw: []byte(specJSON)}}
 	}
 
 	runnerWithMTU := func(mtu int64) client.Object {
-		r := &swv1alpha1.Runner{}
-		r.Spec.DockerMTU = &mtu
-		return r
+		return &swv1alpha1.Runner{Spec: runtime.RawExtension{Raw: []byte(fmt.Sprintf(`{"dockerMTU":%d}`, mtu))}}
 	}
 
 	tests := []struct {
@@ -247,13 +244,13 @@ func TestIsSpecModifiedTypedObjects(t *testing.T) {
 		want     bool
 	}{
 		{
-			name: "typed EphemeralRunner spec change enqueues",
+			name: "EphemeralRunner spec change enqueues",
 			old:  ephemeralRunner("https://github.com/old"),
 			new:  ephemeralRunner("https://github.com/new"),
 			want: true,
 		},
 		{
-			name: "typed EphemeralRunner unchanged spec is dropped",
+			name: "EphemeralRunner unchanged spec is dropped",
 			old:  ephemeralRunner("https://github.com/same"),
 			new:  ephemeralRunner("https://github.com/same"),
 			want: false,
@@ -271,7 +268,7 @@ func TestIsSpecModifiedTypedObjects(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "int64 spec change above 2^53 is detected",
+			name: "spec change in an integer above 2^53 is detected",
 			old:  runnerWithMTU(1 << 53),
 			new:  runnerWithMTU((1 << 53) + 2),
 			want: true,

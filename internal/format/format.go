@@ -15,6 +15,8 @@ func FormatObject(obj client.Object, gvk string, state *models.AgentState) clien
 		return FormatRoute(obj)
 	case "actions.summerwind.dev/v1alpha1, Kind=Runner":
 		return FormatRunner(obj)
+	case "actions.github.com/v1alpha1, Kind=EphemeralRunner":
+		return FormatEphemeralRunner(obj)
 	}
 	return obj
 }

@@ -1,15 +1,11 @@
-// Package v1alpha1 mirrors the Argo Rollouts Rollout types the agent watches, copied
-// verbatim from argo-rollouts v1.9.0 and extracted by walking the Rollout type
-// closure, so the set is exactly what Rollout reaches. Why they are mirrored rather
-// than imported: ../../THIRD_PARTY_NOTICES.md.
+// Package v1alpha1 holds stubs for the Argo Rollouts kinds the agent watches. Spec and status
+// stay as the bytes the API server served, so every field survives whatever CRD version
+// a cluster runs, and an upstream schema change cannot fail the decode. Why:
+// ../../README.md.
 //
-// Upstream's RolloutSpec.MarshalJSON is deliberately not mirrored. Its alternate
-// branch strips template or selector and reorders every key by routing through
-// DefaultUnstructuredConverter, but it is gated on two json:"-" flags that only
-// argo-rollouts' own controller sets. They are always false after a decode, so the
-// branch is unreachable here and plain struct marshalling is equivalent.
+// zz_generated.deepcopy.go is generated:
 //
-// To bump: re-extract rather than hand-editing, then regenerate testdata/ from the new
-// upstream types, never from the mirror, or the golden stops being independent
-// evidence. Then re-run the payload tests.
+//	go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.23.0 object paths=.
+//
+// +kubebuilder:object:generate=true
 package v1alpha1

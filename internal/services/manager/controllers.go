@@ -166,16 +166,21 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 		}
 	}
 
+	// probeDecode is set for kinds decoded into imported upstream types. The other kinds
+	// are RawExtension stubs that keep spec and status raw, so their payloads always
+	// decode.
 	type vendorController struct {
-		gvk     schema.GroupVersionKind
-		logName string
-		setup   func() error
+		gvk         schema.GroupVersionKind
+		logName     string
+		probeDecode bool
+		setup       func() error
 	}
 
 	vendorControllers := []vendorController{
 		{
-			gvk:     openshift.ImageContentSourcePolicyGVK,
-			logName: "ImageContentSourcePolicy",
+			gvk:         openshift.ImageContentSourcePolicyGVK,
+			logName:     "ImageContentSourcePolicy",
+			probeDecode: true,
 			setup: func() error {
 				s.SetImageMappingEnabled(true)
 				return (&openshift.ImageContentSourcePolicyController{
@@ -186,8 +191,9 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			},
 		},
 		{
-			gvk:     openshift.ImageDigestMirrorSetGVK,
-			logName: "ImageDigestMirrorSet",
+			gvk:         openshift.ImageDigestMirrorSetGVK,
+			logName:     "ImageDigestMirrorSet",
+			probeDecode: true,
 			setup: func() error {
 				s.SetImageMappingEnabled(true)
 				return (&openshift.ImageDigestMirrorSetController{
@@ -198,8 +204,9 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			},
 		},
 		{
-			gvk:     openshift.ImageTagMirrorSetGVK,
-			logName: "ImageTagMirrorSet",
+			gvk:         openshift.ImageTagMirrorSetGVK,
+			logName:     "ImageTagMirrorSet",
+			probeDecode: true,
 			setup: func() error {
 				s.SetImageMappingEnabled(true)
 				return (&openshift.ImageTagMirrorSetController{
@@ -336,6 +343,9 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 	var probing sync.WaitGroup
 
 	for i, c := range available {
+		if !c.probeDecode {
+			continue
+		}
 		probing.Add(1)
 		slots <- struct{}{}
 		go func() {

@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	ghv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/arc/github/v1alpha1"
+	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
+	openshiftconfigv1 "github.com/openshift/api/config/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -17,7 +18,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var ephemeralRunnerGVK = schema.GroupVersionKind{Group: "actions.github.com", Version: "v1alpha1", Kind: "EphemeralRunner"}
+// The probe only runs for kinds decoded into imported upstream types, such as the
+// OpenShift image mirror sets.
+var imageDigestMirrorSetGVK = openshift.ImageDigestMirrorSetGVK
 
 // newProbeClient points a real controller-runtime client at a stub API server so the
 // probe exercises the same decode path the informer's initial LIST takes.
@@ -28,12 +31,12 @@ func newProbeClient(t *testing.T, handler http.HandlerFunc) (client.Reader, *run
 	t.Cleanup(server.Close)
 
 	scheme := runtime.NewScheme()
-	if err := ghv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("registering arc github types: %v", err)
+	if err := openshiftconfigv1.Install(scheme); err != nil {
+		t.Fatalf("registering openshift config types: %v", err)
 	}
 
-	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{ephemeralRunnerGVK.GroupVersion()})
-	mapper.Add(ephemeralRunnerGVK, meta.RESTScopeNamespace)
+	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{imageDigestMirrorSetGVK.GroupVersion()})
+	mapper.Add(imageDigestMirrorSetGVK, meta.RESTScopeRoot)
 
 	// QPS -1 disables client-go's default 5/s limiter, so paging tests measure the
 	// probe's budget rather than the rate limiter.
@@ -55,26 +58,26 @@ func writeJSON(t *testing.T, w http.ResponseWriter, status int, body string) {
 }
 
 func listBody(continueToken, items string) string {
-	return `{"apiVersion":"actions.github.com/v1alpha1","kind":"EphemeralRunnerList",` +
+	return `{"apiVersion":"config.openshift.io/v1","kind":"ImageDigestMirrorSetList",` +
 		`"metadata":{"continue":"` + continueToken + `"},"items":[` + items + `]}`
 }
 
 func TestProbeTypedDecodeAcceptsServedPayload(t *testing.T) {
 	reader, scheme := newProbeClient(t, func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(t, w, http.StatusOK, listBody("", `{"metadata":{"name":"runner-1"},"status":{"failures":{"a":true}}}`))
+		writeJSON(t, w, http.StatusOK, listBody("", `{"metadata":{"name":"mirror-1"},"spec":{"imageDigestMirrors":[{"source":"registry.example.com/app"}]}}`))
 	})
 
-	if err := probeTypedDecode(context.Background(), reader, scheme, ephemeralRunnerGVK); err != nil {
+	if err := probeTypedDecode(context.Background(), reader, scheme, imageDigestMirrorSetGVK); err != nil {
 		t.Errorf("probe rejected a decodable payload: %v", err)
 	}
 }
 
 func TestProbeTypedDecodeFlagsDriftedPayload(t *testing.T) {
 	reader, scheme := newProbeClient(t, func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(t, w, http.StatusOK, listBody("", `{"metadata":{"name":"runner-1"},"status":{"runnerId":"not-a-number"}}`))
+		writeJSON(t, w, http.StatusOK, listBody("", `{"metadata":{"name":"mirror-1"},"spec":{"imageDigestMirrors":[{"source":42}]}}`))
 	})
 
-	err := probeTypedDecode(context.Background(), reader, scheme, ephemeralRunnerGVK)
+	err := probeTypedDecode(context.Background(), reader, scheme, imageDigestMirrorSetGVK)
 
 	var mismatch *schemaMismatchError
 	if !errors.As(err, &mismatch) {
@@ -89,13 +92,13 @@ func TestProbeTypedDecodeReadsEveryPage(t *testing.T) {
 	reader, scheme := newProbeClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		if requests == 1 {
-			writeJSON(t, w, http.StatusOK, listBody("page-2", `{"metadata":{"name":"runner-1"},"status":{"runnerId":1}}`))
+			writeJSON(t, w, http.StatusOK, listBody("page-2", `{"metadata":{"name":"mirror-1"},"spec":{"imageDigestMirrors":[{"source":"registry.example.com/app"}]}}`))
 			return
 		}
-		writeJSON(t, w, http.StatusOK, listBody("", `{"metadata":{"name":"runner-2"},"status":{"runnerId":"not-a-number"}}`))
+		writeJSON(t, w, http.StatusOK, listBody("", `{"metadata":{"name":"mirror-2"},"spec":{"imageDigestMirrors":[{"source":42}]}}`))
 	})
 
-	err := probeTypedDecode(context.Background(), reader, scheme, ephemeralRunnerGVK)
+	err := probeTypedDecode(context.Background(), reader, scheme, imageDigestMirrorSetGVK)
 
 	var mismatch *schemaMismatchError
 	if !errors.As(err, &mismatch) {
@@ -113,7 +116,7 @@ func TestProbeTypedDecodeToleratesAPIFailure(t *testing.T) {
 			`{"apiVersion":"v1","kind":"Status","status":"Failure","reason":"Forbidden","code":403}`)
 	})
 
-	err := probeTypedDecode(context.Background(), reader, scheme, ephemeralRunnerGVK)
+	err := probeTypedDecode(context.Background(), reader, scheme, imageDigestMirrorSetGVK)
 	if err == nil {
 		t.Fatal("want an error for a forbidden list")
 	}
@@ -139,7 +142,7 @@ func TestProbeTypedDecodeBoundsAStalledList(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	go func() { done <- probeTypedDecode(ctx, reader, scheme, ephemeralRunnerGVK) }()
+	go func() { done <- probeTypedDecode(ctx, reader, scheme, imageDigestMirrorSetGVK) }()
 
 	select {
 	case err := <-done:
@@ -170,7 +173,7 @@ func TestProbeTypedDecodeSharesABudgetAcrossProbes(t *testing.T) {
 
 	started := time.Now()
 	for i := range 13 {
-		if err := probeTypedDecode(probeCtx, reader, scheme, ephemeralRunnerGVK); err == nil {
+		if err := probeTypedDecode(probeCtx, reader, scheme, imageDigestMirrorSetGVK); err == nil {
 			t.Fatalf("probe %d: want an error against a stalled server", i)
 		}
 	}
@@ -186,7 +189,7 @@ func TestProbeTypedDecodeConcurrentlyCostsTheSlowest(t *testing.T) {
 	const delay = 200 * time.Millisecond
 	reader, scheme := newProbeClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(delay)
-		writeJSON(t, w, http.StatusOK, listBody("", `{"metadata":{"name":"runner-1"},"status":{}}`))
+		writeJSON(t, w, http.StatusOK, listBody("", `{"metadata":{"name":"mirror-1"},"spec":{}}`))
 	})
 
 	probes := decodeProbeConcurrency
@@ -200,7 +203,7 @@ func TestProbeTypedDecodeConcurrentlyCostsTheSlowest(t *testing.T) {
 		slots <- struct{}{}
 		go func() {
 			defer func() { <-slots; probing.Done() }()
-			errs[i] = probeTypedDecode(context.Background(), reader, scheme, ephemeralRunnerGVK)
+			errs[i] = probeTypedDecode(context.Background(), reader, scheme, imageDigestMirrorSetGVK)
 		}()
 	}
 	probing.Wait()
@@ -221,10 +224,10 @@ func TestProbeTypedDecodeBoundsEndlessPaging(t *testing.T) {
 	var requests int
 	reader, scheme := newProbeClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		requests++
-		writeJSON(t, w, http.StatusOK, listBody("more", `{"metadata":{"name":"runner-1"},"status":{}}`))
+		writeJSON(t, w, http.StatusOK, listBody("more", `{"metadata":{"name":"mirror-1"},"spec":{}}`))
 	})
 
-	err := probeTypedDecode(context.Background(), reader, scheme, ephemeralRunnerGVK)
+	err := probeTypedDecode(context.Background(), reader, scheme, imageDigestMirrorSetGVK)
 	if err == nil {
 		t.Fatal("want an error once the page budget is spent")
 	}
@@ -244,7 +247,7 @@ func TestProbeTypedDecodeToleratesUnreachableAPI(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := probeTypedDecode(ctx, reader, scheme, ephemeralRunnerGVK)
+	err := probeTypedDecode(ctx, reader, scheme, imageDigestMirrorSetGVK)
 	if err == nil {
 		t.Fatal("want an error for a cancelled context")
 	}

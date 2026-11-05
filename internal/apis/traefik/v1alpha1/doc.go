@@ -1,8 +1,11 @@
-// Package v1alpha1 mirrors the Traefik IngressRoute types the agent watches, copied
-// verbatim from traefik v3.6.25 (pkg/provider/kubernetes/crd/traefikio/v1alpha1).
-// Why they are mirrored rather than imported: ../../THIRD_PARTY_NOTICES.md.
+// Package v1alpha1 holds stubs for the Traefik kinds the agent watches. Spec and status
+// stay as the bytes the API server served, so every field survives whatever CRD version
+// a cluster runs, and an upstream schema change cannot fail the decode. Why:
+// ../../README.md.
 //
-// To bump: diff against the upstream sources, port the changes, then regenerate
-// testdata/ from the new upstream types, never from the mirror, or the golden stops
-// being independent evidence. Then re-run the payload tests.
+// zz_generated.deepcopy.go is generated:
+//
+//	go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.23.0 object paths=.
+//
+// +kubebuilder:object:generate=true
 package v1alpha1
