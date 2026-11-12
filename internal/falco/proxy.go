@@ -262,11 +262,6 @@ func stripAikidoTags(raw map[string]json.RawMessage, tags []string) (json.RawMes
 	return json.Marshal(raw)
 }
 
-// secretFields are the output_fields carrying user-controlled data where secrets
-// realistically appear. Other fields are structural (names, namespaces, images)
-// and are left unscanned to keep per-event redaction cost bounded.
-var secretFields = []string{"proc.cmdline", "proc.args", "proc.exeline", "proc.env", "evt.args"}
-
 func redactSecrets(raw map[string]json.RawMessage, redactor *Redactor) error {
 	if err := redactOutputString(raw, redactor); err != nil {
 		return err
@@ -301,18 +296,18 @@ func redactOutputFields(raw map[string]json.RawMessage, redactor *Redactor) erro
 		return nil
 	}
 
+	// Every string value is scanned: secrets can show up in any field (proc.pcmdline,
+	// proc.cwd, fd.name, ...), not just the command-line ones.
 	redactedAny := false
-	for _, key := range secretFields {
-		fieldValue, ok := fields[key]
-		if !ok {
-			continue
-		}
+	for key, fieldValue := range fields {
 		stringValue, ok := fieldValue.(string)
 		if !ok {
 			continue
 		}
-		fields[key] = redactor.RedactText(stringValue)
-		redactedAny = true
+		if redacted := redactor.RedactText(stringValue); redacted != stringValue {
+			fields[key] = redacted
+			redactedAny = true
+		}
 	}
 	if !redactedAny {
 		return nil

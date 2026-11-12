@@ -70,15 +70,15 @@ func TestRedactSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("leaves non-allowlisted output_fields untouched", func(t *testing.T) {
-		raw := mustParseRaw(t, `{"output_fields":{"proc.name":"`+testSecret+`"}}`)
+	t.Run("redacts non-command-line output_fields", func(t *testing.T) {
+		raw := mustParseRaw(t, `{"output_fields":{"proc.pcmdline":"sh -c","proc.cwd":"/tmp/`+testSecret+`"}}`)
 		if err := redactSecrets(raw, r); err != nil {
 			t.Fatalf("redactSecrets() error = %v", err)
 		}
 		fields := mustParseFields(t, raw)
-		name, _ := fields["proc.name"].(string)
-		if name != testSecret {
-			t.Errorf("non-allowlisted field was modified: got %q, want %q", name, testSecret)
+		cwd, _ := fields["proc.cwd"].(string)
+		if strings.Contains(cwd, testSecret) {
+			t.Errorf("secret not redacted in proc.cwd: %q", cwd)
 		}
 	})
 
