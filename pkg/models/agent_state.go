@@ -8,6 +8,9 @@ import (
 )
 
 type AgentState struct {
+	clusterIdentifier          string
+	sharedToken                SharedTokenConfig
+	sharedTokenEnabled         string
 	agentVersion               string
 	agentNamespace             string
 	agentName                  string
@@ -32,6 +35,7 @@ type AgentState struct {
 
 	threatDetectionEnabled        bool
 	chartsRuntimeDetectionEnabled bool
+	runtimeDetectionSetupFailed   bool
 	falcoDaemonSetName            string
 	enabledThreatRules            []string
 	threatDetectionExceptions     []ThreatDetectionException
@@ -40,6 +44,57 @@ type AgentState struct {
 	collectorImageReservations map[string]time.Time
 
 	mu sync.Mutex
+}
+
+func (a *AgentState) SetClusterIdentifier(identifier string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.clusterIdentifier = identifier
+}
+
+func (a *AgentState) GetClusterIdentifier() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.clusterIdentifier
+}
+
+func (a *AgentState) SetSharedTokenConfig(config SharedTokenConfig) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.sharedToken = config
+	a.sharedTokenEnabled = "false"
+	if config.Enabled {
+		a.sharedTokenEnabled = "true"
+	}
+}
+
+func (a *AgentState) GetSharedTokenConfig() SharedTokenConfig {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return a.sharedToken
+}
+
+func (a *AgentState) IsSharedTokenEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sharedToken.Enabled
+}
+
+func (a *AgentState) GetSharedTokenEnabled() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sharedTokenEnabled == "" {
+		return "false"
+	}
+	return a.sharedTokenEnabled
+}
+
+func (a *AgentState) GetSharedTokenClusterIdentifier() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sharedToken.ClusterIdentifier
 }
 
 func NewEmptyAgentState() *AgentState {
@@ -191,6 +246,18 @@ func (a *AgentState) SetChartsRuntimeDetectionEnabled(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.chartsRuntimeDetectionEnabled = enabled
+}
+
+func (a *AgentState) SetRuntimeDetectionSetupFailed(failed bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.runtimeDetectionSetupFailed = failed
+}
+
+func (a *AgentState) IsRuntimeDetectionAvailable() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.chartsRuntimeDetectionEnabled && !a.runtimeDetectionSetupFailed
 }
 
 func (a *AgentState) SetThreatDetectionEnabled(enabled bool) {

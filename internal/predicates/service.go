@@ -1,7 +1,7 @@
 package predicates
 
 import (
-	"encoding/json"
+	"reflect"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -14,7 +14,7 @@ func NewServicePredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return !nsFilter.IsObjectExcluded(e.ObjectNew) && (HasStatusChanged(e) || IsSpecModified(e))
+			return !nsFilter.IsObjectExcluded(e.ObjectNew) && (HasStatusChanged(e) || IsSpecOrMetadataChanged(e))
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return !nsFilter.IsObjectExcluded(e.Object)
@@ -33,25 +33,15 @@ func HasStatusChanged(e event.UpdateEvent) bool {
 		return false
 	}
 
-	oldStatusMap, found, err := unstructured.NestedMap(oldObj.Object, "status")
-	if err != nil || !found {
-		return false
-	}
-
-	newStatusMap, found, err := unstructured.NestedMap(newObj.Object, "status")
-	if err != nil || !found {
-		return false
-	}
-
-	oldStatus, err := json.Marshal(oldStatusMap)
+	oldStatusMap, _, err := unstructured.NestedMap(oldObj.Object, "status")
 	if err != nil {
 		return false
 	}
 
-	newStatus, err := json.Marshal(newStatusMap)
+	newStatusMap, _, err := unstructured.NestedMap(newObj.Object, "status")
 	if err != nil {
 		return false
 	}
 
-	return string(oldStatus) != string(newStatus)
+	return !reflect.DeepEqual(oldStatusMap, newStatusMap)
 }

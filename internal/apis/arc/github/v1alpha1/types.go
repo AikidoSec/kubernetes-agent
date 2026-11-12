@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"encoding/json"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -85,8 +87,10 @@ type EphemeralRunnerStatus struct {
 	// +optional
 	RunnerName string `json:"runnerName,omitempty"`
 
+	// ARC <= 0.11 serves bool values here, >= 0.12 serves timestamps. The agent
+	// only forwards the value, so keep it raw to decode either shape.
 	// +optional
-	Failures map[string]metav1.Time `json:"failures,omitempty"`
+	Failures map[string]json.RawMessage `json:"failures,omitempty"`
 
 	// +optional
 	JobRequestID int64 `json:"jobRequestId,omitempty"`

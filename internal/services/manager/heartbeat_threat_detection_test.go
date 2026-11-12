@@ -22,6 +22,7 @@ const (
 
 type heartbeatTestSetup struct {
 	chartsEnabled         bool
+	setupFailed           bool
 	initiallyEnabled      bool
 	initialRules          []string
 	initialExceptions     []models.ThreatDetectionException
@@ -60,6 +61,7 @@ func newServiceForHeartbeatTest(t *testing.T, setup heartbeatTestSetup) (*Servic
 		"", "", "", 0, false, "", false, testDSName,
 	)
 	state.SetChartsRuntimeDetectionEnabled(setup.chartsEnabled)
+	state.SetRuntimeDetectionSetupFailed(setup.setupFailed)
 	state.SetThreatDetectionEnabled(setup.initiallyEnabled)
 	state.SetEnabledThreatRules(setup.initialRules)
 	state.SetThreatDetectionExceptions(setup.initialExceptions)
@@ -120,6 +122,13 @@ func TestHandleThreatDetectionHeartbeat(t *testing.T) {
 		{
 			name:          "charts disabled: early return, no K8s ops regardless of enabled flag",
 			setup:         heartbeatTestSetup{chartsEnabled: false},
+			td:            models.ThreatDetectionHeartbeat{Enabled: true, Rules: ptrOf([]string{ruleA})},
+			wantEnabled:   true, // in-memory state is still updated
+			wantRestarted: false,
+		},
+		{
+			name:          "proxy setup failed: early return, no K8s ops even though charts are enabled",
+			setup:         heartbeatTestSetup{chartsEnabled: true, setupFailed: true},
 			td:            models.ThreatDetectionHeartbeat{Enabled: true, Rules: ptrOf([]string{ruleA})},
 			wantEnabled:   true, // in-memory state is still updated
 			wantRestarted: false,

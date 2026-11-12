@@ -38,6 +38,7 @@ const (
 type Options struct {
 	AgentNamespace                    string
 	AgentName                         string
+	FalcoDaemonSetName                string
 	APIToken                          string
 	APIEndpoint                       string
 	ConfigSecretName                  string
@@ -89,7 +90,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		o.IsSBOMCollectorRunningAsDaemonSet,
 		fmt.Sprintf("%s-sbom-collector", o.AgentName),
 		o.AutoUpdateEnabled,
-		fmt.Sprintf("%s-runtime-detection", o.AgentName),
+		o.FalcoDaemonSetName,
 	)
 
 	// Build the cluster configuration based on the environment.
@@ -220,7 +221,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	}
 
 	falcoVersion := s.GetFalcoVersion()
-	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
+	if s.IsRuntimeDetectionAvailable() && s.IsThreatDetectionEnabled() {
 		if version, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName()); err == nil {
 			falcoVersion = version
 		} else {
@@ -359,7 +360,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 	s.handleThreatDetectionHeartbeat(ctx, resp.ThreatDetection)
 
 	if s.GetAutoUpdateEnabled() {
-		if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
+		if s.IsRuntimeDetectionAvailable() && s.IsThreatDetectionEnabled() && s.GetFalcoVersion() != resp.Cluster.DesiredFalcoVersion {
 			s.logger.LogInfo("falco version updated from heartbeat response", "current version", s.GetFalcoVersion(), "new version", resp.Cluster.DesiredFalcoVersion)
 			if err := s.UpdateFalcoVersion(ctx, resp.Cluster.DesiredFalcoVersion); err != nil {
 				s.logger.ReportError(ctx, err, "error updating falco version", "managerError")
@@ -408,6 +409,33 @@ func (s *Service) sendInitialHeartbeat(ctx context.Context, clusterIdentifier st
 	}
 }
 
+// validateStartupToken retries until the token is accepted or the pod is killed by the startup probe.
+func (s *Service) validateStartupToken(ctx context.Context) error {
+	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := s.heartbeatService.ValidateStartupToken(ctx)
+		if err == nil {
+			return nil
+		}
+
+		s.logger.LogWarning(err, "error validating agent token, will retry", "attempt", attempt)
+		// Exponential backoff with jitter, matching the initial heartbeat.
+		maxDelay := 1 << min(attempt, 6)
+		d := rand.IntN(maxDelay) + 1
+		timer := time.NewTimer(time.Duration(d) * time.Second)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
 	// Load the agent and charts versions from the deployment labels
 	agentVersion, helmChartsVersion, err := s.getDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
@@ -418,8 +446,14 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	s.SetAgentVersion(agentVersion)
 
 	clusterIdentifier, err := s.getClusterIdentifier(ctx)
+	s.SetClusterIdentifier(clusterIdentifier)
 	if err != nil {
 		s.logger.LogWarning(err, "error getting cluster identifier", "managerError")
+	}
+
+	if err := s.validateStartupToken(ctx); err != nil {
+		s.logger.ReportError(ctx, err, "error validating agent token", "managerError")
+		return fmt.Errorf("error validating agent token: %w", err)
 	}
 
 	// List all events from the agent namespace.
@@ -468,6 +502,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 		CompressionEnabled:    true,
 		Token:                 cfg.APIToken,
 		HeartbeatService:      s.heartbeatService,
+		AgentState:            s.AgentState,
 	})
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error creating assets batch client", "managerError")
@@ -539,7 +574,7 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 	}
 
 	// If threat detection is enabled, write embedded rules and apply the enabled-rules and exceptions configs.
-	if s.IsChartsRuntimeDetectionEnabled() && s.IsThreatDetectionEnabled() {
+	if s.IsRuntimeDetectionAvailable() && s.IsThreatDetectionEnabled() {
 		falcoVersion, err := loadDaemonSetVersion(ctx, s.kubernetesClientSet, s.GetAgentNamespace(), s.GetFalcoDaemonSetName())
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error loading falco version from daemonset", "managerError")

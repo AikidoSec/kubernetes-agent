@@ -1,0 +1,11 @@
+version: "2"
+run:
+  timeout: 5m
+
+linters:
+  exclusions:
+    rules:
+      - path: internal/predicates/endpoints.go
+        linters:
+          - staticcheck
+        text: "SA1019:"

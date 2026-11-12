@@ -1,9 +1,5 @@
 package v1alpha1
 
-// The agent watches EphemeralRunner and AutoscalingListener — the only
-// actions.github.com kinds that directly own a Pod. The other kinds in this
-// group (AutoscalingRunnerSet, EphemeralRunnerSet) are not registered.
-
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,6 +20,10 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&EphemeralRunnerList{},
 		&AutoscalingListener{},
 		&AutoscalingListenerList{},
+		&EphemeralRunnerSet{},
+		&EphemeralRunnerSetList{},
+		&AutoscalingRunnerSet{},
+		&AutoscalingRunnerSetList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil

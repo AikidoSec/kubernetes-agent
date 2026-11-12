@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
+	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
 type ClientOptions struct {
+	AgentState            *models.AgentState
 	Endpoint              string
 	MaxBatch              int
 	FlushEvery            time.Duration
@@ -26,7 +28,8 @@ type ClientOptions struct {
 }
 
 type BatchClient struct {
-	logger *slog.Logger
+	agentState *models.AgentState
+	logger     *slog.Logger
 	// target HTTP endpoint
 	endpoint string
 	// maximum events per batch
@@ -77,6 +80,7 @@ func NewBatchClient(logger *slog.Logger, o ClientOptions) (*BatchClient, error) 
 
 	bc := &BatchClient{
 		logger:                logger,
+		agentState:            o.AgentState,
 		heartbeatService:      o.HeartbeatService,
 		endpoint:              o.Endpoint,
 		apiToken:              o.Token,
@@ -246,6 +250,9 @@ func (c *BatchClient) send(events []any) error {
 	}
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+token)
+	req.Header.Set("X-Cluster-Identifier", c.agentState.GetClusterIdentifier())
+	req.Header.Set("X-Shared-Token-Enabled", c.agentState.GetSharedTokenEnabled())
+	req.Header.Set("X-Shared-Token-Cluster-Identifier", c.agentState.GetSharedTokenClusterIdentifier())
 
 	if c.compressionEnabled {
 		req.Header.Set("Content-Encoding", "gzip")

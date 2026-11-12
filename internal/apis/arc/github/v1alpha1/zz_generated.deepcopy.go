@@ -21,8 +21,9 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"encoding/json"
+
 	"k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -300,9 +301,15 @@ func (in *EphemeralRunnerStatus) DeepCopyInto(out *EphemeralRunnerStatus) {
 	*out = *in
 	if in.Failures != nil {
 		in, out := &in.Failures, &out.Failures
-		*out = make(map[string]metav1.Time, len(*in))
+		*out = make(map[string]json.RawMessage, len(*in))
 		for key, val := range *in {
-			(*out)[key] = *val.DeepCopy()
+			if val == nil {
+				(*out)[key] = nil
+				continue
+			}
+			cp := make(json.RawMessage, len(val))
+			copy(cp, val)
+			(*out)[key] = cp
 		}
 	}
 }

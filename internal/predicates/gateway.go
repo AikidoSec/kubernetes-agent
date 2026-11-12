@@ -11,7 +11,7 @@ func NewGatewayPredicate(nsFilter *NamespaceFilter) predicate.Predicate {
 			return !nsFilter.IsObjectExcluded(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return !nsFilter.IsObjectExcluded(e.ObjectNew) && (IsSpecModified(e) || HasStatusChanged(e))
+			return !nsFilter.IsObjectExcluded(e.ObjectNew) && (IsSpecOrMetadataChanged(e) || HasStatusChanged(e))
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return !nsFilter.IsObjectExcluded(e.Object)

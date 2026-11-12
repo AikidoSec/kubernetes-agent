@@ -13,17 +13,19 @@ import (
 )
 
 type Service struct {
+	*models.AgentState
 	APIEndpoint    string
 	APIToken       string
 	isServerActive bool
 	sendInterval   time.Duration
 }
 
-func NewService(apiEndpoint, apiToken string, sendInterval time.Duration) *Service {
+func NewService(apiEndpoint, apiToken string, sendInterval time.Duration, agentState *models.AgentState) *Service {
 	return &Service{
 		APIEndpoint:  apiEndpoint,
 		APIToken:     apiToken,
 		sendInterval: sendInterval,
+		AgentState:   agentState,
 	}
 }
 
@@ -69,6 +71,9 @@ func (s *Service) sendHeartbeatRequest(ctx context.Context, heartbeatPayload mod
 	}
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+s.APIToken)
+	req.Header.Set("X-Cluster-Identifier", s.GetClusterIdentifier())
+	req.Header.Set("X-Shared-Token-Enabled", s.GetSharedTokenEnabled())
+	req.Header.Set("X-Shared-Token-Cluster-Identifier", s.GetSharedTokenClusterIdentifier())
 
 	res, err := client.Do(req)
 	if err != nil {

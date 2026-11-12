@@ -2,7 +2,9 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/controllers/arc"
@@ -180,7 +182,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					AgentState: s.AgentState,
 					Logger:     s.logger,
 					Client:     runtimeManager.GetClient(),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -192,7 +194,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					AgentState: s.AgentState,
 					Logger:     s.logger,
 					Client:     runtimeManager.GetClient(),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -204,7 +206,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					AgentState: s.AgentState,
 					Logger:     s.logger,
 					Client:     runtimeManager.GetClient(),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -216,7 +218,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -228,7 +230,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -240,7 +242,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -249,7 +251,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&argoproj.ApplicationController{
 					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -258,7 +260,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&argoproj.RolloutController{
 					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -270,7 +272,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -282,7 +284,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -291,7 +293,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.EphemeralRunnerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -300,7 +302,25 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.AutoscalingListenerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
+			},
+		},
+		{
+			gvk:     arc.EphemeralRunnerSetGVK,
+			logName: "GitHub ARC EphemeralRunnerSet",
+			setup: func() error {
+				return (&arc.EphemeralRunnerSetController{
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+				}).SetupWithManager(runtimeManager, watcherOptions)
+			},
+		},
+		{
+			gvk:     arc.AutoscalingRunnerSetGVK,
+			logName: "GitHub ARC AutoscalingRunnerSet",
+			setup: func() error {
+				return (&arc.AutoscalingRunnerSetController{
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 		{
@@ -309,20 +329,50 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&arc.RunnerController{
 					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
-				}).SetupWithManager(runtimeManager, controller.Options{})
+				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
 	}
 
+	available := make([]vendorController, 0, len(vendorControllers))
 	for _, c := range vendorControllers {
 		create, err := s.shouldCreateController(serverResourcesGVKs, c.gvk, restMapper, agentClusterRole)
 		if err != nil {
 			s.logger.ReportError(ctx, err, "error checking if controller should be created", "managerError")
 			return fmt.Errorf("error checking if controller should be created: %w", err)
 		}
-		if !create {
-			continue
+		if create {
+			available = append(available, c)
 		}
+	}
+
+	probeCtx, cancelProbes := context.WithTimeout(ctx, decodeProbeBudget)
+	defer cancelProbes()
+
+	probeErrs := make([]error, len(available))
+	slots := make(chan struct{}, decodeProbeConcurrency)
+	var probing sync.WaitGroup
+
+	for i, c := range available {
+		probing.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer func() { <-slots; probing.Done() }()
+			probeErrs[i] = probeTypedDecode(probeCtx, runtimeManager.GetAPIReader(), runtimeManager.GetScheme(), c.gvk)
+		}()
+	}
+	probing.Wait()
+
+	for i, c := range available {
+		if err := probeErrs[i]; err != nil {
+			var mismatch *schemaMismatchError
+			if errors.As(err, &mismatch) {
+				s.logger.ReportError(ctx, err, "skipping "+c.logName+" controller", "managerError", "asset_type", c.gvk.String())
+				continue
+			}
+			s.logger.LogWarning(err, "could not verify "+c.logName+" payload, creating the controller anyway")
+		}
+
 		s.logger.LogInfo(c.logName + " is available in the cluster")
 		if err := c.setup(); err != nil {
 			s.logger.ReportError(ctx, err, "error creating "+c.logName+" controller", "managerError")
