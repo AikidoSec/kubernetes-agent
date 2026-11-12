@@ -18,6 +18,7 @@ type HeartbeatResponse struct {
 	Token              string                    `json:"token"`
 	MonitoredResources []schema.GroupVersionKind `json:"monitoredResources"`
 	ImageCacheHash     *int64                    `json:"imageCacheHash,omitempty"`
+	ImageCacheHashV2   *int64                    `json:"imageCacheHashV2,omitempty"`
 	ThreatDetection    ThreatDetectionHeartbeat  `json:"threat_detection"`
 }
 
