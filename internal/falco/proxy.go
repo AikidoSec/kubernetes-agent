@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -55,6 +56,9 @@ type Proxy struct {
 	routes                   []Route
 	ignoredImageRepositories []string
 	redactor                 *Redactor
+	// redactSlots bounds concurrent secret scans so a burst of (possibly
+	// unauthenticated) requests cannot starve the agent of CPU.
+	redactSlots chan struct{}
 }
 
 func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentState, ignoredImageRepositories []string, routes []Route, redactor *Redactor) *Proxy {
@@ -65,6 +69,7 @@ func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentSt
 		routes:                   routes,
 		ignoredImageRepositories: ignoredImageRepositories,
 		redactor:                 redactor,
+		redactSlots:              make(chan struct{}, max(1, runtime.NumCPU()/2)),
 	}
 }
 
@@ -176,7 +181,15 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(targets) > 0 {
-		if err := redactSecrets(raw, p.redactor); err != nil {
+		select {
+		case p.redactSlots <- struct{}{}:
+		case <-r.Context().Done():
+			http.Error(w, "request cancelled while waiting to redact", http.StatusServiceUnavailable)
+			return
+		}
+		err := redactSecrets(raw, p.redactor)
+		<-p.redactSlots
+		if err != nil {
 			p.LogError(err, "failed to redact secrets, dropping event to avoid leaking plaintext")
 			w.WriteHeader(http.StatusAccepted)
 			return
