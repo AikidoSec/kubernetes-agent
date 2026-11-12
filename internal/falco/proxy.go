@@ -150,24 +150,15 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	if err := redactSecrets(raw, p.redactor); err != nil {
-		p.LogError(err, "failed to redact secrets, dropping event to avoid leaking plaintext")
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-	sanitized, err := stripAikidoTags(raw, event.Tags)
-	if err != nil {
-		p.LogError(err, "failed to strip aikido tags")
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-
 	p.GetLogger().Debug("event received", "rule", event.Rule, "tags", event.Tags)
 
 	if !hasAikidoTag(event.Tags) {
 		p.LogWarning(fmt.Errorf("rule %q fired with no aikido: routing tag — event will not be forwarded", event.Rule), "misconfigured rule detected")
 	}
 
+	// Resolve target routes before redacting so unroutable events never trigger
+	// the (CPU-expensive) secret scan.
+	var targets []Route
 	for _, route := range p.routes {
 		if !slices.Contains(event.Tags, route.Tag) {
 			p.LogInfo("event skipped: tag not matched", "rule", event.Rule, "event_tags", event.Tags, "route_tag", route.Tag)
@@ -181,10 +172,27 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 			p.LogInfo("event skipped: filtered by route", "rule", event.Rule, "route_tag", route.Tag)
 			continue
 		}
-		if err := route.Client.SendContext(r.Context(), sanitized); err != nil {
-			p.LogError(err, "failed to enqueue event", "tag", route.Tag)
-			http.Error(w, "failed to enqueue event", http.StatusServiceUnavailable)
+		targets = append(targets, route)
+	}
+
+	if len(targets) > 0 {
+		if err := redactSecrets(raw, p.redactor); err != nil {
+			p.LogError(err, "failed to redact secrets, dropping event to avoid leaking plaintext")
+			w.WriteHeader(http.StatusAccepted)
 			return
+		}
+		sanitized, err := stripAikidoTags(raw, event.Tags)
+		if err != nil {
+			p.LogError(err, "failed to strip aikido tags")
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		for _, route := range targets {
+			if err := route.Client.SendContext(r.Context(), sanitized); err != nil {
+				p.LogError(err, "failed to enqueue event", "tag", route.Tag)
+				http.Error(w, "failed to enqueue event", http.StatusServiceUnavailable)
+				return
+			}
 		}
 	}
 
