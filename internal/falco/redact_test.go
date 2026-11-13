@@ -1,8 +1,10 @@
 package falco
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"math/rand"
 	"strings"
 	"testing"
@@ -129,21 +131,21 @@ func TestRedactTextScanCap(t *testing.T) {
 	})
 }
 
-func TestRedactSecrets(t *testing.T) {
+func TestRedactEvent(t *testing.T) {
 	r := newTestRedactor(t)
 
 	t.Run("redacts output string", func(t *testing.T) {
 		raw := mustParseRaw(t, `{"output":"suspicious exec token=`+testSecret+`"}`)
-		if err := redactSecrets(raw, r); err != nil {
-			t.Fatalf("redactSecrets() error = %v", err)
+		if err := r.RedactEvent(context.Background(), raw); err != nil {
+			t.Fatalf("RedactEvent() error = %v", err)
 		}
 		assertStringRedacted(t, raw["output"])
 	})
 
 	t.Run("redacts allowlisted output_fields", func(t *testing.T) {
 		raw := mustParseRaw(t, `{"output_fields":{"proc.cmdline":"login --token `+testSecret+`","proc.name":"login"}}`)
-		if err := redactSecrets(raw, r); err != nil {
-			t.Fatalf("redactSecrets() error = %v", err)
+		if err := r.RedactEvent(context.Background(), raw); err != nil {
+			t.Fatalf("RedactEvent() error = %v", err)
 		}
 		fields := mustParseFields(t, raw)
 		cmdline, _ := fields["proc.cmdline"].(string)
@@ -157,8 +159,8 @@ func TestRedactSecrets(t *testing.T) {
 
 	t.Run("redacts non-command-line output_fields", func(t *testing.T) {
 		raw := mustParseRaw(t, `{"output_fields":{"proc.pcmdline":"sh -c","proc.cwd":"/tmp/`+testSecret+`"}}`)
-		if err := redactSecrets(raw, r); err != nil {
-			t.Fatalf("redactSecrets() error = %v", err)
+		if err := r.RedactEvent(context.Background(), raw); err != nil {
+			t.Fatalf("RedactEvent() error = %v", err)
 		}
 		fields := mustParseFields(t, raw)
 		cwd, _ := fields["proc.cwd"].(string)
@@ -169,8 +171,8 @@ func TestRedactSecrets(t *testing.T) {
 
 	t.Run("redacts strings nested in arrays and objects", func(t *testing.T) {
 		raw := mustParseRaw(t, `{"output_fields":{"evt.args":["res=0 data=`+testSecret+`",{"nested":["`+testSecret+`"]}],"proc.pid":42,"ok":true,"none":null}}`)
-		if err := redactSecrets(raw, r); err != nil {
-			t.Fatalf("redactSecrets() error = %v", err)
+		if err := r.RedactEvent(context.Background(), raw); err != nil {
+			t.Fatalf("RedactEvent() error = %v", err)
 		}
 		got := string(raw["output_fields"])
 		if strings.Contains(got, testSecret) {
@@ -185,8 +187,8 @@ func TestRedactSecrets(t *testing.T) {
 
 	t.Run("redacts output_fields that is not an object", func(t *testing.T) {
 		raw := mustParseRaw(t, `{"output_fields":["`+testSecret+`"]}`)
-		if err := redactSecrets(raw, r); err != nil {
-			t.Fatalf("redactSecrets() error = %v", err)
+		if err := r.RedactEvent(context.Background(), raw); err != nil {
+			t.Fatalf("RedactEvent() error = %v", err)
 		}
 		if strings.Contains(string(raw["output_fields"]), testSecret) {
 			t.Errorf("secret left in array-valued output_fields: %s", raw["output_fields"])
@@ -195,8 +197,8 @@ func TestRedactSecrets(t *testing.T) {
 
 	t.Run("redacts output that is not a string", func(t *testing.T) {
 		raw := mustParseRaw(t, `{"output":{"msg":"`+testSecret+`"}}`)
-		if err := redactSecrets(raw, r); err != nil {
-			t.Fatalf("redactSecrets() error = %v", err)
+		if err := r.RedactEvent(context.Background(), raw); err != nil {
+			t.Fatalf("RedactEvent() error = %v", err)
 		}
 		if strings.Contains(string(raw["output"]), testSecret) {
 			t.Errorf("secret left in object-valued output: %s", raw["output"])
@@ -209,8 +211,8 @@ func TestRedactSecrets(t *testing.T) {
 			deep = `{"a":` + deep + `}`
 		}
 		raw := mustParseRaw(t, `{"output_fields":`+deep+`}`)
-		if err := redactSecrets(raw, r); err != nil {
-			t.Fatalf("redactSecrets() error = %v", err)
+		if err := r.RedactEvent(context.Background(), raw); err != nil {
+			t.Fatalf("RedactEvent() error = %v", err)
 		}
 		if strings.Contains(string(raw["output_fields"]), testSecret) {
 			t.Errorf("secret survived beyond the depth limit")
@@ -219,15 +221,15 @@ func TestRedactSecrets(t *testing.T) {
 
 	t.Run("nil redactor fails closed", func(t *testing.T) {
 		raw := mustParseRaw(t, `{"output":"x"}`)
-		if err := redactSecrets(raw, nil); err == nil {
+		if err := (*Redactor)(nil).RedactEvent(context.Background(), raw); err == nil {
 			t.Errorf("expected error for nil redactor")
 		}
 	})
 
 	t.Run("payload without output or output_fields is a no-op", func(t *testing.T) {
 		raw := mustParseRaw(t, `{"rule":"some rule","tags":["network"]}`)
-		if err := redactSecrets(raw, r); err != nil {
-			t.Fatalf("redactSecrets() error = %v", err)
+		if err := r.RedactEvent(context.Background(), raw); err != nil {
+			t.Fatalf("RedactEvent() error = %v", err)
 		}
 	})
 }
@@ -261,5 +263,30 @@ func assertStringRedacted(t *testing.T, rawValue json.RawMessage) {
 	}
 	if !strings.Contains(s, "redacted-") {
 		t.Errorf("expected redacted token: %q", s)
+	}
+}
+
+func TestRedactEventWaitsForSlotAndHonorsContext(t *testing.T) {
+	r := newTestRedactor(t)
+	fillSlots(r)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	raw := mustParseRaw(t, `{"output":"`+testSecret+`"}`)
+	err := r.RedactEvent(ctx, raw)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RedactEvent() error = %v, want context.Canceled", err)
+	}
+	if !strings.Contains(string(raw["output"]), testSecret) {
+		t.Errorf("event must be left untouched when no scan ran")
+	}
+
+	// Once a slot frees up, the same call succeeds and releases it again.
+	<-r.slots
+	if err := r.RedactEvent(context.Background(), raw); err != nil {
+		t.Fatalf("RedactEvent() error = %v", err)
+	}
+	if strings.Contains(string(raw["output"]), testSecret) {
+		t.Errorf("secret not redacted")
 	}
 }

@@ -39,10 +39,16 @@ const routeTag = "aikido:threat-detection"
 func newHandlerProxy(redactor *Redactor, route Route) *Proxy {
 	p := newTestProxy(nil, nil, nil)
 	p.redactor = redactor
-	p.redactSlots = make(chan struct{}, 1)
 	route.Tag = routeTag
 	p.routes = []Route{route}
 	return p
+}
+
+// fillSlots occupies every scan slot so the next scan has to wait.
+func fillSlots(r *Redactor) {
+	for len(r.slots) < cap(r.slots) {
+		r.slots <- struct{}{}
+	}
 }
 
 func post(p *Proxy, body string) *httptest.ResponseRecorder {
@@ -99,7 +105,7 @@ func TestHandleRequestSkipsScanForUnroutableEvents(t *testing.T) {
 			// Occupy the only scan slot and cancel the request context: if the
 			// handler tried to scan it would answer 503 instead of 202.
 			p := newHandlerProxy(newTestRedactor(t), tt.route)
-			p.redactSlots <- struct{}{}
+			fillSlots(p.redactor)
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
 			req := httptest.NewRequest(http.MethodPost, "/detection", strings.NewReader(secretEvent(tt.tags))).WithContext(ctx)
@@ -117,7 +123,7 @@ func TestHandleRequestSkipsScanForUnroutableEvents(t *testing.T) {
 
 func TestHandleRequestDropsEventWhenRedactionFails(t *testing.T) {
 	client := &fakeClient{}
-	p := newHandlerProxy(nil, Route{Client: client}) // nil redactor => redactSecrets errors
+	p := newHandlerProxy(nil, Route{Client: client}) // nil redactor => RedactEvent errors
 
 	rec := post(p, secretEvent(`["`+routeTag+`"]`))
 	if rec.Code != http.StatusAccepted {
@@ -131,7 +137,7 @@ func TestHandleRequestDropsEventWhenRedactionFails(t *testing.T) {
 func TestHandleRequestReturns503WhenCancelledWaitingForSlot(t *testing.T) {
 	client := &fakeClient{}
 	p := newHandlerProxy(newTestRedactor(t), Route{Client: client})
-	p.redactSlots <- struct{}{} // occupy the only slot
+	fillSlots(p.redactor)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

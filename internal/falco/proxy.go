@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -63,12 +62,13 @@ type Proxy struct {
 	routes                   []Route
 	ignoredImageRepositories []string
 	redactor                 *Redactor
-	// redactSlots bounds concurrent secret scans so a burst of (possibly
-	// unauthenticated) requests cannot starve the agent of CPU.
-	redactSlots chan struct{}
 }
 
-func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentState, ignoredImageRepositories []string, routes []Route, redactor *Redactor) *Proxy {
+func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentState, ignoredImageRepositories []string, routes []Route) (*Proxy, error) {
+	redactor, err := NewRedactor()
+	if err != nil {
+		return nil, err
+	}
 	return &Proxy{
 		AgentState:               agentState,
 		Service:                  logger,
@@ -76,8 +76,7 @@ func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentSt
 		routes:                   routes,
 		ignoredImageRepositories: ignoredImageRepositories,
 		redactor:                 redactor,
-		redactSlots:              make(chan struct{}, max(1, runtime.NumCPU()/2)),
-	}
+	}, nil
 }
 
 // SetAPIToken propagates a new API token to all route clients.
@@ -188,15 +187,11 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(targets) > 0 {
-		select {
-		case p.redactSlots <- struct{}{}:
-		case <-r.Context().Done():
-			http.Error(w, "request cancelled while waiting to redact", http.StatusServiceUnavailable)
-			return
-		}
-		err := redactSecrets(raw, p.redactor)
-		<-p.redactSlots
-		if err != nil {
+		if err := p.redactor.RedactEvent(r.Context(), raw); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				http.Error(w, "request cancelled while waiting to redact", http.StatusServiceUnavailable)
+				return
+			}
 			p.LogError(err, "failed to redact secrets, dropping event to avoid leaking plaintext")
 			w.WriteHeader(http.StatusAccepted)
 			return
@@ -288,85 +283,6 @@ func stripAikidoTags(raw map[string]json.RawMessage, tags []string) (json.RawMes
 	raw["tags"] = sanitizedTags
 
 	return json.Marshal(raw)
-}
-
-func redactSecrets(raw map[string]json.RawMessage, redactor *Redactor) error {
-	if redactor == nil {
-		return errors.New("no redactor configured")
-	}
-	for _, key := range []string{"output", "output_fields"} {
-		if err := redactRawField(raw, key, redactor); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// maxRedactDepth bounds recursion into nested JSON. Anything deeper is replaced
-// outright (fail closed) rather than walked, so a crafted payload can neither
-// exhaust the stack nor carry a secret out unscanned.
-// Real Falco events are flat (output_fields strings sit at depth 1), so 4 leaves
-// ample headroom.
-const maxRedactDepth = 4
-
-// redactRawField redacts every string found anywhere inside raw[key] (strings,
-// object values and array elements, at any depth). Secrets can appear in any
-// field (proc.pcmdline, proc.exepath, fd.name, ...), not just command lines.
-func redactRawField(raw map[string]json.RawMessage, key string, redactor *Redactor) error {
-	v, ok := raw[key]
-	if !ok {
-		return nil
-	}
-	var value any
-	if err := json.Unmarshal(v, &value); err != nil {
-		return fmt.Errorf("unmarshal %s: %w", key, err)
-	}
-	redacted, changed := redactJSONValue(value, redactor, 0)
-	if !changed {
-		return nil
-	}
-	marshaled, err := json.Marshal(redacted)
-	if err != nil {
-		return fmt.Errorf("marshal redacted %s: %w", key, err)
-	}
-	raw[key] = marshaled
-	return nil
-}
-
-func redactJSONValue(value any, redactor *Redactor, depth int) (any, bool) {
-	switch v := value.(type) {
-	case string:
-		if redacted := redactor.RedactText(v); redacted != v {
-			return redacted, true
-		}
-		return v, false
-	case map[string]any:
-		if depth >= maxRedactDepth {
-			return "[TRUNCATED]", true
-		}
-		changed := false
-		for k, item := range v {
-			if redacted, c := redactJSONValue(item, redactor, depth+1); c {
-				v[k] = redacted
-				changed = true
-			}
-		}
-		return v, changed
-	case []any:
-		if depth >= maxRedactDepth {
-			return "[TRUNCATED]", true
-		}
-		changed := false
-		for i, item := range v {
-			if redacted, c := redactJSONValue(item, redactor, depth+1); c {
-				v[i] = redacted
-				changed = true
-			}
-		}
-		return v, changed
-	default:
-		return value, false
-	}
 }
 
 func hasAikidoTag(tags []string) bool {
