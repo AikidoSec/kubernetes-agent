@@ -1,7 +1,9 @@
 package falco
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"math/rand"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -72,20 +74,41 @@ func TestRedactTextScanCap(t *testing.T) {
 
 	t.Run("a secret straddling the cap leaves no fragment behind", func(t *testing.T) {
 		for _, offset := range []int{1, 5, 12, len(testSecret) - 1} {
-			input := strings.Repeat("a ", (maxScanBytes-offset)/2) + testSecret + " tail"
-			input = input[:maxScanBytes-offset] + testSecret + " tail"
+			input := strings.Repeat("a ", maxScanBytes)[:maxScanBytes-offset] + testSecret + " tail"
 			got := r.RedactText(input)
-			if strings.Contains(got, "xoxb-") {
-				t.Errorf("offset %d: token fragment survived truncation: %q", offset, got[len(got)-40:])
+			if strings.Contains(got, "xoxb-") || strings.Contains(got, "1234567890123") {
+				t.Errorf("offset %d: token fragment survived truncation: %q", offset, got[len(got)-60:])
+			}
+			if len(got) > maxScanBytes+len(truncationMarker) {
+				t.Errorf("offset %d: result longer than cap: %d", offset, len(got))
 			}
 		}
 	})
 
-	t.Run("token with no delimiter in the lookback window is dropped entirely", func(t *testing.T) {
-		input := strings.Repeat("a ", 100) + strings.Repeat("b", maxScanBytes) + testSecret
-		got := r.RedactText(input)
-		if strings.Contains(got, "xoxb-") || len(got) > maxScanBytes+len(truncationMarker) {
-			t.Errorf("unexpected result length %d or fragment", len(got))
+	t.Run("a multi-line secret cut mid-body leaves no fragment behind", func(t *testing.T) {
+		// Newlines (and any other delimiter) inside a secret must not be treated as
+		// a safe place to cut: the whole key is detected before the string is cut.
+		rng := rand.New(rand.NewSource(1))
+		var lines []string
+		for i := 0; i < 26; i++ {
+			buf := make([]byte, 48)
+			rng.Read(buf)
+			lines = append(lines, base64.StdEncoding.EncodeToString(buf))
+		}
+		key := "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Join(lines, "\n") + "\n-----END RSA PRIVATE KEY-----"
+		for _, cutInLine := range []int{3, 10, 20} {
+			// Position the cut inside the chosen body line.
+			before := "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Join(lines[:cutInLine], "\n") + "\n" + lines[cutInLine][:10]
+			input := strings.Repeat("a ", maxScanBytes)[:maxScanBytes-len(before)] + key + " tail"
+			got := r.RedactText(input)
+			for i, line := range lines {
+				if strings.Contains(got, line[:20]) {
+					t.Errorf("cut in line %d: key body line %d survived", cutInLine, i)
+				}
+			}
+			if strings.Contains(got, "PRIVATE KEY") {
+				t.Errorf("cut in line %d: key header survived: %q", cutInLine, got[len(got)-80:])
+			}
 		}
 	})
 
