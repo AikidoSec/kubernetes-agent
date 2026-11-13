@@ -67,7 +67,6 @@ func truncateForScan(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	// The cut already falls on a delimiter: no token is split.
 	if strings.IndexByte(truncateDelimiters, s[n]) >= 0 {
 		return s[:n]
 	}
