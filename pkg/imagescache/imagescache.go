@@ -3,7 +3,6 @@ package imagescache
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -46,7 +45,7 @@ func (c *ImagesCache) LoadFromScannedImages(scannedImages []models.ScannedImage)
 	c.ProcessedImagesCache = make(map[string]struct{})
 
 	for _, img := range scannedImages {
-		c.ProcessedImagesCache[fmt.Sprintf("%s:%s", img.Image, img.Digest)] = struct{}{}
+		c.ProcessedImagesCache[models.CollectorImageKey(img.Image, img.Digest, img.Architecture)] = struct{}{}
 	}
 }
 
@@ -57,7 +56,7 @@ func (c *ImagesCache) CalculateHash() (int64, error) {
 	var xorSum uint64 = 0
 
 	for i, ref := range slices.Sorted(maps.Keys(c.ProcessedImagesCache)) {
-		// Payload: "Index#image:digest", needs index for correct hash (+1 to match pg)
+		// Payload: "Index#image:digest:architecture", needs index for correct hash (+1 to match pg)
 		payload := strconv.Itoa(i+1) + "#" + ref
 
 		hash := md5.Sum([]byte(payload))

@@ -2,7 +2,6 @@ package sbom
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/logger"
@@ -51,12 +50,15 @@ func (s *Service) HandleGetCollectorConfig(_ context.Context) (models.CollectorC
 	}, nil
 }
 
-func (s *Service) HandleGetImageProcessingStatus(_ context.Context, image, digest string) (models.CollectorImageStatus, error) {
-	imageKey := fmt.Sprintf("%s:%s", image, digest)
-	isProcessed := s.imagesCache.IsImageProcessed(imageKey)
+func (s *Service) HandleGetImageProcessingStatus(_ context.Context, image, digest, architecture string) (models.CollectorImageStatus, error) {
+	imageKey := models.CollectorImageKey(image, digest, architecture)
+
+	// Images scanned before the architecture was reported are stored without it, so they count as processed for every architecture.
+	isProcessed := s.imagesCache.IsImageProcessed(imageKey) || (architecture != "" && s.imagesCache.IsImageProcessed(models.CollectorImageKey(image, digest, "")))
 	mirrorRepository := s.GetImageMirrorMapping(image)
 	status := models.CollectorImageStatus{
 		Image:            image,
+		Architecture:     architecture,
 		IsProcessed:      isProcessed,
 		MirrorRepository: mirrorRepository,
 	}
@@ -74,6 +76,6 @@ func (s *Service) HandleGetImageProcessingStatus(_ context.Context, image, diges
 }
 
 func (s *Service) HandleSetImageProcessingStatus(_ context.Context, imageStatus models.CollectorImageStatus) error {
-	s.imagesCache.MarkImageAsProcessed(fmt.Sprintf("%s:%s", imageStatus.Image, imageStatus.Digest))
+	s.imagesCache.MarkImageAsProcessed(models.CollectorImageKey(imageStatus.Image, imageStatus.Digest, imageStatus.Architecture))
 	return nil
 }

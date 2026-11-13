@@ -67,7 +67,10 @@ func (c *SBOMController) GetImageProcessingStatus(rw http.ResponseWriter, r *htt
 		return
 	}
 
-	imageStatus, err := c.service.HandleGetImageProcessingStatus(r.Context(), image, digest)
+	// The architecture is optional, older collectors don't send it.
+	architecture := r.URL.Query().Get("architecture")
+
+	imageStatus, err := c.service.HandleGetImageProcessingStatus(r.Context(), image, digest, architecture)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("error getting image processing status: %s", err.Error()), http.StatusInternalServerError)
 		return

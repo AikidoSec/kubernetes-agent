@@ -7,12 +7,13 @@ import (
 )
 
 type ScannedImage struct {
-	ID         int       `db:"id" json:"id"`
-	SysGroupID int       `db:"sys_group_id" json:"sys_group_id"`
-	Image      string    `db:"image" json:"image"`
-	Digest     string    `db:"digest" json:"digest"`
-	CreatedAt  time.Time `db:"created_at" json:"created_at"`
-	ModifiedAt time.Time `db:"modified_at" json:"modified_at"`
+	ID           int       `db:"id" json:"id"`
+	SysGroupID   int       `db:"sys_group_id" json:"sys_group_id"`
+	Image        string    `db:"image" json:"image"`
+	Digest       string    `db:"digest" json:"digest"`
+	Architecture string    `db:"architecture" json:"architecture"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	ModifiedAt   time.Time `db:"modified_at" json:"modified_at"`
 }
 
 func (p *ScannedImage) FromJSON(r io.Reader) error {
