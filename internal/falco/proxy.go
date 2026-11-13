@@ -294,62 +294,77 @@ func redactSecrets(raw map[string]json.RawMessage, redactor *Redactor) error {
 	if redactor == nil {
 		return errors.New("no redactor configured")
 	}
-	if err := redactOutputString(raw, redactor); err != nil {
-		return err
+	for _, key := range []string{"output", "output_fields"} {
+		if err := redactRawField(raw, key, redactor); err != nil {
+			return err
+		}
 	}
-	return redactOutputFields(raw, redactor)
-}
-
-func redactOutputString(raw map[string]json.RawMessage, redactor *Redactor) error {
-	v, ok := raw["output"]
-	if !ok {
-		return nil
-	}
-	var output string
-	if err := json.Unmarshal(v, &output); err != nil {
-		return nil
-	}
-	marshaled, err := json.Marshal(redactor.RedactText(output))
-	if err != nil {
-		return fmt.Errorf("marshal redacted output: %w", err)
-	}
-	raw["output"] = marshaled
 	return nil
 }
 
-func redactOutputFields(raw map[string]json.RawMessage, redactor *Redactor) error {
-	v, ok := raw["output_fields"]
+// maxRedactDepth bounds recursion into nested JSON. Anything deeper is replaced
+// outright (fail closed) rather than walked, so a crafted payload can neither
+// exhaust the stack nor carry a secret out unscanned.
+const maxRedactDepth = 16
+
+// redactRawField redacts every string found anywhere inside raw[key] (strings,
+// object values and array elements, at any depth). Secrets can appear in any
+// field (proc.pcmdline, proc.exepath, fd.name, ...), not just command lines.
+func redactRawField(raw map[string]json.RawMessage, key string, redactor *Redactor) error {
+	v, ok := raw[key]
 	if !ok {
 		return nil
 	}
-	var fields map[string]any
-	if err := json.Unmarshal(v, &fields); err != nil {
+	var value any
+	if err := json.Unmarshal(v, &value); err != nil {
+		return fmt.Errorf("unmarshal %s: %w", key, err)
+	}
+	redacted, changed := redactJSONValue(value, redactor, 0)
+	if !changed {
 		return nil
 	}
-
-	// Every string value is scanned: secrets can show up in any field (proc.pcmdline,
-	// proc.cwd, fd.name, ...), not just the command-line ones.
-	redactedAny := false
-	for key, fieldValue := range fields {
-		stringValue, ok := fieldValue.(string)
-		if !ok {
-			continue
-		}
-		if redacted := redactor.RedactText(stringValue); redacted != stringValue {
-			fields[key] = redacted
-			redactedAny = true
-		}
-	}
-	if !redactedAny {
-		return nil
-	}
-
-	marshaled, err := json.Marshal(fields)
+	marshaled, err := json.Marshal(redacted)
 	if err != nil {
-		return fmt.Errorf("marshal redacted output_fields: %w", err)
+		return fmt.Errorf("marshal redacted %s: %w", key, err)
 	}
-	raw["output_fields"] = marshaled
+	raw[key] = marshaled
 	return nil
+}
+
+func redactJSONValue(value any, redactor *Redactor, depth int) (any, bool) {
+	switch v := value.(type) {
+	case string:
+		if redacted := redactor.RedactText(v); redacted != v {
+			return redacted, true
+		}
+		return v, false
+	case map[string]any:
+		if depth >= maxRedactDepth {
+			return "[TRUNCATED]", true
+		}
+		changed := false
+		for k, item := range v {
+			if redacted, c := redactJSONValue(item, redactor, depth+1); c {
+				v[k] = redacted
+				changed = true
+			}
+		}
+		return v, changed
+	case []any:
+		if depth >= maxRedactDepth {
+			return "[TRUNCATED]", true
+		}
+		changed := false
+		for i, item := range v {
+			if redacted, c := redactJSONValue(item, redactor, depth+1); c {
+				v[i] = redacted
+				changed = true
+			}
+		}
+		return v, changed
+	default:
+		return value, false
+	}
 }
 
 func hasAikidoTag(tags []string) bool {

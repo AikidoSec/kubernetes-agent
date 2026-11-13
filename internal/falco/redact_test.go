@@ -82,6 +82,63 @@ func TestRedactSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("redacts strings nested in arrays and objects", func(t *testing.T) {
+		raw := mustParseRaw(t, `{"output_fields":{"evt.args":["res=0 data=`+testSecret+`",{"nested":["`+testSecret+`"]}],"proc.pid":42,"ok":true,"none":null}}`)
+		if err := redactSecrets(raw, r); err != nil {
+			t.Fatalf("redactSecrets() error = %v", err)
+		}
+		got := string(raw["output_fields"])
+		if strings.Contains(got, testSecret) {
+			t.Errorf("secret left in nested value: %s", got)
+		}
+		for _, want := range []string{`"proc.pid":42`, `"ok":true`, `"none":null`, "redacted-"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("expected %q in %s", want, got)
+			}
+		}
+	})
+
+	t.Run("redacts output_fields that is not an object", func(t *testing.T) {
+		raw := mustParseRaw(t, `{"output_fields":["`+testSecret+`"]}`)
+		if err := redactSecrets(raw, r); err != nil {
+			t.Fatalf("redactSecrets() error = %v", err)
+		}
+		if strings.Contains(string(raw["output_fields"]), testSecret) {
+			t.Errorf("secret left in array-valued output_fields: %s", raw["output_fields"])
+		}
+	})
+
+	t.Run("redacts output that is not a string", func(t *testing.T) {
+		raw := mustParseRaw(t, `{"output":{"msg":"`+testSecret+`"}}`)
+		if err := redactSecrets(raw, r); err != nil {
+			t.Fatalf("redactSecrets() error = %v", err)
+		}
+		if strings.Contains(string(raw["output"]), testSecret) {
+			t.Errorf("secret left in object-valued output: %s", raw["output"])
+		}
+	})
+
+	t.Run("replaces structures nested beyond the depth limit", func(t *testing.T) {
+		deep := `"` + testSecret + `"`
+		for i := 0; i < maxRedactDepth+4; i++ {
+			deep = `{"a":` + deep + `}`
+		}
+		raw := mustParseRaw(t, `{"output_fields":`+deep+`}`)
+		if err := redactSecrets(raw, r); err != nil {
+			t.Fatalf("redactSecrets() error = %v", err)
+		}
+		if strings.Contains(string(raw["output_fields"]), testSecret) {
+			t.Errorf("secret survived beyond the depth limit")
+		}
+	})
+
+	t.Run("nil redactor fails closed", func(t *testing.T) {
+		raw := mustParseRaw(t, `{"output":"x"}`)
+		if err := redactSecrets(raw, nil); err == nil {
+			t.Errorf("expected error for nil redactor")
+		}
+	})
+
 	t.Run("payload without output or output_fields is a no-op", func(t *testing.T) {
 		raw := mustParseRaw(t, `{"rule":"some rule","tags":["network"]}`)
 		if err := redactSecrets(raw, r); err != nil {
