@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/logger"
-	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
@@ -25,12 +24,20 @@ type Event struct {
 	OutputFields map[string]any `json:"output_fields"`
 }
 
+// EventClient is the sink a Route forwards events to. *batchclient.BatchClient
+// satisfies it; tests substitute a fake.
+type EventClient interface {
+	SendContext(ctx context.Context, e any) error
+	SetAPIToken(token string)
+	Close(ctx context.Context) error
+}
+
 // Route defines how events with a specific Falco tag are forwarded.
 type Route struct {
 	// Tag is the Falco event tag that triggers this route.
 	Tag string
 	// Client receives matched events.
-	Client *batchclient.BatchClient
+	Client EventClient
 	// IsEnabled is called before routing; if it returns false the route is
 	// skipped. A nil IsEnabled means the route is always active.
 	IsEnabled func() bool
@@ -284,6 +291,9 @@ func stripAikidoTags(raw map[string]json.RawMessage, tags []string) (json.RawMes
 }
 
 func redactSecrets(raw map[string]json.RawMessage, redactor *Redactor) error {
+	if redactor == nil {
+		return errors.New("no redactor configured")
+	}
 	if err := redactOutputString(raw, redactor); err != nil {
 		return err
 	}
