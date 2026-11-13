@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // testSecret is a Slack bot token shape the betterleaks default config reliably
@@ -40,6 +41,48 @@ func TestRedactText(t *testing.T) {
 		input := "cat /etc/passwd"
 		if got := r.RedactText(input); got != input {
 			t.Errorf("RedactText(%q) = %q, want unchanged", input, got)
+		}
+	})
+}
+
+func TestRedactTextScanCap(t *testing.T) {
+	r := newTestRedactor(t)
+
+	t.Run("secret inside the cap is still redacted", func(t *testing.T) {
+		input := strings.Repeat("a", maxScanBytes-len(testSecret)-10) + " " + testSecret
+		got := r.RedactText(input)
+		if strings.Contains(got, testSecret) {
+			t.Errorf("secret within cap was not redacted")
+		}
+	})
+
+	t.Run("oversized string is truncated so the tail cannot leak", func(t *testing.T) {
+		input := strings.Repeat("a", maxScanBytes) + " " + testSecret
+		got := r.RedactText(input)
+		if strings.Contains(got, testSecret) {
+			t.Errorf("secret beyond the cap leaked")
+		}
+		if !strings.HasSuffix(got, truncationMarker) {
+			t.Errorf("expected truncation marker, got suffix %q", got[len(got)-20:])
+		}
+		if len(got) != maxScanBytes+len(truncationMarker) {
+			t.Errorf("len = %d, want %d", len(got), maxScanBytes+len(truncationMarker))
+		}
+	})
+
+	t.Run("string at exactly the cap is untouched", func(t *testing.T) {
+		input := strings.Repeat("a", maxScanBytes)
+		if got := r.RedactText(input); got != input {
+			t.Errorf("string at the cap was modified")
+		}
+	})
+
+	t.Run("truncation does not split a multi-byte rune", func(t *testing.T) {
+		// "é" is 2 bytes; an odd offset would cut one in half.
+		input := "a" + strings.Repeat("é", maxScanBytes)
+		got := r.RedactText(input)
+		if !utf8.ValidString(got) {
+			t.Errorf("truncated output is not valid UTF-8")
 		}
 	})
 }

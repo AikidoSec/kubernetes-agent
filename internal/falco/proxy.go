@@ -305,7 +305,9 @@ func redactSecrets(raw map[string]json.RawMessage, redactor *Redactor) error {
 // maxRedactDepth bounds recursion into nested JSON. Anything deeper is replaced
 // outright (fail closed) rather than walked, so a crafted payload can neither
 // exhaust the stack nor carry a secret out unscanned.
-const maxRedactDepth = 16
+// Real Falco events are flat (output_fields strings sit at depth 1), so 4 leaves
+// ample headroom.
+const maxRedactDepth = 4
 
 // redactRawField redacts every string found anywhere inside raw[key] (strings,
 // object values and array elements, at any depth). Secrets can appear in any
