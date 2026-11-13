@@ -70,6 +70,25 @@ func TestRedactTextScanCap(t *testing.T) {
 		}
 	})
 
+	t.Run("a secret straddling the cap leaves no fragment behind", func(t *testing.T) {
+		for _, offset := range []int{1, 5, 12, len(testSecret) - 1} {
+			input := strings.Repeat("a ", (maxScanBytes-offset)/2) + testSecret + " tail"
+			input = input[:maxScanBytes-offset] + testSecret + " tail"
+			got := r.RedactText(input)
+			if strings.Contains(got, "xoxb-") {
+				t.Errorf("offset %d: token fragment survived truncation: %q", offset, got[len(got)-40:])
+			}
+		}
+	})
+
+	t.Run("token with no delimiter in the lookback window is dropped entirely", func(t *testing.T) {
+		input := strings.Repeat("a ", 100) + strings.Repeat("b", maxScanBytes) + testSecret
+		got := r.RedactText(input)
+		if strings.Contains(got, "xoxb-") || len(got) > maxScanBytes+len(truncationMarker) {
+			t.Errorf("unexpected result length %d or fragment", len(got))
+		}
+	})
+
 	t.Run("string at exactly the cap is untouched", func(t *testing.T) {
 		input := strings.Repeat("a", maxScanBytes)
 		if got := r.RedactText(input); got != input {

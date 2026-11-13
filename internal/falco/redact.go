@@ -40,7 +40,7 @@ func NewRedactor() (*Redactor, error) {
 // downstream aggregate grouping stable.
 func (r *Redactor) RedactText(input string) string {
 	if len(input) > maxScanBytes {
-		input = truncateUTF8(input, maxScanBytes) + truncationMarker
+		input = truncateForScan(input, maxScanBytes) + truncationMarker
 	}
 	redacted := input
 	for _, finding := range r.detector.DetectString(input) {
@@ -52,15 +52,35 @@ func (r *Redactor) RedactText(input string) string {
 	return redacted
 }
 
-// truncateUTF8 cuts s to at most n bytes without splitting a multi-byte rune.
-func truncateUTF8(s string, n int) string {
+// truncateLookback is how far truncateForScan backs up to find a delimiter.
+const truncateLookback = 1024
+
+// truncateDelimiters separate tokens, so cutting right after one cannot split
+// a secret in half.
+const truncateDelimiters = " \t\r\n\"'`=:,;|&()[]{}<>"
+
+// truncateForScan cuts s to at most n bytes without splitting a multi-byte rune
+// or a token. A secret straddling the cut would otherwise survive as an
+// undetectable prefix, so the cut backs up to the last delimiter within
+// truncateLookback bytes (or drops the whole window if there is none).
+func truncateForScan(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
+	// The cut already falls on a delimiter: no token is split.
+	if strings.IndexByte(truncateDelimiters, s[n]) >= 0 {
+		return s[:n]
 	}
-	return s[:n]
+	end := n
+	if i := strings.LastIndexAny(s[max(0, n-truncateLookback):n], truncateDelimiters); i >= 0 {
+		end = max(0, n-truncateLookback) + i + 1
+	} else {
+		end = max(0, n-truncateLookback)
+	}
+	for end > 0 && end < len(s) && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end]
 }
 
 func hashValue(s string) string {
