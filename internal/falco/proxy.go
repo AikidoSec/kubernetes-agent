@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/services/logger"
-	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
@@ -24,12 +23,20 @@ type Event struct {
 	OutputFields map[string]any `json:"output_fields"`
 }
 
+// EventClient is the sink a Route forwards events to. *batchclient.BatchClient
+// satisfies it; tests substitute a fake.
+type EventClient interface {
+	SendContext(ctx context.Context, e any) error
+	SetAPIToken(token string)
+	Close(ctx context.Context) error
+}
+
 // Route defines how events with a specific Falco tag are forwarded.
 type Route struct {
 	// Tag is the Falco event tag that triggers this route.
 	Tag string
 	// Client receives matched events.
-	Client *batchclient.BatchClient
+	Client EventClient
 	// IsEnabled is called before routing; if it returns false the route is
 	// skipped. A nil IsEnabled means the route is always active.
 	IsEnabled func() bool
@@ -54,16 +61,22 @@ type Proxy struct {
 	server                   *http.Server
 	routes                   []Route
 	ignoredImageRepositories []string
+	redactor                 *Redactor
 }
 
-func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentState, ignoredImageRepositories []string, routes []Route) *Proxy {
+func NewProxy(logger *logger.Service, listenPort int, agentState *models.AgentState, ignoredImageRepositories []string, routes []Route) (*Proxy, error) {
+	redactor, err := NewRedactor()
+	if err != nil {
+		return nil, err
+	}
 	return &Proxy{
 		AgentState:               agentState,
 		Service:                  logger,
 		listenPort:               listenPort,
 		routes:                   routes,
 		ignoredImageRepositories: ignoredImageRepositories,
-	}
+		redactor:                 redactor,
+	}, nil
 }
 
 // SetAPIToken propagates a new API token to all route clients.
@@ -148,19 +161,15 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	sanitized, err := stripAikidoTags(raw, event.Tags)
-	if err != nil {
-		p.LogError(err, "failed to strip aikido tags")
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-
 	p.GetLogger().Debug("event received", "rule", event.Rule, "tags", event.Tags)
 
 	if !hasAikidoTag(event.Tags) {
 		p.LogWarning(fmt.Errorf("rule %q fired with no aikido: routing tag — event will not be forwarded", event.Rule), "misconfigured rule detected")
 	}
 
+	// Resolve target routes before redacting so unroutable events never trigger
+	// the (CPU-expensive) secret scan.
+	var targets []Route
 	for _, route := range p.routes {
 		if !slices.Contains(event.Tags, route.Tag) {
 			p.LogInfo("event skipped: tag not matched", "rule", event.Rule, "event_tags", event.Tags, "route_tag", route.Tag)
@@ -174,10 +183,31 @@ func (p *Proxy) handleRequest(w http.ResponseWriter, r *http.Request) {
 			p.LogInfo("event skipped: filtered by route", "rule", event.Rule, "route_tag", route.Tag)
 			continue
 		}
-		if err := route.Client.SendContext(r.Context(), sanitized); err != nil {
-			p.LogError(err, "failed to enqueue event", "tag", route.Tag)
-			http.Error(w, "failed to enqueue event", http.StatusServiceUnavailable)
+		targets = append(targets, route)
+	}
+
+	if len(targets) > 0 {
+		if err := p.redactor.RedactEvent(r.Context(), raw); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				http.Error(w, "request cancelled while waiting to redact", http.StatusServiceUnavailable)
+				return
+			}
+			p.LogError(err, "failed to redact secrets, dropping event to avoid leaking plaintext")
+			w.WriteHeader(http.StatusAccepted)
 			return
+		}
+		sanitized, err := stripAikidoTags(raw, event.Tags)
+		if err != nil {
+			p.LogError(err, "failed to strip aikido tags")
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		for _, route := range targets {
+			if err := route.Client.SendContext(r.Context(), sanitized); err != nil {
+				p.LogError(err, "failed to enqueue event", "tag", route.Tag)
+				http.Error(w, "failed to enqueue event", http.StatusServiceUnavailable)
+				return
+			}
 		}
 	}
 

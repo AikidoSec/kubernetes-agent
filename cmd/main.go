@@ -225,7 +225,7 @@ func main() {
 			if err != nil {
 				return fmt.Errorf("creating threat batch client: %w", err)
 			}
-			proxy := falco.NewProxy(
+			proxy, err := falco.NewProxy(
 				loggerService,
 				envCfg.RuntimeDetectionPort,
 				agentState,
@@ -241,6 +241,9 @@ func main() {
 					},
 				},
 			)
+			if err != nil {
+				return fmt.Errorf("creating falco event proxy: %w", err)
+			}
 			agentService.RegisterFalcoProxy(proxy)
 			if err := mgr.Add(proxy); err != nil {
 				return fmt.Errorf("adding falco event proxy to manager: %w", err)
