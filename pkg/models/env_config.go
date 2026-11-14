@@ -16,4 +16,5 @@ type EnvironmentConfig struct {
 	RuntimeDetectionEnabled     bool
 	RuntimeDetectionPort        int
 	FalcoDaemonSetName          string
+	FalcoRulesConfigMapName     string
 }

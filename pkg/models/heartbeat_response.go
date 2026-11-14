@@ -13,6 +13,10 @@ type ThreatDetectionHeartbeat struct {
 	Exceptions *[]ThreatDetectionException `json:"exceptions"`
 }
 
+type RuntimeSCAHeartbeat struct {
+	Enabled bool `json:"enabled"`
+}
+
 type HeartbeatResponse struct {
 	Cluster            Cluster                   `json:"cluster"`
 	Token              string                    `json:"token"`
@@ -20,6 +24,7 @@ type HeartbeatResponse struct {
 	ImageCacheHash     *int64                    `json:"imageCacheHash,omitempty"`
 	ImageCacheHashV2   *int64                    `json:"imageCacheHashV2,omitempty"`
 	ThreatDetection    ThreatDetectionHeartbeat  `json:"threat_detection"`
+	RuntimeSCA         RuntimeSCAHeartbeat       `json:"runtime_sca"`
 }
 
 func (h *HeartbeatResponse) FromJSON(r io.Reader) error {

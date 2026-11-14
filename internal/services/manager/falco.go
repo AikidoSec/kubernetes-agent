@@ -32,7 +32,7 @@ func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
 		return fmt.Errorf("error getting falco config configmap %q: %w", cmName, err)
 	}
 
-	overrideYAML, err := buildRulesOverrideYAML(s.GetEnabledThreatRules())
+	overrideYAML, err := buildRulesOverrideYAML(s.GetEnabledThreatRules(), s.IsRuntimeSCAEnabled())
 	if err != nil {
 		return fmt.Errorf("error marshalling rules override: %w", err)
 	}
@@ -52,10 +52,14 @@ func (s *Service) rebuildFalcoRulesConfig(ctx context.Context) error {
 // buildRulesOverrideYAML produces the YAML content for the rules-override.yaml key in the
 // kubernetes-agent-falco-config ConfigMap. It disables all rules globally and then re-enables
 // each rule in enabledRules individually, which is the Falco config.d mechanism for allowlisting.
-func buildRulesOverrideYAML(enabledRules []string) (string, error) {
+// When runtimeSCAEnabled is true, all rules tagged "aikido:runtime-sca" are also enabled.
+func buildRulesOverrideYAML(enabledRules []string, runtimeSCAEnabled bool) (string, error) {
 	rulesActions := []models.FalcoRuleAction{{Disable: models.FalcoRuleSelector{Rule: "*"}}}
 	for _, rule := range enabledRules {
 		rulesActions = append(rulesActions, models.FalcoRuleAction{Enable: models.FalcoRuleSelector{Rule: rule}})
+	}
+	if runtimeSCAEnabled {
+		rulesActions = append(rulesActions, models.FalcoRuleAction{Enable: models.FalcoRuleSelector{Tag: "aikido:runtime-sca"}})
 	}
 	override := map[string]any{"rules": rulesActions}
 	data, err := yaml.Marshal(override)

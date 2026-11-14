@@ -37,11 +37,14 @@ type AgentState struct {
 	chartsRuntimeDetectionEnabled bool
 	runtimeDetectionSetupFailed   bool
 	falcoDaemonSetName            string
+	falcoRulesConfigMapName       string
 	enabledThreatRules            []string
 	threatDetectionExceptions     []ThreatDetectionException
 	falcoVersion                  string
 
 	collectorImageReservations map[string]time.Time
+
+	runtimeSCAEnabled bool
 
 	mu sync.Mutex
 }
@@ -110,7 +113,7 @@ func NewEmptyAgentState() *AgentState {
 	}
 }
 
-func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool, falcoDaemonSetName string) *AgentState {
+func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, apiToken, apiEndpoint, configSecretName string, controllerCacheSyncTimeout time.Duration, isSBOMCollectorRunningAsDaemonSet bool, sbomCollectorName string, autoUpdate bool, falcoDaemonSetName, falcoRulesConfigMapName string) *AgentState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -125,6 +128,7 @@ func (a *AgentState) SetInitialValues(agentPodName, agentNamespace, agentName, a
 	a.sbomCollectorName = sbomCollectorName
 	a.autoUpdateEnabled = autoUpdate
 	a.falcoDaemonSetName = falcoDaemonSetName
+	a.falcoRulesConfigMapName = falcoRulesConfigMapName
 	return a
 }
 
@@ -279,6 +283,11 @@ func (a *AgentState) GetFalcoDaemonSetName() string {
 }
 
 func (a *AgentState) GetFalcoRulesConfigMapName() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.falcoRulesConfigMapName != "" {
+		return a.falcoRulesConfigMapName
+	}
 	return "kubernetes-agent-falco-rules"
 }
 
@@ -484,4 +493,16 @@ func (a *AgentState) CleanupCollectorReservedImages() {
 			delete(a.collectorImageReservations, imageKey)
 		}
 	}
+}
+
+func (a *AgentState) IsRuntimeSCAEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.runtimeSCAEnabled
+}
+
+func (a *AgentState) SetRuntimeSCAEnabled(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.runtimeSCAEnabled = enabled
 }
