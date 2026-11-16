@@ -53,9 +53,8 @@ func TestRedactText(t *testing.T) {
 func TestRedactTextMultipartSecrets(t *testing.T) {
 	r := newTestRedactor(t)
 
-	// Fake credentials. The allow directives keep repository secret scanners from flagging them.
-	accessKeyID := "AKIAQYLPMN5HHHFPZAM2"                   // gitleaks:allow
-	secretKey := "jBq4xT9zLw2PvN7mRk1YcD8sGh3FuAe6Wo5Ij0Zt" // gitleaks:allow
+	accessKeyID := "AKIAQYLPMN5HHHFPZAM2"
+	secretKey := "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"
 
 	for name, input := range map[string]string{
 		"env vars": "AWS_ACCESS_KEY_ID=" + accessKeyID + " AWS_SECRET_ACCESS_KEY=" + secretKey + " aws s3 ls",
