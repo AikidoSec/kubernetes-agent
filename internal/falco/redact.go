@@ -77,8 +77,6 @@ func (r *Redactor) RedactText(input string) string {
 	return redacted
 }
 
-// findingSecrets returns every secret a finding implies: its own, plus the
-// secrets of the components of a multipart rule.
 func findingSecrets(f report.Finding) []string {
 	var secrets []string
 	if f.Secret != "" {
