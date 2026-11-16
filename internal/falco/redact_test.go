@@ -2,14 +2,12 @@ package falco
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"math/rand"
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 )
 
 // testSecret is a Slack bot token shape the betterleaks default config reliably
@@ -75,20 +73,21 @@ func TestRedactTextMultipartSecrets(t *testing.T) {
 func TestRedactTextWorstCaseCandidateIsBounded(t *testing.T) {
 	r := newTestRedactor(t)
 
-	// One pseudo-random lowercase base36 candidate as long as the scan window
-	// allows: the shape that sends betterleaks' generic-key rule into its
-	// expensive dictionary filter. Without the cap this would run for minutes.
+	// One pseudo-random lowercase base36 candidate as long as the cap allows: the
+	// shape that sends betterleaks' generic-key rule into its expensive dictionary
+	// filter. Without the cap this would run for minutes.
 	rng := rand.New(rand.NewSource(7))
 	alphabet := "abcdefghijklmnopqrstuvwxyz0123456789"
-	candidate := make([]byte, maxScanBytes+scanOverlapBytes)
+	const prefix = "api_key="
+	candidate := make([]byte, maxScanBytes-len(prefix))
 	for i := range candidate {
 		candidate[i] = alphabet[rng.Intn(len(alphabet))]
 	}
 
 	start := time.Now()
-	r.RedactText("api_key=" + string(candidate))
+	r.RedactText(prefix + string(candidate))
 	if elapsed := time.Since(start); elapsed > 20*time.Second {
-		t.Errorf("worst-case candidate took %v; the scan window is too large for the dictionary filter", elapsed)
+		t.Errorf("worst-case candidate took %v; the cap is too large for the dictionary filter", elapsed)
 	}
 }
 
@@ -117,60 +116,6 @@ func TestRedactTextScanCap(t *testing.T) {
 		}
 	})
 
-	t.Run("oversized string is truncated so the tail cannot leak", func(t *testing.T) {
-		input := strings.Repeat("a", maxScanBytes) + " " + testSecret
-		got := r.RedactText(input)
-		if strings.Contains(got, testSecret) {
-			t.Errorf("secret beyond the cap leaked")
-		}
-		if !strings.HasSuffix(got, truncationMarker) {
-			t.Errorf("expected truncation marker, got suffix %q", got[len(got)-20:])
-		}
-		if len(got) != maxScanBytes+len(truncationMarker) {
-			t.Errorf("len = %d, want %d", len(got), maxScanBytes+len(truncationMarker))
-		}
-	})
-
-	t.Run("a secret straddling the cap leaves no fragment behind", func(t *testing.T) {
-		for _, offset := range []int{1, 5, 12, len(testSecret) - 1} {
-			input := strings.Repeat("a ", maxScanBytes)[:maxScanBytes-offset] + testSecret + " tail"
-			got := r.RedactText(input)
-			if strings.Contains(got, "xoxb-") || strings.Contains(got, "1234567890123") {
-				t.Errorf("offset %d: token fragment survived truncation: %q", offset, got[len(got)-60:])
-			}
-			if len(got) > maxScanBytes+len(truncationMarker) {
-				t.Errorf("offset %d: result longer than cap: %d", offset, len(got))
-			}
-		}
-	})
-
-	t.Run("a multi-line secret cut mid-body leaves no fragment behind", func(t *testing.T) {
-		// Newlines (and any other delimiter) inside a secret must not be treated as
-		// a safe place to cut: the whole key is detected before the string is cut.
-		rng := rand.New(rand.NewSource(1))
-		var lines []string
-		for i := 0; i < 26; i++ {
-			buf := make([]byte, 48)
-			rng.Read(buf)
-			lines = append(lines, base64.StdEncoding.EncodeToString(buf))
-		}
-		key := "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Join(lines, "\n") + "\n-----END RSA PRIVATE KEY-----"
-		for _, cutInLine := range []int{3, 10, 20} {
-			// Position the cut inside the chosen body line.
-			before := "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Join(lines[:cutInLine], "\n") + "\n" + lines[cutInLine][:10]
-			input := strings.Repeat("a ", maxScanBytes)[:maxScanBytes-len(before)] + key + " tail"
-			got := r.RedactText(input)
-			for i, line := range lines {
-				if strings.Contains(got, line[:20]) {
-					t.Errorf("cut in line %d: key body line %d survived", cutInLine, i)
-				}
-			}
-			if strings.Contains(got, "PRIVATE KEY") {
-				t.Errorf("cut in line %d: key header survived: %q", cutInLine, got[len(got)-80:])
-			}
-		}
-	})
-
 	t.Run("string at exactly the cap is untouched", func(t *testing.T) {
 		input := strings.Repeat("a", maxScanBytes)
 		if got := r.RedactText(input); got != input {
@@ -178,14 +123,20 @@ func TestRedactTextScanCap(t *testing.T) {
 		}
 	})
 
-	t.Run("truncation does not split a multi-byte rune", func(t *testing.T) {
-		// "é" is 2 bytes; an odd offset would cut one in half.
-		input := "a" + strings.Repeat("é", maxScanBytes)
-		got := r.RedactText(input)
-		if !utf8.ValidString(got) {
-			t.Errorf("truncated output is not valid UTF-8")
-		}
-	})
+	// Scanning only a prefix could leave part of a secret that straddles the cut
+	// undetected, so nothing of an oversized string may be forwarded.
+	for name, input := range map[string]string{
+		"secret in the tail":        strings.Repeat("a ", maxScanBytes/2) + testSecret,
+		"secret at the start":       testSecret + strings.Repeat(" a", maxScanBytes),
+		"secret straddling the cap": strings.Repeat("a ", maxScanBytes)[:maxScanBytes-12] + testSecret + " tail",
+		"multi-byte text":           "a" + strings.Repeat("é", maxScanBytes),
+	} {
+		t.Run("oversized string is replaced by the marker: "+name, func(t *testing.T) {
+			if got := r.RedactText(input); got != truncationMarker {
+				t.Errorf("got %.60q (len %d), want only %q", got, len(got), truncationMarker)
+			}
+		})
+	}
 }
 
 func TestRedactEvent(t *testing.T) {

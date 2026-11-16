@@ -10,21 +10,21 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/report"
 )
 
-// maxScanBytes caps how much of a single string is scanned. Real Falco values
-// are far smaller (the longest observed were ~5 KiB: a Falco-captured command
-// line is limited to about 4 KiB, and the formatted output adds a little more),
-// so legitimate events are never affected.
+// maxScanBytes is the longest string that is scanned. Real Falco values are far
+// smaller (the longest observed were ~5 KiB: a Falco-captured command line is
+// limited to about 4 KiB, and the formatted output adds a little more), so
+// legitimate events are never affected. A longer string is not scanned at all but
+// replaced by truncationMarker: scanning only a prefix could leave part of a
+// secret that straddles the cut undetected.
 const maxScanBytes = 8 * 1024
 
-// truncationMarker replaces the tail of a string longer than maxScanBytes. The
-// tail is dropped rather than skipped, so an oversized value can never carry an
-// unscanned secret out of the cluster.
+// truncationMarker replaces a string longer than maxScanBytes, and any structure
+// nested deeper than maxRedactDepth.
 const truncationMarker = "[TRUNCATED]"
 
 // Redactor replaces secrets found in Falco event fields with a stable hash so
@@ -45,34 +45,19 @@ func NewRedactor() (*Redactor, error) {
 	return &Redactor{detector: detector, slots: make(chan struct{}, max(1, runtime.NumCPU()/2))}, nil
 }
 
-// scanOverlapBytes is how far past maxScanBytes a string is still scanned. A
-// secret that starts before the cap is therefore detected whole, and replaced,
-// before the string is cut, as long as it is shorter than this. That covers
-// typical credentials and 2048-bit RSA keys (~1.7 KiB).
-const scanOverlapBytes = 2 * 1024
-
 // RedactText replaces every detected secret with its hash. Hashing is
 // deterministic so the same secret always maps to the same token, which keeps
-// downstream aggregate grouping stable.
-//
-// A string longer than maxScanBytes is scanned up to maxScanBytes+scanOverlapBytes,
-// redacted, and only then cut back to maxScanBytes. Cutting after redaction means
-// no guess is needed about where a secret ends (a secret can contain any
-// delimiter), and the rest of the string is dropped, so an oversized value cannot
-// carry an unscanned secret out of the cluster.
+// downstream aggregate grouping stable. A string longer than maxScanBytes is
+// replaced by truncationMarker without being scanned.
 func (r *Redactor) RedactText(input string) string {
-	truncated := len(input) > maxScanBytes
-	if truncated {
-		input = cutUTF8(input, maxScanBytes+scanOverlapBytes)
+	if len(input) > maxScanBytes {
+		return truncationMarker
 	}
 	redacted := input
 	for _, finding := range r.detector.DetectString(input) {
 		for _, secret := range findingSecrets(finding) {
 			redacted = strings.ReplaceAll(redacted, secret, hashValue(secret))
 		}
-	}
-	if truncated {
-		redacted = cutUTF8(redacted, maxScanBytes) + truncationMarker
 	}
 	return redacted
 }
@@ -90,17 +75,6 @@ func findingSecrets(f report.Finding) []string {
 		}
 	}
 	return secrets
-}
-
-// cutUTF8 cuts s to at most n bytes without splitting a multi-byte rune.
-func cutUTF8(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
 }
 
 // RedactEvent redacts the secrets in the "output" and "output_fields" of a
@@ -167,7 +141,7 @@ func (r *Redactor) redactJSONValue(value any, depth int) (any, bool) {
 		return v, false
 	case map[string]any:
 		if depth >= maxRedactDepth {
-			return "[TRUNCATED]", true
+			return truncationMarker, true
 		}
 		changed := false
 		for k, item := range v {
@@ -179,7 +153,7 @@ func (r *Redactor) redactJSONValue(value any, depth int) (any, bool) {
 		return v, changed
 	case []any:
 		if depth >= maxRedactDepth {
-			return "[TRUNCATED]", true
+			return truncationMarker, true
 		}
 		changed := false
 		for i, item := range v {
