@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -69,6 +70,26 @@ func TestRedactTextMultipartSecrets(t *testing.T) {
 				t.Errorf("secret access key not redacted: %q", got)
 			}
 		})
+	}
+}
+
+func TestRedactTextWorstCaseCandidateIsBounded(t *testing.T) {
+	r := newTestRedactor(t)
+
+	// One pseudo-random lowercase base36 candidate as long as the scan window
+	// allows: the shape that sends betterleaks' generic-key rule into its
+	// expensive dictionary filter. Without the cap this would run for minutes.
+	rng := rand.New(rand.NewSource(7))
+	alphabet := "abcdefghijklmnopqrstuvwxyz0123456789"
+	candidate := make([]byte, maxScanBytes+scanOverlapBytes)
+	for i := range candidate {
+		candidate[i] = alphabet[rng.Intn(len(alphabet))]
+	}
+
+	start := time.Now()
+	r.RedactText("api_key=" + string(candidate))
+	if elapsed := time.Since(start); elapsed > 20*time.Second {
+		t.Errorf("worst-case candidate took %v; the scan window is too large for the dictionary filter", elapsed)
 	}
 }
 

@@ -16,10 +16,10 @@ import (
 )
 
 // maxScanBytes caps how much of a single string is scanned. Real Falco values
-// are far smaller (the longest observed was ~4 KiB, a Falco-captured command
-// line), so legitimate events are never affected, while detection cost stays
-// bounded for oversized input.
-const maxScanBytes = 64 * 1024
+// are far smaller (the longest observed were ~5 KiB: a Falco-captured command
+// line is limited to about 4 KiB, and the formatted output adds a little more),
+// so legitimate events are never affected.
+const maxScanBytes = 8 * 1024
 
 // truncationMarker replaces the tail of a string longer than maxScanBytes. The
 // tail is dropped rather than skipped, so an oversized value can never carry an
@@ -46,9 +46,9 @@ func NewRedactor() (*Redactor, error) {
 
 // scanOverlapBytes is how far past maxScanBytes a string is still scanned. A
 // secret that starts before the cap is therefore detected whole, and replaced,
-// before the string is cut, as long as it is shorter than this (the largest
-// common secrets, such as RSA private keys, are well under 8 KiB).
-const scanOverlapBytes = 16 * 1024
+// before the string is cut, as long as it is shorter than this. That covers
+// typical credentials and 2048-bit RSA keys (~1.7 KiB).
+const scanOverlapBytes = 2 * 1024
 
 // RedactText replaces every detected secret with its hash. Hashing is
 // deterministic so the same secret always maps to the same token, which keeps
