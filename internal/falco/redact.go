@@ -1,6 +1,7 @@
 package falco
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -141,8 +142,10 @@ func (r *Redactor) redactRawField(raw map[string]json.RawMessage, key string) er
 	if !ok {
 		return nil
 	}
+	decoder := json.NewDecoder(bytes.NewReader(v))
+	decoder.UseNumber()
 	var value any
-	if err := json.Unmarshal(v, &value); err != nil {
+	if err := decoder.Decode(&value); err != nil {
 		return fmt.Errorf("unmarshal %s: %w", key, err)
 	}
 	redacted, changed := r.redactJSONValue(value, 0)

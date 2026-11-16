@@ -324,6 +324,25 @@ func assertStringRedacted(t *testing.T, rawValue json.RawMessage) {
 	}
 }
 
+func TestRedactEventKeepsNumbers(t *testing.T) {
+	r := newTestRedactor(t)
+	raw := mustParseRaw(t, `{"output_fields":{"proc.exe_ino.ctime":1700000000123456789,"proc.exe_ino.mtime":1700000000123456791,`+
+		`"ratio":1.50,"big":12345678901234567890,"proc.cmdline":"login --token `+testSecret+`"}}`)
+	if err := r.RedactEvent(context.Background(), raw); err != nil {
+		t.Fatalf("RedactEvent() error = %v", err)
+	}
+	got := string(raw["output_fields"])
+	if strings.Contains(got, testSecret) {
+		t.Fatalf("secret not redacted: %s", got)
+	}
+	// Numbers must come back byte-for-byte, not rounded through float64.
+	for _, want := range []string{`"proc.exe_ino.ctime":1700000000123456789`, `"proc.exe_ino.mtime":1700000000123456791`, `"ratio":1.50`, `"big":12345678901234567890`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %s in %s", want, got)
+		}
+	}
+}
+
 func TestRedactEventWaitsForSlotAndHonorsContext(t *testing.T) {
 	r := newTestRedactor(t)
 	fillSlots(r)
