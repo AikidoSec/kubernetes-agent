@@ -72,6 +72,20 @@ func TestRedactTextMultipartSecrets(t *testing.T) {
 	}
 }
 
+func TestRedactTextIgnoresAllowComments(t *testing.T) {
+	r := newTestRedactor(t)
+
+	for _, directive := range []string{"betterleaks:allow", "gitleaks:allow"} {
+		t.Run(directive, func(t *testing.T) {
+			input := "curl -H 'Authorization: Bearer " + testSecret + "' # " + directive
+			got := r.RedactText(input)
+			if strings.Contains(got, testSecret) {
+				t.Errorf("secret not redacted when %q is present: %q", directive, got)
+			}
+		})
+	}
+}
+
 func TestRedactTextScanCap(t *testing.T) {
 	r := newTestRedactor(t)
 

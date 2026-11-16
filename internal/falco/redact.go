@@ -40,6 +40,7 @@ func NewRedactor() (*Redactor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to create secrets detector: %w", err)
 	}
+	detector.IgnoreGitleaksAllow = true
 	return &Redactor{detector: detector, slots: make(chan struct{}, max(1, runtime.NumCPU()/2))}, nil
 }
 
