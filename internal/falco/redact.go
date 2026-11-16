@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/betterleaks/betterleaks/detect"
+	"github.com/betterleaks/betterleaks/report"
 )
 
 // maxScanBytes caps how much of a single string is scanned. Real Falco values
@@ -64,15 +65,31 @@ func (r *Redactor) RedactText(input string) string {
 	}
 	redacted := input
 	for _, finding := range r.detector.DetectString(input) {
-		if finding.Secret == "" {
-			continue
+		for _, secret := range findingSecrets(finding) {
+			redacted = strings.ReplaceAll(redacted, secret, hashValue(secret))
 		}
-		redacted = strings.ReplaceAll(redacted, finding.Secret, hashValue(finding.Secret))
 	}
 	if truncated {
 		redacted = cutUTF8(redacted, maxScanBytes) + truncationMarker
 	}
 	return redacted
+}
+
+// findingSecrets returns every secret a finding implies: its own, plus the
+// secrets of the components of a multipart rule.
+func findingSecrets(f report.Finding) []string {
+	var secrets []string
+	if f.Secret != "" {
+		secrets = append(secrets, f.Secret)
+	}
+	for _, set := range f.RequiredSets {
+		for _, component := range set.Components {
+			if component != nil && component.Secret != "" {
+				secrets = append(secrets, component.Secret)
+			}
+		}
+	}
+	return secrets
 }
 
 // cutUTF8 cuts s to at most n bytes without splitting a multi-byte rune.
