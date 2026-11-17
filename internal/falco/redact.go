@@ -77,8 +77,8 @@ func findingSecrets(f report.Finding) []string {
 	return secrets
 }
 
-// RedactEvent redacts the secrets in the "output" and "output_fields" of a
-// Falco event in place. It waits for a free scan slot first and returns the
+// RedactEvent redacts the secrets in the "output", "message" and "output_fields"
+// of a Falco event in place. It waits for a free scan slot first and returns the
 // context's error if ctx ends while waiting. Any other error means the event
 // must not be forwarded.
 func (r *Redactor) RedactEvent(ctx context.Context, raw map[string]json.RawMessage) error {
@@ -91,7 +91,7 @@ func (r *Redactor) RedactEvent(ctx context.Context, raw map[string]json.RawMessa
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	for _, key := range []string{"output", "output_fields"} {
+	for _, key := range []string{"output", "message", "output_fields"} {
 		if err := r.redactRawField(raw, key); err != nil {
 			return err
 		}

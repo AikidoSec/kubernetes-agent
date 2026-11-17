@@ -150,6 +150,17 @@ func TestRedactEvent(t *testing.T) {
 		assertStringRedacted(t, raw["output"])
 	})
 
+	t.Run("redacts the message property", func(t *testing.T) {
+		// Falco adds "message" (the output text without timestamp and priority)
+		// when json_include_message_property is enabled.
+		raw := mustParseRaw(t, `{"output":"10:00:05 Warning exec token=`+testSecret+`","message":"Warning exec token=`+testSecret+`"}`)
+		if err := r.RedactEvent(context.Background(), raw); err != nil {
+			t.Fatalf("RedactEvent() error = %v", err)
+		}
+		assertStringRedacted(t, raw["message"])
+		assertStringRedacted(t, raw["output"])
+	})
+
 	t.Run("redacts allowlisted output_fields", func(t *testing.T) {
 		raw := mustParseRaw(t, `{"output_fields":{"proc.cmdline":"login --token `+testSecret+`","proc.name":"login"}}`)
 		if err := r.RedactEvent(context.Background(), raw); err != nil {
