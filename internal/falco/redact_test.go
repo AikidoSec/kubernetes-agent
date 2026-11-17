@@ -304,6 +304,13 @@ func TestRedactEventKeepsNumbers(t *testing.T) {
 	}
 }
 
+// fillSlots occupies every scan slot so the next scan has to wait.
+func fillSlots(r *Redactor) {
+	for len(r.slots) < cap(r.slots) {
+		r.slots <- struct{}{}
+	}
+}
+
 func TestRedactEventWaitsForSlotAndHonorsContext(t *testing.T) {
 	r := newTestRedactor(t)
 	fillSlots(r)
