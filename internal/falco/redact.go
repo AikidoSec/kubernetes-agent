@@ -67,7 +67,7 @@ func findingSecrets(f report.Finding) []string {
 	if f.Secret != "" {
 		secrets = append(secrets, f.Secret)
 	}
-	for _, set := range f.RequiredSets {
+	for _, set := range f.ComponentSets {
 		for _, component := range set.Components {
 			if component != nil && component.Secret != "" {
 				secrets = append(secrets, component.Secret)
