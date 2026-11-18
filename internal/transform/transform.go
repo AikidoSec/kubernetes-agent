@@ -10,7 +10,7 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
-// wildcard in a metadata path stands for every element of the JSON array at the preceding key.
+// wildcard in a path stands for every element of the JSON array at the preceding key.
 const wildcard = "*"
 
 // metadataPaths are the locations of ObjectMeta blocks that carry labels and annotations.
@@ -26,6 +26,17 @@ var metadataPaths = [][]string{
 	{"spec", "strategy", "blueGreen", "previewMetadata"},
 	{"spec", "strategy", "blueGreen", "activeMetadata"},
 	{"spec", "strategy", "canary", "steps", wildcard, "experiment", "templates", wildcard, "metadata"},
+	{"spec", "strategy", "canary", "steps", wildcard, "experiment", "analysisRunMetadata"},
+}
+
+// selectorPaths are the locations of label selectors (`matchLabels` and `matchExpressions`) that describe pods or namespaces.
+var selectorPaths = [][]string{
+	{"spec", "selector"},
+	{"spec", "podSelector"},
+	{"spec", "ingress", wildcard, "from", wildcard, "podSelector"},
+	{"spec", "ingress", wildcard, "from", wildcard, "namespaceSelector"},
+	{"spec", "egress", wildcard, "to", wildcard, "podSelector"},
+	{"spec", "egress", wildcard, "to", wildcard, "namespaceSelector"},
 }
 
 // redactedLength is the number of hex characters of the SHA-256 digest kept for a redacted value.
@@ -61,15 +72,20 @@ func (t *Transformer) Marshal(obj any) ([]byte, error) {
 
 	changed := false
 	for _, path := range metadataPaths {
-		if t.rewrite(root, path) {
+		if t.rewrite(root, path, t.rewriteMetadata) {
 			changed = true
 		}
 	}
-	if t.rewriteServiceSelector(root) {
-		changed = true
-	}
-	if t.rewriteWorkloadSelector(root) {
-		changed = true
+	if isCoreService(root) {
+		if t.rewriteServiceSelector(root) {
+			changed = true
+		}
+	} else if len(t.labels) > 0 {
+		for _, path := range selectorPaths {
+			if t.rewrite(root, path, t.rewriteSelector) {
+				changed = true
+			}
+		}
 	}
 	if !changed {
 		return raw, nil
@@ -79,9 +95,6 @@ func (t *Transformer) Marshal(obj any) ([]byte, error) {
 
 // rewriteServiceSelector applies the label rules to the selector of a core/v1 Service so it keeps matching the rewritten pod labels.
 func (t *Transformer) rewriteServiceSelector(root map[string]json.RawMessage) bool {
-	if len(t.labels) == 0 || !isCoreService(root) {
-		return false
-	}
 	var spec map[string]json.RawMessage
 	if err := json.Unmarshal(root["spec"], &spec); err != nil || spec == nil {
 		return false
@@ -97,35 +110,6 @@ func (t *Transformer) rewriteServiceSelector(root map[string]json.RawMessage) bo
 	return true
 }
 
-// rewriteWorkloadSelector applies the label rules to `spec.selector.matchLabels` so a workload selector keeps matching its rewritten template labels.
-func (t *Transformer) rewriteWorkloadSelector(root map[string]json.RawMessage) bool {
-	if len(t.labels) == 0 || isCoreService(root) {
-		return false
-	}
-	var spec map[string]json.RawMessage
-	if err := json.Unmarshal(root["spec"], &spec); err != nil || spec == nil {
-		return false
-	}
-	var selector map[string]json.RawMessage
-	if err := json.Unmarshal(spec["selector"], &selector); err != nil || selector == nil {
-		return false
-	}
-	if !t.rewriteStringMap(selector, "matchLabels", t.labels) {
-		return false
-	}
-	encodedSelector, err := json.Marshal(selector)
-	if err != nil {
-		return false
-	}
-	spec["selector"] = encodedSelector
-	encodedSpec, err := json.Marshal(spec)
-	if err != nil {
-		return false
-	}
-	root["spec"] = encodedSpec
-	return true
-}
-
 func isCoreService(root map[string]json.RawMessage) bool {
 	return stringField(root, "apiVersion") == "v1" && stringField(root, "kind") == "Service"
 }
@@ -138,18 +122,29 @@ func stringField(node map[string]json.RawMessage, field string) string {
 	return value
 }
 
+func applyValue(rule models.KeyRule, value string) string {
+	if mapped, ok := rule.ValueMap[value]; ok {
+		value = mapped
+	}
+	if rule.Redact {
+		value = redact(value)
+	}
+	return value
+}
+
 func redact(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])[:redactedLength]
 }
 
-func (t *Transformer) rewrite(node map[string]json.RawMessage, path []string) bool {
+// rewrite walks path from node and applies leaf to the object found at its end, re-encoding only the objects that changed.
+func (t *Transformer) rewrite(node map[string]json.RawMessage, path []string, leaf func(map[string]json.RawMessage) bool) bool {
 	child, ok := node[path[0]]
 	if !ok {
 		return false
 	}
 	if len(path) > 1 && path[1] == wildcard {
-		return t.rewriteEach(node, path[0], child, path[2:])
+		return t.rewriteEach(node, path[0], child, path[2:], leaf)
 	}
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(child, &obj); err != nil || obj == nil {
@@ -158,12 +153,9 @@ func (t *Transformer) rewrite(node map[string]json.RawMessage, path []string) bo
 
 	var changed bool
 	if len(path) == 1 {
-		changed = t.rewriteStringMap(obj, "labels", t.labels)
-		if t.rewriteStringMap(obj, "annotations", t.annotations) {
-			changed = true
-		}
+		changed = leaf(obj)
 	} else {
-		changed = t.rewrite(obj, path[1:])
+		changed = t.rewrite(obj, path[1:], leaf)
 	}
 	if !changed {
 		return false
@@ -176,7 +168,7 @@ func (t *Transformer) rewrite(node map[string]json.RawMessage, path []string) bo
 	return true
 }
 
-func (t *Transformer) rewriteEach(node map[string]json.RawMessage, key string, array json.RawMessage, rest []string) bool {
+func (t *Transformer) rewriteEach(node map[string]json.RawMessage, key string, array json.RawMessage, rest []string, leaf func(map[string]json.RawMessage) bool) bool {
 	var items []json.RawMessage
 	if err := json.Unmarshal(array, &items); err != nil {
 		return false
@@ -184,7 +176,7 @@ func (t *Transformer) rewriteEach(node map[string]json.RawMessage, key string, a
 	changed := false
 	for i, item := range items {
 		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(item, &obj); err != nil || obj == nil || !t.rewrite(obj, rest) {
+		if err := json.Unmarshal(item, &obj); err != nil || obj == nil || !t.rewrite(obj, rest, leaf) {
 			continue
 		}
 		encoded, err := json.Marshal(obj)
@@ -202,6 +194,59 @@ func (t *Transformer) rewriteEach(node map[string]json.RawMessage, key string, a
 		return false
 	}
 	node[key] = encoded
+	return true
+}
+
+func (t *Transformer) rewriteMetadata(obj map[string]json.RawMessage) bool {
+	changed := t.rewriteStringMap(obj, "labels", t.labels)
+	if t.rewriteStringMap(obj, "annotations", t.annotations) {
+		changed = true
+	}
+	return changed
+}
+
+func (t *Transformer) rewriteSelector(obj map[string]json.RawMessage) bool {
+	changed := t.rewriteStringMap(obj, "matchLabels", t.labels)
+	if t.rewriteExpressions(obj) {
+		changed = true
+	}
+	return changed
+}
+
+type selectorExpression struct {
+	Key      string   `json:"key"`
+	Operator string   `json:"operator"`
+	Values   []string `json:"values,omitempty"`
+}
+
+// rewriteExpressions applies the label rules to the key and values of each `matchExpressions` entry.
+func (t *Transformer) rewriteExpressions(selector map[string]json.RawMessage) bool {
+	var expressions []selectorExpression
+	if err := json.Unmarshal(selector["matchExpressions"], &expressions); err != nil || len(expressions) == 0 {
+		return false
+	}
+	changed := false
+	for i, expression := range expressions {
+		rule, ok := t.labels[expression.Key]
+		if !ok {
+			continue
+		}
+		changed = true
+		for j, value := range expression.Values {
+			expressions[i].Values[j] = applyValue(rule, value)
+		}
+		if rule.Rename != nil {
+			expressions[i].Key = *rule.Rename
+		}
+	}
+	if !changed {
+		return false
+	}
+	encoded, err := json.Marshal(expressions)
+	if err != nil {
+		return false
+	}
+	selector["matchExpressions"] = encoded
 	return true
 }
 
@@ -230,13 +275,7 @@ func (t *Transformer) rewriteStringMap(meta map[string]json.RawMessage, field st
 			continue
 		}
 		changed = true
-		value := values[key]
-		if mapped, ok := rule.ValueMap[value]; ok {
-			value = mapped
-		}
-		if rule.Redact {
-			value = redact(value)
-		}
+		value := applyValue(rule, values[key])
 		if rule.Rename != nil {
 			renamed[*rule.Rename] = value
 		} else {

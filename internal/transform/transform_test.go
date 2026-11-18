@@ -168,6 +168,58 @@ func TestMarshal(t *testing.T) {
 				"template": map[string]any{"metadata": meta(map[string]any{"owner": "Platform Engineering", "internal": redact("x"), "keep": "k"}, nil)}}},
 		},
 		{
+			name:  "workload matchExpressions follow the label rules",
+			rules: labelRules,
+			in: map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "spec": map[string]any{"selector": map[string]any{"matchExpressions": []any{
+				map[string]any{"key": "team", "operator": "In", "values": []any{"platform-eng", "other"}},
+				map[string]any{"key": "internal", "operator": "NotIn", "values": []any{"x"}},
+				map[string]any{"key": "team", "operator": "Exists"},
+				map[string]any{"key": "keep", "operator": "In", "values": []any{"k"}},
+			}}}},
+			want: map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "spec": map[string]any{"selector": map[string]any{"matchExpressions": []any{
+				map[string]any{"key": "owner", "operator": "In", "values": []any{"Platform Engineering", "other"}},
+				map[string]any{"key": "internal", "operator": "NotIn", "values": []any{redact("x")}},
+				map[string]any{"key": "owner", "operator": "Exists"},
+				map[string]any{"key": "keep", "operator": "In", "values": []any{"k"}},
+			}}}},
+		},
+		{
+			name:  "network policy selectors",
+			rules: labelRules,
+			in: map[string]any{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "spec": map[string]any{
+				"podSelector": map[string]any{"matchLabels": map[string]any{"env": "prod"}},
+				"ingress": []any{map[string]any{"from": []any{
+					map[string]any{"podSelector": map[string]any{"matchLabels": map[string]any{"env": "prod"}}},
+					map[string]any{"namespaceSelector": map[string]any{"matchLabels": map[string]any{"internal": "x"}}},
+					map[string]any{"ipBlock": map[string]any{"cidr": "10.0.0.0/8"}},
+				}}},
+				"egress": []any{map[string]any{"to": []any{
+					map[string]any{"podSelector": map[string]any{"matchLabels": map[string]any{"team": "platform-eng"}}},
+				}}},
+			}},
+			want: map[string]any{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "spec": map[string]any{
+				"podSelector": map[string]any{"matchLabels": map[string]any{"env": "production"}},
+				"ingress": []any{map[string]any{"from": []any{
+					map[string]any{"podSelector": map[string]any{"matchLabels": map[string]any{"env": "production"}}},
+					map[string]any{"namespaceSelector": map[string]any{"matchLabels": map[string]any{"internal": redact("x")}}},
+					map[string]any{"ipBlock": map[string]any{"cidr": "10.0.0.0/8"}},
+				}}},
+				"egress": []any{map[string]any{"to": []any{
+					map[string]any{"podSelector": map[string]any{"matchLabels": map[string]any{"owner": "Platform Engineering"}}},
+				}}},
+			}},
+		},
+		{
+			name:  "rollout analysisRunMetadata",
+			rules: labelRules,
+			in: map[string]any{"spec": map[string]any{"strategy": map[string]any{"canary": map[string]any{"steps": []any{
+				map[string]any{"experiment": map[string]any{"analysisRunMetadata": meta(map[string]any{"env": "prod"}, nil)}},
+			}}}}},
+			want: map[string]any{"spec": map[string]any{"strategy": map[string]any{"canary": map[string]any{"steps": []any{
+				map[string]any{"experiment": map[string]any{"analysisRunMetadata": meta(map[string]any{"env": "production"}, nil)}},
+			}}}}},
+		},
+		{
 			name:  "workload selector without matchLabels",
 			rules: labelRules,
 			in:    map[string]any{"apiVersion": "apps/v1", "kind": "StatefulSet", "spec": map[string]any{"selector": map[string]any{"matchExpressions": []any{}}}},
