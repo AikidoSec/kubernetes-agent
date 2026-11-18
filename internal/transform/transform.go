@@ -10,7 +10,10 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
-// metadataPaths are the dot-separated locations of ObjectMeta blocks that carry labels and annotations.
+// wildcard in a metadata path stands for every element of the JSON array at the preceding key.
+const wildcard = "*"
+
+// metadataPaths are the locations of ObjectMeta blocks that carry labels and annotations.
 var metadataPaths = [][]string{
 	{"metadata"},
 	{"spec", "template", "metadata"},
@@ -22,6 +25,7 @@ var metadataPaths = [][]string{
 	{"spec", "strategy", "canary", "stableMetadata"},
 	{"spec", "strategy", "blueGreen", "previewMetadata"},
 	{"spec", "strategy", "blueGreen", "activeMetadata"},
+	{"spec", "strategy", "canary", "steps", wildcard, "experiment", "templates", wildcard, "metadata"},
 }
 
 // redactedLength is the number of hex characters of the SHA-256 digest kept for a redacted value.
@@ -108,6 +112,9 @@ func (t *Transformer) rewrite(node map[string]json.RawMessage, path []string) bo
 	if !ok {
 		return false
 	}
+	if len(path) > 1 && path[1] == wildcard {
+		return t.rewriteEach(node, path[0], child, path[2:])
+	}
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(child, &obj); err != nil || obj == nil {
 		return false
@@ -130,6 +137,35 @@ func (t *Transformer) rewrite(node map[string]json.RawMessage, path []string) bo
 		return false
 	}
 	node[path[0]] = encoded
+	return true
+}
+
+func (t *Transformer) rewriteEach(node map[string]json.RawMessage, key string, array json.RawMessage, rest []string) bool {
+	var items []json.RawMessage
+	if err := json.Unmarshal(array, &items); err != nil {
+		return false
+	}
+	changed := false
+	for i, item := range items {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(item, &obj); err != nil || obj == nil || !t.rewrite(obj, rest) {
+			continue
+		}
+		encoded, err := json.Marshal(obj)
+		if err != nil {
+			continue
+		}
+		items[i] = encoded
+		changed = true
+	}
+	if !changed {
+		return false
+	}
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		return false
+	}
+	node[key] = encoded
 	return true
 }
 

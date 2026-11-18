@@ -126,6 +126,30 @@ func TestMarshal(t *testing.T) {
 				}}}},
 		},
 		{
+			name:  "rollout experiment template metadata in every step and template",
+			rules: labelRules,
+			in: map[string]any{"spec": map[string]any{"strategy": map[string]any{"canary": map[string]any{"steps": []any{
+				map[string]any{"setWeight": 10},
+				map[string]any{"experiment": map[string]any{"templates": []any{
+					map[string]any{"name": "a", "metadata": meta(map[string]any{"env": "prod"}, nil)},
+					map[string]any{"name": "b", "metadata": meta(map[string]any{"keep": "k"}, nil)},
+				}}},
+				map[string]any{"experiment": map[string]any{"templates": []any{
+					map[string]any{"name": "c", "metadata": meta(map[string]any{"internal": "x"}, nil)},
+				}}},
+			}}}}},
+			want: map[string]any{"spec": map[string]any{"strategy": map[string]any{"canary": map[string]any{"steps": []any{
+				map[string]any{"setWeight": 10},
+				map[string]any{"experiment": map[string]any{"templates": []any{
+					map[string]any{"name": "a", "metadata": meta(map[string]any{"env": "production"}, nil)},
+					map[string]any{"name": "b", "metadata": meta(map[string]any{"keep": "k"}, nil)},
+				}}},
+				map[string]any{"experiment": map[string]any{"templates": []any{
+					map[string]any{"name": "c", "metadata": meta(map[string]any{"internal": redact("x")}, nil)},
+				}}},
+			}}}}},
+		},
+		{
 			name:  "service selector follows the label rules",
 			rules: labelRules,
 			in: map[string]any{"apiVersion": "v1", "kind": "Service", "spec": map[string]any{
