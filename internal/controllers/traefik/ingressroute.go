@@ -2,13 +2,13 @@ package traefik
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	traefikv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/traefik/v1alpha1"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/internal/transform"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
@@ -34,6 +34,7 @@ type IngressRouteController struct {
 	Logger          *logger.Service
 	OutputClient    *batchclient.BatchClient
 	NamespaceFilter *predicates.NamespaceFilter
+	Transformer     *transform.Transformer
 }
 
 func (r *IngressRouteController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -61,7 +62,7 @@ func (r *IngressRouteController) Reconcile(ctx context.Context, req ctrl.Request
 		requeueAfter = defaultRequeueAfter
 	}
 
-	metadata, err := json.Marshal(ingressRoute)
+	metadata, err := r.Transformer.Marshal(ingressRoute)
 	if err != nil {
 		r.Logger.ReportError(ctx, err, "error marshalling IngressRoute", "watcherError", "name", req.Name, "namespace", req.Namespace)
 		return ctrl.Result{}, fmt.Errorf("error marshalling IngressRoute: %w", err)

@@ -22,6 +22,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/manager"
+	"aikidoSec.kubernetesAgent/internal/transform"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/config"
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -140,6 +141,7 @@ func main() {
 		ControllerCacheSyncTimeout:        envCfg.ControllerCacheSyncTimeout,
 		IsSBOMCollectorRunningAsDaemonSet: envCfg.RunSBOMCollectorAsDaemonSet,
 		AutoUpdateEnabled:                 envCfg.AutoUpdateEnabled,
+		Transformer:                       transform.New(envCfg.MetadataTransforms),
 	})
 	if err != nil {
 		loggerService.ReportError(ctx, err, "error creating agent service", "agentSetupError")

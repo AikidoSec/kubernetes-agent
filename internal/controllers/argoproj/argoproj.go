@@ -2,12 +2,12 @@ package argoproj
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/internal/transform"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -24,14 +24,16 @@ type Controller struct {
 	Logger          *logger.Service
 	OutputClient    *batchclient.BatchClient
 	NamespaceFilter *predicates.NamespaceFilter
+	Transformer     *transform.Transformer
 }
 
-func NewController(c client.Client, l *logger.Service, output *batchclient.BatchClient, nsFilter *predicates.NamespaceFilter) Controller {
+func NewController(c client.Client, l *logger.Service, output *batchclient.BatchClient, nsFilter *predicates.NamespaceFilter, t *transform.Transformer) Controller {
 	return Controller{
 		Client:          c,
 		Logger:          l,
 		OutputClient:    output,
 		NamespaceFilter: nsFilter,
+		Transformer:     t,
 	}
 }
 
@@ -61,7 +63,7 @@ func (b *Controller) reconcileObject(ctx context.Context, req ctrl.Request, gvk 
 		requeueAfter = defaultRequeueAfter
 	}
 
-	metadata, err := json.Marshal(obj)
+	metadata, err := b.Transformer.Marshal(obj)
 	if err != nil {
 		b.Logger.ReportError(ctx, err, "error marshalling object", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", gvk.String())
 		return ctrl.Result{}, fmt.Errorf("error marshalling %s: %w", gvk.Kind, err)

@@ -155,6 +155,15 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		errs = multierr.Append(errs, fmt.Errorf("invalid RUNTIME_DETECTION_PORT value: %s", runtimeDetectionProxyPortStr))
 	}
 
+	var metadataTransforms models.MetadataTransforms
+	if raw := os.Getenv("METADATA_TRANSFORMS"); raw != "" {
+		if err := yaml.Unmarshal([]byte(raw), &metadataTransforms); err != nil {
+			errs = multierr.Append(errs, fmt.Errorf("invalid METADATA_TRANSFORMS value: %w", err))
+		} else if err := metadataTransforms.Validate(); err != nil {
+			errs = multierr.Append(errs, fmt.Errorf("invalid METADATA_TRANSFORMS value: %w", err))
+		}
+	}
+
 	return models.EnvironmentConfig{
 		Namespace:                   namespace,
 		AgentName:                   agentName,
@@ -169,5 +178,6 @@ func ParseEnvironmentConfigs() (models.EnvironmentConfig, error) {
 		RuntimeDetectionEnabled:     runtimeDetectionEnabled,
 		RuntimeDetectionPort:        runtimeDetectionProxyPort,
 		FalcoDaemonSetName:          falcoDaemonSetName,
+		MetadataTransforms:          metadataTransforms,
 	}, errs
 }

@@ -2,13 +2,13 @@ package arc
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/format"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/internal/transform"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -25,16 +25,18 @@ type Controller struct {
 	Logger          *logger.Service
 	OutputClient    *batchclient.BatchClient
 	NamespaceFilter *predicates.NamespaceFilter
+	Transformer     *transform.Transformer
 	AgentState      *models.AgentState
 }
 
-func NewController(c client.Client, l *logger.Service, output *batchclient.BatchClient, nsFilter *predicates.NamespaceFilter, state *models.AgentState) Controller {
+func NewController(c client.Client, l *logger.Service, output *batchclient.BatchClient, nsFilter *predicates.NamespaceFilter, state *models.AgentState, t *transform.Transformer) Controller {
 	return Controller{
 		Client:          c,
 		Logger:          l,
 		OutputClient:    output,
 		NamespaceFilter: nsFilter,
 		AgentState:      state,
+		Transformer:     t,
 	}
 }
 
@@ -71,7 +73,7 @@ func (b *Controller) reconcileObject(ctx context.Context, req ctrl.Request, gvk 
 		obj = format.FormatObject(obj, gvk.String(), b.AgentState)
 	}
 
-	metadata, err := json.Marshal(obj)
+	metadata, err := b.Transformer.Marshal(obj)
 	if err != nil {
 		b.Logger.ReportError(ctx, err, "error marshalling object", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", gvk.String())
 		return ctrl.Result{}, fmt.Errorf("error marshalling %s: %w", gvk.Kind, err)
