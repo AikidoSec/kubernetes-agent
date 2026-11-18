@@ -68,6 +68,9 @@ func (t *Transformer) Marshal(obj any) ([]byte, error) {
 	if t.rewriteServiceSelector(root) {
 		changed = true
 	}
+	if t.rewriteWorkloadSelector(root) {
+		changed = true
+	}
 	if !changed {
 		return raw, nil
 	}
@@ -76,7 +79,7 @@ func (t *Transformer) Marshal(obj any) ([]byte, error) {
 
 // rewriteServiceSelector applies the label rules to the selector of a core/v1 Service so it keeps matching the rewritten pod labels.
 func (t *Transformer) rewriteServiceSelector(root map[string]json.RawMessage) bool {
-	if len(t.labels) == 0 || stringField(root, "apiVersion") != "v1" || stringField(root, "kind") != "Service" {
+	if len(t.labels) == 0 || !isCoreService(root) {
 		return false
 	}
 	var spec map[string]json.RawMessage
@@ -92,6 +95,39 @@ func (t *Transformer) rewriteServiceSelector(root map[string]json.RawMessage) bo
 	}
 	root["spec"] = encoded
 	return true
+}
+
+// rewriteWorkloadSelector applies the label rules to `spec.selector.matchLabels` so a workload selector keeps matching its rewritten template labels.
+func (t *Transformer) rewriteWorkloadSelector(root map[string]json.RawMessage) bool {
+	if len(t.labels) == 0 || isCoreService(root) {
+		return false
+	}
+	var spec map[string]json.RawMessage
+	if err := json.Unmarshal(root["spec"], &spec); err != nil || spec == nil {
+		return false
+	}
+	var selector map[string]json.RawMessage
+	if err := json.Unmarshal(spec["selector"], &selector); err != nil || selector == nil {
+		return false
+	}
+	if !t.rewriteStringMap(selector, "matchLabels", t.labels) {
+		return false
+	}
+	encodedSelector, err := json.Marshal(selector)
+	if err != nil {
+		return false
+	}
+	spec["selector"] = encodedSelector
+	encodedSpec, err := json.Marshal(spec)
+	if err != nil {
+		return false
+	}
+	root["spec"] = encodedSpec
+	return true
+}
+
+func isCoreService(root map[string]json.RawMessage) bool {
+	return stringField(root, "apiVersion") == "v1" && stringField(root, "kind") == "Service"
 }
 
 func stringField(node map[string]json.RawMessage, field string) string {

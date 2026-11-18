@@ -158,6 +158,22 @@ func TestMarshal(t *testing.T) {
 				"selector": map[string]any{"owner": "Platform Engineering", "internal": redact("x"), "env": "production", "keep": "k"}, "type": "ClusterIP"}},
 		},
 		{
+			name:  "workload matchLabels follow the label rules",
+			rules: labelRules,
+			in: map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "spec": map[string]any{
+				"selector": map[string]any{"matchLabels": map[string]any{"team": "platform-eng", "internal": "x", "keep": "k"}, "matchExpressions": []any{}},
+				"template": map[string]any{"metadata": meta(map[string]any{"team": "platform-eng", "internal": "x", "keep": "k"}, nil)}}},
+			want: map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "spec": map[string]any{
+				"selector": map[string]any{"matchLabels": map[string]any{"owner": "Platform Engineering", "internal": redact("x"), "keep": "k"}, "matchExpressions": []any{}},
+				"template": map[string]any{"metadata": meta(map[string]any{"owner": "Platform Engineering", "internal": redact("x"), "keep": "k"}, nil)}}},
+		},
+		{
+			name:  "workload selector without matchLabels",
+			rules: labelRules,
+			in:    map[string]any{"apiVersion": "apps/v1", "kind": "StatefulSet", "spec": map[string]any{"selector": map[string]any{"matchExpressions": []any{}}}},
+			want:  map[string]any{"apiVersion": "apps/v1", "kind": "StatefulSet", "spec": map[string]any{"selector": map[string]any{"matchExpressions": []any{}}}},
+		},
+		{
 			name:  "selector of a non-Service object is untouched",
 			rules: labelRules,
 			in:    map[string]any{"apiVersion": "serving.knative.dev/v1", "kind": "Service", "spec": map[string]any{"selector": map[string]any{"env": "prod"}}},
