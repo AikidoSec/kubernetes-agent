@@ -104,6 +104,28 @@ func TestMarshal(t *testing.T) {
 			want:  map[string]any{"spec": map[string]any{"metadata": meta(map[string]any{"env": "production"}, nil)}},
 		},
 		{
+			name:  "rollout canary and blueGreen metadata",
+			rules: labelRules,
+			in: map[string]any{"spec": map[string]any{"strategy": map[string]any{
+				"canary": map[string]any{
+					"canaryMetadata": meta(map[string]any{"env": "prod"}, nil),
+					"stableMetadata": meta(map[string]any{"internal": "x"}, nil),
+				},
+				"blueGreen": map[string]any{
+					"previewMetadata": meta(map[string]any{"env": "prod"}, nil),
+					"activeMetadata":  meta(map[string]any{"internal": "x"}, nil),
+				}}}},
+			want: map[string]any{"spec": map[string]any{"strategy": map[string]any{
+				"canary": map[string]any{
+					"canaryMetadata": meta(map[string]any{"env": "production"}, nil),
+					"stableMetadata": meta(map[string]any{}, nil),
+				},
+				"blueGreen": map[string]any{
+					"previewMetadata": meta(map[string]any{"env": "production"}, nil),
+					"activeMetadata":  meta(map[string]any{}, nil),
+				}}}},
+		},
+		{
 			name:  "null and absent labels",
 			rules: labelRules,
 			in:    map[string]any{"metadata": map[string]any{"name": "x", "labels": nil}, "spec": map[string]any{"template": map[string]any{"metadata": map[string]any{}}}},

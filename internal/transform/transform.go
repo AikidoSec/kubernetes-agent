@@ -16,6 +16,10 @@ var metadataPaths = [][]string{
 	{"spec", "jobTemplate", "spec", "template", "metadata"},
 	{"spec", "jobTargetRef", "template", "metadata"},
 	{"spec", "metadata"},
+	{"spec", "strategy", "canary", "canaryMetadata"},
+	{"spec", "strategy", "canary", "stableMetadata"},
+	{"spec", "strategy", "blueGreen", "previewMetadata"},
+	{"spec", "strategy", "blueGreen", "activeMetadata"},
 }
 
 // Transformer applies label and annotation rules while marshalling. A nil Transformer is a plain json.Marshal.
@@ -58,8 +62,6 @@ func (t *Transformer) Marshal(obj any) ([]byte, error) {
 	return json.Marshal(root)
 }
 
-// rewrite applies the rules to the metadata block at path and stores the re-encoded
-// block in node, which is updated along the path. It reports whether anything changed.
 func (t *Transformer) rewrite(node map[string]json.RawMessage, path []string) bool {
 	child, ok := node[path[0]]
 	if !ok {
