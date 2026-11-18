@@ -50,14 +50,14 @@ func TestParseEnvironmentConfigsMetadataTransforms(t *testing.T) {
 		}},
 		{
 			name: "valid yaml",
-			env:  ptrTo("labels:\n  team:\n    rename: owner\n    valueMap:\n      a: b\nannotations:\n  x/y:\n    drop: true\n"),
+			env:  ptrTo("labels:\n  team:\n    rename: owner\n    valueMap:\n      a: b\nannotations:\n  x/y:\n    redact: true\n"),
 			check: func(t *testing.T, cfg models.MetadataTransforms) {
 				rule := cfg.Labels["team"]
 				if rule.Rename == nil || *rule.Rename != "owner" || rule.ValueMap["a"] != "b" {
 					t.Errorf("unexpected label rule %+v", rule)
 				}
-				if !cfg.Annotations["x/y"].Drop {
-					t.Errorf("expected annotation drop rule")
+				if !cfg.Annotations["x/y"].Redact {
+					t.Errorf("expected annotation redact rule")
 				}
 			},
 		},
@@ -70,10 +70,21 @@ func TestParseEnvironmentConfigsMetadataTransforms(t *testing.T) {
 				}
 			},
 		},
-		{name: "drop with rename", env: ptrTo(`{"labels":{"team":{"drop":true,"rename":"owner"}}}`), wantErr: true},
-		{name: "drop with valueMap", env: ptrTo(`{"labels":{"team":{"drop":true,"valueMap":{"a":"b"}}}}`), wantErr: true},
+		{name: "redact with valueMap", env: ptrTo(`{"labels":{"team":{"redact":true,"valueMap":{"a":"b"}}}}`), wantErr: true},
+		{name: "protected label key", env: ptrTo(`{"labels":{"kubernetes.io/service-name":{"redact":true}}}`), wantErr: true},
+		{name: "protected annotation key", env: ptrTo(`{"annotations":{"kubernetes.io/ingress.class":{"valueMap":{"a":"b"}}}}`), wantErr: true},
+		{name: "protected rename target", env: ptrTo(`{"annotations":{"ingress":{"rename":"getambassador.io/config"}}}`), wantErr: true},
+		{
+			name: "protected annotation key is allowed as a label",
+			env:  ptrTo(`{"labels":{"kubernetes.io/ingress.class":{"redact":true}}}`),
+			check: func(t *testing.T, cfg models.MetadataTransforms) {
+				if !cfg.Labels["kubernetes.io/ingress.class"].Redact {
+					t.Errorf("expected label redact rule, got %+v", cfg)
+				}
+			},
+		},
 		{name: "empty rename target", env: ptrTo(`{"annotations":{"team":{"rename":""}}}`), wantErr: true},
-		{name: "empty key", env: ptrTo(`{"labels":{"":{"drop":true}}}`), wantErr: true},
+		{name: "empty key", env: ptrTo(`{"labels":{"":{"redact":true}}}`), wantErr: true},
 		{name: "malformed", env: ptrTo("labels: [unclosed"), wantErr: true},
 	}
 

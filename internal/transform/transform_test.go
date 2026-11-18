@@ -22,7 +22,7 @@ func decode(t *testing.T, b []byte) map[string]any {
 func TestMarshal(t *testing.T) {
 	labelRules := models.MetadataTransforms{Labels: map[string]models.KeyRule{
 		"team":     {Rename: ptr("owner"), ValueMap: map[string]string{"platform-eng": "Platform Engineering"}},
-		"internal": {Drop: true},
+		"internal": {Redact: true},
 		"env":      {ValueMap: map[string]string{"prod": "production"}},
 	}}
 	meta := func(labels, annotations map[string]any) map[string]any {
@@ -36,13 +36,13 @@ func TestMarshal(t *testing.T) {
 		want  map[string]any
 	}{
 		{
-			name:  "value map, rename, drop and passthrough",
+			name:  "value map, rename, redact and passthrough",
 			rules: labelRules,
 			in: map[string]any{"metadata": meta(map[string]any{
 				"team": "platform-eng", "internal": "x", "env": "dev", "other": "keep",
 			}, nil)},
 			want: map[string]any{"metadata": meta(map[string]any{
-				"owner": "Platform Engineering", "env": "dev", "other": "keep",
+				"owner": "Platform Engineering", "env": "dev", "other": "keep", "internal": redact("x"),
 			}, nil)},
 		},
 		{
@@ -65,21 +65,21 @@ func TestMarshal(t *testing.T) {
 		},
 		{
 			name:  "annotation rules do not touch labels",
-			rules: models.MetadataTransforms{Annotations: map[string]models.KeyRule{"note": {Drop: true}}},
+			rules: models.MetadataTransforms{Annotations: map[string]models.KeyRule{"note": {Redact: true}}},
 			in:    map[string]any{"metadata": meta(map[string]any{"note": "l"}, map[string]any{"note": "a", "k": "v"})},
-			want:  map[string]any{"metadata": meta(map[string]any{"note": "l"}, map[string]any{"k": "v"})},
+			want:  map[string]any{"metadata": meta(map[string]any{"note": "l"}, map[string]any{"note": redact("a"), "k": "v"})},
 		},
 		{
 			name:  "spec.template.metadata",
 			rules: labelRules,
 			in:    map[string]any{"spec": map[string]any{"template": map[string]any{"metadata": meta(map[string]any{"internal": "x", "a": "b"}, nil)}}},
-			want:  map[string]any{"spec": map[string]any{"template": map[string]any{"metadata": meta(map[string]any{"a": "b"}, nil)}}},
+			want:  map[string]any{"spec": map[string]any{"template": map[string]any{"metadata": meta(map[string]any{"a": "b", "internal": redact("x")}, nil)}}},
 		},
 		{
 			name:  "spec.jobTemplate.metadata",
 			rules: labelRules,
 			in:    map[string]any{"spec": map[string]any{"jobTemplate": map[string]any{"metadata": meta(map[string]any{"internal": "x"}, nil)}}},
-			want:  map[string]any{"spec": map[string]any{"jobTemplate": map[string]any{"metadata": meta(map[string]any{}, nil)}}},
+			want:  map[string]any{"spec": map[string]any{"jobTemplate": map[string]any{"metadata": meta(map[string]any{"internal": redact("x")}, nil)}}},
 		},
 		{
 			name:  "spec.jobTemplate.spec.template.metadata",
@@ -118,12 +118,32 @@ func TestMarshal(t *testing.T) {
 			want: map[string]any{"spec": map[string]any{"strategy": map[string]any{
 				"canary": map[string]any{
 					"canaryMetadata": meta(map[string]any{"env": "production"}, nil),
-					"stableMetadata": meta(map[string]any{}, nil),
+					"stableMetadata": meta(map[string]any{"internal": redact("x")}, nil),
 				},
 				"blueGreen": map[string]any{
 					"previewMetadata": meta(map[string]any{"env": "production"}, nil),
-					"activeMetadata":  meta(map[string]any{}, nil),
+					"activeMetadata":  meta(map[string]any{"internal": redact("x")}, nil),
 				}}}},
+		},
+		{
+			name:  "service selector follows the label rules",
+			rules: labelRules,
+			in: map[string]any{"apiVersion": "v1", "kind": "Service", "spec": map[string]any{
+				"selector": map[string]any{"team": "platform-eng", "internal": "x", "env": "prod", "keep": "k"}, "type": "ClusterIP"}},
+			want: map[string]any{"apiVersion": "v1", "kind": "Service", "spec": map[string]any{
+				"selector": map[string]any{"owner": "Platform Engineering", "internal": redact("x"), "env": "production", "keep": "k"}, "type": "ClusterIP"}},
+		},
+		{
+			name:  "selector of a non-Service object is untouched",
+			rules: labelRules,
+			in:    map[string]any{"apiVersion": "serving.knative.dev/v1", "kind": "Service", "spec": map[string]any{"selector": map[string]any{"env": "prod"}}},
+			want:  map[string]any{"apiVersion": "serving.knative.dev/v1", "kind": "Service", "spec": map[string]any{"selector": map[string]any{"env": "prod"}}},
+		},
+		{
+			name:  "service without selector",
+			rules: labelRules,
+			in:    map[string]any{"apiVersion": "v1", "kind": "Service", "spec": map[string]any{"type": "ExternalName"}},
+			want:  map[string]any{"apiVersion": "v1", "kind": "Service", "spec": map[string]any{"type": "ExternalName"}},
 		},
 		{
 			name:  "null and absent labels",
@@ -185,14 +205,35 @@ func TestMarshalWithoutRulesMatchesJSONMarshal(t *testing.T) {
 }
 
 func TestMarshalPreservesLargeIntegers(t *testing.T) {
-	tr := New(models.MetadataTransforms{Labels: map[string]models.KeyRule{"a": {Drop: true}}})
+	tr := New(models.MetadataTransforms{Labels: map[string]models.KeyRule{"a": {Redact: true}}})
 	in := json.RawMessage(`{"metadata":{"labels":{"a":"1","b":"2"}},"spec":{"big":9007199254740993}}`)
 
 	got, err := tr.Marshal(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"metadata":{"labels":{"b":"2"}},"spec":{"big":9007199254740993}}`
+	want := `{"metadata":{"labels":{"a":"` + redact("1") + `","b":"2"}},"spec":{"big":9007199254740993}}`
+	if string(got) != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
+func TestRedact(t *testing.T) {
+	if got := redact("web"); len(got) != redactedLength || got != redact("web") {
+		t.Errorf("redact(web) = %q, want a stable %d character value", got, redactedLength)
+	}
+	if redact("web") == redact("api") {
+		t.Error("different values must redact differently")
+	}
+}
+
+func TestRedactWithRenameKeepsRedactedValue(t *testing.T) {
+	tr := New(models.MetadataTransforms{Labels: map[string]models.KeyRule{"app": {Rename: ptr("workload"), Redact: true}}})
+	got, err := tr.Marshal(map[string]any{"metadata": map[string]any{"labels": map[string]any{"app": "web"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"metadata":{"labels":{"workload":"` + redact("web") + `"}}}`
 	if string(got) != want {
 		t.Errorf("got %s, want %s", got, want)
 	}

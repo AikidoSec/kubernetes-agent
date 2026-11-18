@@ -13,11 +13,22 @@ type MetadataTransforms struct {
 	Annotations map[string]KeyRule `yaml:"annotations"`
 }
 
+// protectedLabelKeys and protectedAnnotationKeys are read by name or value downstream and cannot be rewritten.
+var (
+	protectedLabelKeys      = map[string]struct{}{"kubernetes.io/service-name": {}}
+	protectedAnnotationKeys = map[string]struct{}{
+		"kubernetes.io/ingress.class":                 {},
+		"ingressclass.kubernetes.io/is-default-class": {},
+		"getambassador.io/config":                     {},
+		"cloud.google.com/neg-status":                 {},
+	}
+)
+
 // KeyRule describes how a single label or annotation key is rewritten.
 type KeyRule struct {
 	Rename   *string           `yaml:"rename"`
 	ValueMap map[string]string `yaml:"valueMap"`
-	Drop     bool              `yaml:"drop"`
+	Redact   bool              `yaml:"redact"`
 }
 
 // IsEmpty reports whether no rules are configured.
@@ -28,12 +39,12 @@ func (m MetadataTransforms) IsEmpty() bool {
 // Validate returns all invalid rules.
 func (m MetadataTransforms) Validate() error {
 	var errs error
-	errs = multierr.Append(errs, validateRules("labels", m.Labels))
-	errs = multierr.Append(errs, validateRules("annotations", m.Annotations))
+	errs = multierr.Append(errs, validateRules("labels", m.Labels, protectedLabelKeys))
+	errs = multierr.Append(errs, validateRules("annotations", m.Annotations, protectedAnnotationKeys))
 	return errs
 }
 
-func validateRules(section string, rules map[string]KeyRule) error {
+func validateRules(section string, rules map[string]KeyRule, protected map[string]struct{}) error {
 	keys := make([]string, 0, len(rules))
 	for k := range rules {
 		keys = append(keys, k)
@@ -46,11 +57,19 @@ func validateRules(section string, rules map[string]KeyRule) error {
 		if key == "" {
 			errs = multierr.Append(errs, fmt.Errorf("%s: empty key", section))
 		}
-		if rule.Drop && (rule.Rename != nil || len(rule.ValueMap) > 0) {
-			errs = multierr.Append(errs, fmt.Errorf("%s[%q]: drop cannot be combined with rename or valueMap", section, key))
+		if _, ok := protected[key]; ok {
+			errs = multierr.Append(errs, fmt.Errorf("%s[%q]: key cannot be transformed", section, key))
+		}
+		if rule.Redact && len(rule.ValueMap) > 0 {
+			errs = multierr.Append(errs, fmt.Errorf("%s[%q]: redact cannot be combined with valueMap", section, key))
 		}
 		if rule.Rename != nil && *rule.Rename == "" {
 			errs = multierr.Append(errs, fmt.Errorf("%s[%q]: rename target must not be empty", section, key))
+		}
+		if rule.Rename != nil {
+			if _, ok := protected[*rule.Rename]; ok {
+				errs = multierr.Append(errs, fmt.Errorf("%s[%q]: rename target %q cannot be used", section, key, *rule.Rename))
+			}
 		}
 	}
 	return errs
