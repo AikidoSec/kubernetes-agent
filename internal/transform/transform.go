@@ -219,7 +219,6 @@ type selectorExpression struct {
 	Values   []string `json:"values,omitempty"`
 }
 
-// rewriteExpressions applies the label rules to the key and values of each `matchExpressions` entry.
 func (t *Transformer) rewriteExpressions(selector map[string]json.RawMessage) bool {
 	var expressions []selectorExpression
 	if err := json.Unmarshal(selector["matchExpressions"], &expressions); err != nil || len(expressions) == 0 {
