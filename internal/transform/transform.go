@@ -26,7 +26,6 @@ var metadataPaths = [][]string{
 	{"spec", "strategy", "blueGreen", "previewMetadata"},
 	{"spec", "strategy", "blueGreen", "activeMetadata"},
 	{"spec", "strategy", "canary", "steps", wildcard, "experiment", "templates", wildcard, "metadata"},
-	{"spec", "strategy", "canary", "steps", wildcard, "experiment", "analysisRunMetadata"},
 }
 
 // selectorPaths are the locations of label selectors (`matchLabels` and `matchExpressions`) that describe pods or namespaces.

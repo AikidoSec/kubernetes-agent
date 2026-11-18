@@ -210,16 +210,6 @@ func TestMarshal(t *testing.T) {
 			}},
 		},
 		{
-			name:  "rollout analysisRunMetadata",
-			rules: labelRules,
-			in: map[string]any{"spec": map[string]any{"strategy": map[string]any{"canary": map[string]any{"steps": []any{
-				map[string]any{"experiment": map[string]any{"analysisRunMetadata": meta(map[string]any{"env": "prod"}, nil)}},
-			}}}}},
-			want: map[string]any{"spec": map[string]any{"strategy": map[string]any{"canary": map[string]any{"steps": []any{
-				map[string]any{"experiment": map[string]any{"analysisRunMetadata": meta(map[string]any{"env": "production"}, nil)}},
-			}}}}},
-		},
-		{
 			name:  "workload selector without matchLabels",
 			rules: labelRules,
 			in:    map[string]any{"apiVersion": "apps/v1", "kind": "StatefulSet", "spec": map[string]any{"selector": map[string]any{"matchExpressions": []any{}}}},
