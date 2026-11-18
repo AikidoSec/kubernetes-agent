@@ -2,13 +2,13 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/format"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/internal/transform"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
@@ -31,6 +31,7 @@ type Watcher struct {
 	Scheme       *runtime.Scheme
 	Watched      models.WatcherSelector
 	OutputClient *batchclient.BatchClient
+	Transformer  *transform.Transformer
 }
 
 func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -67,7 +68,7 @@ func (r *Watcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		obj = format.FormatObject(obj, r.Watched.String(), r.AgentState)
 	}
 
-	metadata, err := json.Marshal(obj)
+	metadata, err := r.Transformer.Marshal(obj)
 	if err != nil {
 		r.Logger.ReportError(ctx, err, "error marshalling object to JSON", "watcherError", "name", req.Name, "namespace", req.Namespace, "asset_type", r.Watched.String())
 		return ctrl.Result{}, fmt.Errorf("error marshalling object to JSON: %w", err)

@@ -2,7 +2,6 @@ package keda
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/internal/transform"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
@@ -35,6 +35,7 @@ type ScaledJobController struct {
 	Logger          *logger.Service
 	OutputClient    *batchclient.BatchClient
 	NamespaceFilter *predicates.NamespaceFilter
+	Transformer     *transform.Transformer
 }
 
 func (r *ScaledJobController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -61,7 +62,7 @@ func (r *ScaledJobController) Reconcile(ctx context.Context, req ctrl.Request) (
 		requeueAfter = defaultRequeueAfter
 	}
 
-	metadata, err := json.Marshal(scaledJob)
+	metadata, err := r.Transformer.Marshal(scaledJob)
 	if err != nil {
 		r.Logger.ReportError(ctx, err, "error marshalling ScaledJob", "watcherError", "name", req.Name, "namespace", req.Namespace)
 		return ctrl.Result{}, fmt.Errorf("error marshalling ScaledJob: %w", err)

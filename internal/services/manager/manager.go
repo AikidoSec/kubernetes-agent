@@ -16,6 +16,7 @@ import (
 	"aikidoSec.kubernetesAgent/internal/services/heartbeat"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
 	"aikidoSec.kubernetesAgent/internal/services/sbom"
+	"aikidoSec.kubernetesAgent/internal/transform"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/imagescache"
 	"aikidoSec.kubernetesAgent/pkg/models"
@@ -50,6 +51,7 @@ type Options struct {
 	ControllerCacheSyncTimeout        time.Duration
 	IsSBOMCollectorRunningAsDaemonSet bool
 	AutoUpdateEnabled                 bool
+	Transformer                       *transform.Transformer
 }
 type Service struct {
 	*models.AgentState
@@ -63,6 +65,7 @@ type Service struct {
 	falcoProxy                        *falco.Proxy
 	metricClient                      *metricsclient.Clientset
 	cleanupImagesReservationsStopChan chan struct{}
+	transformer                       *transform.Transformer
 }
 
 func NewService(ctx context.Context, agentState *models.AgentState, o Options) (*Service, error) {
@@ -124,6 +127,7 @@ func NewService(ctx context.Context, agentState *models.AgentState, o Options) (
 		metricClient:                      mClient,
 		scannedImagesCache:                imagescache.NewImagesCache(),
 		cleanupImagesReservationsStopChan: make(chan struct{}),
+		transformer:                       o.Transformer,
 	}, nil
 }
 

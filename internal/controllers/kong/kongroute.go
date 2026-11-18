@@ -2,13 +2,13 @@ package kong
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	kongv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/kong/v1alpha1"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/internal/transform"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
@@ -32,6 +32,7 @@ type KongRouteController struct {
 	Logger          *logger.Service
 	OutputClient    *batchclient.BatchClient
 	NamespaceFilter *predicates.NamespaceFilter
+	Transformer     *transform.Transformer
 }
 
 func (r *KongRouteController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -59,7 +60,7 @@ func (r *KongRouteController) Reconcile(ctx context.Context, req ctrl.Request) (
 		requeueAfter = defaultRequeueAfter
 	}
 
-	metadata, err := json.Marshal(kongRoute)
+	metadata, err := r.Transformer.Marshal(kongRoute)
 	if err != nil {
 		r.Logger.ReportError(ctx, err, "error marshalling KongRoute", "watcherError", "name", req.Name, "namespace", req.Namespace)
 		return ctrl.Result{}, fmt.Errorf("error marshalling KongRoute: %w", err)

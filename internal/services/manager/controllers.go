@@ -160,6 +160,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			Watched:      watcherSelector,
 			OutputClient: assetsClient,
 			AgentState:   s.AgentState,
+			Transformer:  s.transformer,
 		}).SetupWithManager(runtimeManager, watcherOptions); err != nil {
 			s.logger.ReportError(ctx, err, "error creating new watcher", "managerError")
 			return fmt.Errorf("error creating watcher (%s): %w", v.String(), err)
@@ -218,6 +219,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
+					Transformer:     s.transformer,
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -230,6 +232,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
+					Transformer:     s.transformer,
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -242,6 +245,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
+					Transformer:     s.transformer,
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -250,7 +254,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			logName: "ArgoCD Application",
 			setup: func() error {
 				return (&argoproj.ApplicationController{
-					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.transformer),
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -259,7 +263,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			logName: "Argo Rollouts Rollout",
 			setup: func() error {
 				return (&argoproj.RolloutController{
-					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.transformer),
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -272,6 +276,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
+					Transformer:     s.transformer,
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -284,6 +289,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 					Client:          runtimeManager.GetClient(),
 					OutputClient:    assetsClient,
 					NamespaceFilter: nsFilter,
+					Transformer:     s.transformer,
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -292,7 +298,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			logName: "GitHub ARC EphemeralRunner",
 			setup: func() error {
 				return (&arc.EphemeralRunnerController{
-					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState, s.transformer),
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -301,7 +307,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			logName: "GitHub ARC AutoscalingListener",
 			setup: func() error {
 				return (&arc.AutoscalingListenerController{
-					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState, s.transformer),
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -310,7 +316,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			logName: "GitHub ARC EphemeralRunnerSet",
 			setup: func() error {
 				return (&arc.EphemeralRunnerSetController{
-					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState, s.transformer),
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -319,7 +325,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			logName: "GitHub ARC AutoscalingRunnerSet",
 			setup: func() error {
 				return (&arc.AutoscalingRunnerSetController{
-					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState, s.transformer),
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
@@ -328,7 +334,7 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			logName: "GitHub ARC Runner (summerwind)",
 			setup: func() error {
 				return (&arc.RunnerController{
-					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState),
+					Controller: arc.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter, s.AgentState, s.transformer),
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},

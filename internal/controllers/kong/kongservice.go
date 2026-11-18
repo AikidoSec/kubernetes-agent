@@ -2,13 +2,13 @@ package kong
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	kongv1alpha1 "aikidoSec.kubernetesAgent/internal/apis/kong/v1alpha1"
 	"aikidoSec.kubernetesAgent/internal/predicates"
 	"aikidoSec.kubernetesAgent/internal/services/logger"
+	"aikidoSec.kubernetesAgent/internal/transform"
 	"aikidoSec.kubernetesAgent/pkg/batchclient"
 	"aikidoSec.kubernetesAgent/pkg/models"
 	"github.com/google/uuid"
@@ -34,6 +34,7 @@ type KongServiceController struct {
 	Logger          *logger.Service
 	OutputClient    *batchclient.BatchClient
 	NamespaceFilter *predicates.NamespaceFilter
+	Transformer     *transform.Transformer
 }
 
 func (r *KongServiceController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -61,7 +62,7 @@ func (r *KongServiceController) Reconcile(ctx context.Context, req ctrl.Request)
 		requeueAfter = defaultRequeueAfter
 	}
 
-	metadata, err := json.Marshal(kongService)
+	metadata, err := r.Transformer.Marshal(kongService)
 	if err != nil {
 		r.Logger.ReportError(ctx, err, "error marshalling KongService", "watcherError", "name", req.Name, "namespace", req.Namespace)
 		return ctrl.Result{}, fmt.Errorf("error marshalling KongService: %w", err)
