@@ -26,7 +26,7 @@ type TargetGroupBinding struct {
 
 func (in *TargetGroupBinding) deepCopyInto(out *TargetGroupBinding) {
 	*out = *in
-	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.DeepCopyInto(&out.ObjectMeta)
 	out.Spec = bytes.Clone(in.Spec)
 	out.Status = bytes.Clone(in.Status)
 }
@@ -51,7 +51,7 @@ func (in *TargetGroupBindingList) DeepCopyObject() runtime.Object {
 		return nil
 	}
 	out := *in
-	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	in.DeepCopyInto(&out.ListMeta)
 	if in.Items != nil {
 		out.Items = make([]TargetGroupBinding, len(in.Items))
 		for i := range in.Items {
