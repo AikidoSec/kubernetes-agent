@@ -9,6 +9,8 @@ import (
 	"aikidoSec.kubernetesAgent/internal/controllers"
 	"aikidoSec.kubernetesAgent/internal/controllers/arc"
 	"aikidoSec.kubernetesAgent/internal/controllers/argoproj"
+	"aikidoSec.kubernetesAgent/internal/controllers/elbv2"
+	"aikidoSec.kubernetesAgent/internal/controllers/istio"
 	"aikidoSec.kubernetesAgent/internal/controllers/keda"
 	"aikidoSec.kubernetesAgent/internal/controllers/kong"
 	"aikidoSec.kubernetesAgent/internal/controllers/openshift"
@@ -260,6 +262,42 @@ func (s *Service) setupControllers(ctx context.Context, runtimeManager manager.M
 			setup: func() error {
 				return (&argoproj.RolloutController{
 					Controller: argoproj.NewController(runtimeManager.GetClient(), s.logger, assetsClient, nsFilter),
+				}).SetupWithManager(runtimeManager, watcherOptions)
+			},
+		},
+		{
+			gvk:     elbv2.TargetGroupBindingGVK,
+			logName: "AWS TargetGroupBinding",
+			setup: func() error {
+				return (&elbv2.TargetGroupBindingController{
+					Client:          runtimeManager.GetClient(),
+					Logger:          s.logger,
+					OutputClient:    assetsClient,
+					NamespaceFilter: nsFilter,
+				}).SetupWithManager(runtimeManager, watcherOptions)
+			},
+		},
+		{
+			gvk:     istio.GatewayGVK,
+			logName: "Istio Gateway",
+			setup: func() error {
+				return (&istio.GatewayController{
+					Client:          runtimeManager.GetClient(),
+					Logger:          s.logger,
+					OutputClient:    assetsClient,
+					NamespaceFilter: nsFilter,
+				}).SetupWithManager(runtimeManager, watcherOptions)
+			},
+		},
+		{
+			gvk:     istio.VirtualServiceGVK,
+			logName: "Istio VirtualService",
+			setup: func() error {
+				return (&istio.VirtualServiceController{
+					Client:          runtimeManager.GetClient(),
+					Logger:          s.logger,
+					OutputClient:    assetsClient,
+					NamespaceFilter: nsFilter,
 				}).SetupWithManager(runtimeManager, watcherOptions)
 			},
 		},
