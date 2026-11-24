@@ -7,9 +7,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"slices"
-	"strings"
 	"time"
 
 	"aikidoSec.kubernetesAgent/internal/falco"
@@ -37,9 +35,10 @@ const (
 	defaultAgentVersion = "1.0.0"
 )
 
-// buildVersion is the agent version injected at build time through `-ldflags="-X 'agent.Version=<version>'"`.
+// buildVersion is the agent version set at build time through
+// `-ldflags="-X 'aikidoSec.kubernetesAgent/internal/services/manager.buildVersion=<version>'"`.
 // It is empty when the binary was built without it, in which case the deployment label is used as a fallback.
-var buildVersion = loadBuildVersion()
+var buildVersion string
 
 type Options struct {
 	AgentNamespace                    string
@@ -208,7 +207,7 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		s.logger.ReportError(ctx, err, "error marshalling metrics payload", "managerError")
 	}
 
-	// Load the agent version from the build info (falling back to the deployment labels) and the charts version from the
+	// Load the agent version set at build time (falling back to the deployment labels) and the charts version from the
 	// deployment labels. We don't use the agent state value here because the version
 	// might have been updated in the deployment but the new pod might fail to schedule or start, so we need to know if
 	// the old pod is the one that sends the heartbeat.
@@ -444,7 +443,7 @@ func (s *Service) validateStartupToken(ctx context.Context) error {
 }
 
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
-	// Load the agent version from the build info (falling back to the deployment labels) and the charts version from the
+	// Load the agent version set at build time (falling back to the deployment labels) and the charts version from the
 	// deployment labels
 	agentVersion, helmChartsVersion, err := s.getDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
@@ -703,26 +702,4 @@ func isLocalEnvironment() bool {
 	}
 
 	return false
-}
-
-func loadBuildVersion() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return ""
-	}
-
-	for _, setting := range info.Settings {
-		if setting.Key != "-ldflags" {
-			continue
-		}
-
-		_, version, found := strings.Cut(setting.Value, "agent.Version=")
-		if !found {
-			return ""
-		}
-
-		return strings.Trim(strings.TrimSpace(version), `'"`)
-	}
-
-	return ""
 }
