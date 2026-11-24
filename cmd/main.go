@@ -51,13 +51,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
-//nolint:unused
-const (
-	imageAgentRepository         = "public.ecr.aws/aikido-cloud/kubernetes-agent"
-	imageSBOMCollectorRepository = "public.ecr.aws/aikido-cloud/kubernetes-sbom-collector"
-	imageFalcoRepository         = "falcosecurity/falco"
-)
-
 var scheme = runtime.NewScheme()
 
 func init() {
