@@ -13,11 +13,56 @@ jobs:
     steps:
       - run: mkdir -p ~/.ssh && ssh-keyscan -H github.com >> ~/.ssh/known_hosts
       - run: git clone "$CIRCLE_REPOSITORY_URL" --branch "$CIRCLE_BRANCH" .
+      - run: git checkout "$CIRCLE_SHA1"
       - run: git fetch origin main
       - save_cache:
           key: sourcecode-{{ .Revision }}
           paths:
             - .
+
+  release-version:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - restore_cache:
+          keys:
+            - sourcecode-{{ .Revision }}
+      - run:
+          name: Compute next semantic-release version
+          command: |
+            # A production release in progress may still create a tag this version has to be based on
+            runs_url="https://api.github.com/repos/AikidoSec/kubernetes-agent/actions/workflows/release.yaml/runs"
+            while true; do
+              queued=$(curl -sSf "${runs_url}?status=queued&per_page=1" | jq '.total_count')
+              in_progress=$(curl -sSf "${runs_url}?status=in_progress&per_page=1" | jq '.total_count')
+
+              if [ "$((queued + in_progress))" -eq 0 ]; then
+                break
+              fi
+
+              echo "Waiting for the production release to finish"
+              sleep 60
+            done
+
+            # The source cache can be older than the latest release, so fetch the tags
+            git fetch --tags https://github.com/AikidoSec/kubernetes-agent.git
+
+            curl -sSfL -o /tmp/semantic-release https://github.com/go-semantic-release/semantic-release/releases/download/v2.31.0/semantic-release_v2.31.0_linux_amd64
+            echo "b8f518b1aeb1d1742f4e6e91a179b707cea4309a64fe3854f465bf724f04f6d3  /tmp/semantic-release" | sha256sum -c -
+            chmod +x /tmp/semantic-release
+            /tmp/semantic-release --dry --no-ci --allow-no-changes --version-file --provider git --provider-opt default_branch=main
+
+            mkdir -p /tmp/workspace
+            if [ -s .version-unreleased ]; then
+              echo "v$(cat .version-unreleased)" > /tmp/workspace/version
+            else
+              touch /tmp/workspace/version
+            fi
+            echo "Release version: $(cat /tmp/workspace/version)"
+      - persist_to_workspace:
+          root: /tmp/workspace
+          paths:
+            - version
 
   verification:
     docker:
@@ -75,6 +120,11 @@ jobs:
       - restore_cache:
           keys:
             - sourcecode-{{ .Revision }}
+      - attach_workspace:
+          at: /tmp/workspace
+      - run:
+          name: Load release version
+          command: echo "export VERSION=$(cat /tmp/workspace/version)" >> "$BASH_ENV"
       - setup_remote_docker:
           docker_layer_caching: true
       - aws-ecr/build_and_push_image:
@@ -93,6 +143,7 @@ jobs:
           push_image: true
           repo: kubernetes-agent
           tag: ${CIRCLE_SHA1}-amd64
+          extra_build_args: --build-arg VERSION=${VERSION}
           region: us-east-1
 
   build-arm64:
@@ -103,6 +154,11 @@ jobs:
       - restore_cache:
           keys:
             - sourcecode-{{ .Revision }}
+      - attach_workspace:
+          at: /tmp/workspace
+      - run:
+          name: Load release version
+          command: echo "export VERSION=$(cat /tmp/workspace/version)" >> "$BASH_ENV"
       - setup_remote_docker:
           docker_layer_caching: true
       - aws-ecr/build_and_push_image:
@@ -121,6 +177,7 @@ jobs:
           push_image: true
           repo: kubernetes-agent
           tag: ${CIRCLE_SHA1}-arm64
+          extra_build_args: --build-arg VERSION=${VERSION}
           region: us-east-1
 
   build-fips-amd64:
@@ -131,6 +188,8 @@ jobs:
       - restore_cache:
           keys:
             - sourcecode-{{ .Revision }}
+      - attach_workspace:
+          at: /tmp/workspace
       - setup_remote_docker:
           docker_layer_caching: true
       - aws-cli/setup:
@@ -144,6 +203,7 @@ jobs:
             docker buildx build \
               --platform linux/amd64 \
               --build-arg GOFIPS140=v1.0.0 \
+              --build-arg VERSION="$(cat /tmp/workspace/version)" \
               --provenance=false \
               --push \
               -t public.ecr.aws/aikido-security-staging/kubernetes-agent-fips:${CIRCLE_SHA1}-amd64 \
@@ -157,6 +217,8 @@ jobs:
       - restore_cache:
           keys:
             - sourcecode-{{ .Revision }}
+      - attach_workspace:
+          at: /tmp/workspace
       - setup_remote_docker:
           docker_layer_caching: true
       - aws-cli/setup:
@@ -170,6 +232,7 @@ jobs:
             docker buildx build \
               --platform linux/arm64 \
               --build-arg GOFIPS140=v1.0.0 \
+              --build-arg VERSION="$(cat /tmp/workspace/version)" \
               --provenance=false \
               --push \
               -t public.ecr.aws/aikido-security-staging/kubernetes-agent-fips:${CIRCLE_SHA1}-arm64 \
@@ -182,6 +245,8 @@ jobs:
       - restore_cache:
           keys:
             - sourcecode-{{ .Revision }}
+      - attach_workspace:
+          at: /tmp/workspace
       - setup_remote_docker:
           docker_layer_caching: true
       - aws-cli/setup:
@@ -192,7 +257,9 @@ jobs:
           command: |
             aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
 
+            VERSION="$(cat /tmp/workspace/version)"
             docker buildx imagetools create \
+              ${VERSION:+-t public.ecr.aws/aikido-security-staging/kubernetes-agent:${VERSION}} \
               -t public.ecr.aws/aikido-security-staging/kubernetes-agent:${CIRCLE_SHA1} \
               -t public.ecr.aws/aikido-security-staging/kubernetes-agent:latest \
               public.ecr.aws/aikido-security-staging/kubernetes-agent:${CIRCLE_SHA1}-amd64 \
@@ -205,6 +272,8 @@ jobs:
       - restore_cache:
           keys:
             - sourcecode-{{ .Revision }}
+      - attach_workspace:
+          at: /tmp/workspace
       - setup_remote_docker:
           docker_layer_caching: true
       - aws-cli/setup:
@@ -215,7 +284,9 @@ jobs:
           command: |
             aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
 
+            VERSION="$(cat /tmp/workspace/version)"
             docker buildx imagetools create \
+              ${VERSION:+-t public.ecr.aws/aikido-security-staging/kubernetes-agent-fips:${VERSION}} \
               -t public.ecr.aws/aikido-security-staging/kubernetes-agent-fips:${CIRCLE_SHA1} \
               -t public.ecr.aws/aikido-security-staging/kubernetes-agent-fips:latest \
               public.ecr.aws/aikido-security-staging/kubernetes-agent-fips:${CIRCLE_SHA1}-amd64 \
@@ -247,16 +318,22 @@ workflows:
           filters:
             branches:
               only: main
-      - build-amd64:
+      - release-version:
           requires:
             - checkout_code
+          filters:
+            branches:
+              only: main
+      - build-amd64:
+          requires:
+            - release-version
           filters:
             branches:
               only: main
           context: staging
       - build-arm64:
           requires:
-            - checkout_code
+            - release-version
           filters:
             branches:
               only: main
@@ -271,14 +348,14 @@ workflows:
           context: staging
       - build-fips-amd64:
           requires:
-            - checkout_code
+            - release-version
           filters:
             branches:
               only: main
           context: staging
       - build-fips-arm64:
           requires:
-            - checkout_code
+            - release-version
           filters:
             branches:
               only: main

@@ -101,9 +101,13 @@ func (s *Service) getDeploymentAndChartsVersions(ctx context.Context, ns, deploy
 		return "", "", fmt.Errorf("error getting deployment: %w", err)
 	}
 
-	agentVersion, ok := deployment.Labels["app.kubernetes.io/version"]
-	if !ok {
-		return "", "", fmt.Errorf("agent version label not found on deployment")
+	agentVersion := buildVersion
+	if agentVersion == "" {
+		var ok bool
+		agentVersion, ok = deployment.Labels["app.kubernetes.io/version"]
+		if !ok {
+			return "", "", fmt.Errorf("agent version label not found on deployment")
+		}
 	}
 
 	chartsVersion, ok := deployment.Labels["helm.sh/chart"]

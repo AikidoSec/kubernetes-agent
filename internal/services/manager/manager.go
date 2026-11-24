@@ -35,6 +35,11 @@ const (
 	defaultAgentVersion = "1.0.0"
 )
 
+// buildVersion is the agent version set at build time through
+// `-ldflags="-X 'aikidoSec.kubernetesAgent/internal/services/manager.buildVersion=<version>'"`.
+// It is empty when the binary was built without it, in which case the deployment label is used as a fallback.
+var buildVersion string
+
 type Options struct {
 	AgentNamespace                    string
 	AgentName                         string
@@ -202,7 +207,8 @@ func (s *Service) sendHeartbeat(ctx context.Context) (models.HeartbeatResponse, 
 		s.logger.ReportError(ctx, err, "error marshalling metrics payload", "managerError")
 	}
 
-	// Load the agent and charts versions from the deployment labels. We don't use the agent state value here because the version
+	// Load the agent version set at build time (falling back to the deployment labels) and the charts version from the
+	// deployment labels. We don't use the agent state value here because the version
 	// might have been updated in the deployment but the new pod might fail to schedule or start, so we need to know if
 	// the old pod is the one that sends the heartbeat.
 	// Also, the charts can be updated without triggering a deployment update, so we need to load it every time.
@@ -437,7 +443,8 @@ func (s *Service) validateStartupToken(ctx context.Context) error {
 }
 
 func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtimeManager manager.Manager, environmentConfig models.EnvironmentConfig) error {
-	// Load the agent and charts versions from the deployment labels
+	// Load the agent version set at build time (falling back to the deployment labels) and the charts version from the
+	// deployment labels
 	agentVersion, helmChartsVersion, err := s.getDeploymentAndChartsVersions(ctx, s.GetAgentNamespace(), s.GetAgentName())
 	if err != nil {
 		s.logger.ReportError(ctx, err, "error loading agent version from context", "managerError")
