@@ -10,14 +10,12 @@ import (
 	"aikidoSec.kubernetesAgent/pkg/models"
 )
 
-func newTestProxy(excludedNamespaces, includedNamespaces []string, ignoredImageRepositories []string) *Proxy {
+func newTestProxy(ignoredImageRepositories []string) *Proxy {
 	agentState := models.NewEmptyAgentState()
-	agentState.SetExcludedNamespaces(excludedNamespaces)
-	agentState.SetIncludedNamespaces(includedNamespaces)
 
 	return &Proxy{
-		Service:                   logger.NewService(slog.New(slog.NewTextHandler(io.Discard, nil)), nil),
-		AgentState:                agentState,
+		Service:                  logger.NewService(slog.New(slog.NewTextHandler(io.Discard, nil)), nil),
+		AgentState:               agentState,
 		ignoredImageRepositories: ignoredImageRepositories,
 	}
 }
@@ -47,12 +45,10 @@ func TestHasAikidoTag(t *testing.T) {
 
 func TestShouldDrop(t *testing.T) {
 	tests := []struct {
-		name                      string
-		excludedNamespaces        []string
-		includedNamespaces        []string
+		name                     string
 		ignoredImageRepositories []string
-		body                      string
-		wantDrop                  bool
+		body                     string
+		wantDrop                 bool
 	}{
 		{
 			name:     "invalid JSON is dropped",
@@ -65,64 +61,28 @@ func TestShouldDrop(t *testing.T) {
 			wantDrop: false,
 		},
 		{
-			name:                      "event from agent image container is dropped",
+			name:                     "event from agent image container is dropped",
 			ignoredImageRepositories: []string{"public.ecr.aws/aikido-cloud/kubernetes-agent", "falcosecurity/falco"},
-			body:                      `{"output_fields": {"container.image.repository": "public.ecr.aws/aikido-cloud/kubernetes-agent"}}`,
-			wantDrop:                  true,
+			body:                     `{"output_fields": {"container.image.repository": "public.ecr.aws/aikido-cloud/kubernetes-agent"}}`,
+			wantDrop:                 true,
 		},
 		{
-			name:                      "event from falco image container is dropped",
+			name:                     "event from falco image container is dropped",
 			ignoredImageRepositories: []string{"public.ecr.aws/aikido-cloud/kubernetes-agent", "falcosecurity/falco"},
-			body:                      `{"output_fields": {"container.image.repository": "falcosecurity/falco"}}`,
-			wantDrop:                  true,
+			body:                     `{"output_fields": {"container.image.repository": "falcosecurity/falco"}}`,
+			wantDrop:                 true,
 		},
 		{
-			name:                      "event from other container in agent namespace passes through",
+			name:                     "event from other container in agent namespace passes through",
 			ignoredImageRepositories: []string{"public.ecr.aws/aikido-cloud/kubernetes-agent", "falcosecurity/falco"},
-			body:                      `{"output_fields": {"k8s.ns.name": "aikido-system", "container.image.repository": "nginx"}}`,
-			wantDrop:                  false,
+			body:                     `{"output_fields": {"k8s.ns.name": "aikido-system", "container.image.repository": "nginx"}}`,
+			wantDrop:                 false,
 		},
 		{
-			name:                      "event with no image repository field passes through",
+			name:                     "event with no image repository field passes through",
 			ignoredImageRepositories: []string{"public.ecr.aws/aikido-cloud/kubernetes-agent", "falcosecurity/falco"},
-			body:                      `{"output_fields": {"k8s.ns.name": "default"}}`,
-			wantDrop:                  false,
-		},
-		{
-			name:               "event from excluded namespace is dropped",
-			excludedNamespaces: []string{"kube-system"},
-			body:               `{"output_fields": {"k8s.ns.name": "kube-system"}}`,
-			wantDrop:           true,
-		},
-		{
-			name:               "event from non-excluded namespace passes through",
-			excludedNamespaces: []string{"kube-system"},
-			body:               `{"output_fields": {"k8s.ns.name": "default"}}`,
-			wantDrop:           false,
-		},
-		{
-			name:               "event from namespace not in include list is dropped",
-			includedNamespaces: []string{"production", "staging"},
-			body:               `{"output_fields": {"k8s.ns.name": "kube-system"}}`,
-			wantDrop:           true,
-		},
-		{
-			name:               "event from namespace in include list passes through",
-			includedNamespaces: []string{"production", "staging"},
-			body:               `{"output_fields": {"k8s.ns.name": "production"}}`,
-			wantDrop:           false,
-		},
-		{
-			name:               "event with no namespace passes through even with non-empty include list",
-			includedNamespaces: []string{"production"},
-			body:               `{"output_fields": {"proc.name": "cat"}}`,
-			wantDrop:           false,
-		},
-		{
-			name:               "wrong type for namespace field passes through",
-			excludedNamespaces: []string{"kube-system"},
-			body:               `{"output_fields": {"k8s.ns.name": 123}}`,
-			wantDrop:           false,
+			body:                     `{"output_fields": {"k8s.ns.name": "default"}}`,
+			wantDrop:                 false,
 		},
 		{
 			name:     "wrong type for tags field is dropped",
@@ -138,7 +98,7 @@ func TestShouldDrop(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proxy := newTestProxy(tt.excludedNamespaces, tt.includedNamespaces, tt.ignoredImageRepositories)
+			proxy := newTestProxy(tt.ignoredImageRepositories)
 			raw, event, err := parseEvent([]byte(tt.body))
 			drop := err != nil || proxy.shouldDrop(event)
 			_ = raw
