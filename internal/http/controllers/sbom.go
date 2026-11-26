@@ -23,8 +23,8 @@ func NewSBOMController(logger *slog.Logger, svc *sbom.Service) *SBOMController {
 }
 
 func (c *SBOMController) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /sbom-collector/config", c.GetCollectorConfig)
-	mux.HandleFunc("GET /sbom-collector/token", c.GetCollectorToken)
+	mux.HandleFunc("PUT /sbom-collector/config", c.GetCollectorConfig)
+	mux.HandleFunc("PUT /sbom-collector/token", c.GetCollectorToken)
 	mux.HandleFunc("GET /sbom-collector/image-status", c.GetImageProcessingStatus)
 	mux.HandleFunc("POST /sbom-collector/image-status", c.SetImageProcessingStatus)
 }
