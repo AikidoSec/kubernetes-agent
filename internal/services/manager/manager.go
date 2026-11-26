@@ -520,11 +520,14 @@ func (s *Service) InitializeAgent(ctx context.Context, cfg models.Config, runtim
 
 	// Initialize the HTTP server that communicates with other components (e.g. the SBOM collector)
 	s.SetSBOMCollectorEnabled(hb.Cluster.SBOMCollectorEnabled)
-	go func() {
-		if err := internalhttp.ListenAndServe(ctx, s.logger.GetLogger(), environmentConfig.APIPort, sbomController); err != nil {
-			s.logger.ReportError(ctx, err, "error starting sbom controller", "managerError")
-		}
-	}()
+	// The server exposes the API token without authentication, so it must not run when no collector can be deployed.
+	if !environmentConfig.IsSBOMCollectorDisabledInCharts() {
+		go func() {
+			if err := internalhttp.ListenAndServe(ctx, s.logger.GetLogger(), environmentConfig.APIPort, sbomController); err != nil {
+				s.logger.ReportError(ctx, err, "error starting sbom controller", "managerError")
+			}
+		}()
+	}
 
 	if environmentConfig.SBOMCollectorEnabled == nil {
 		environmentConfig.SBOMCollectorEnabled = &hb.Cluster.SBOMCollectorEnabled
