@@ -34,7 +34,7 @@ type Route struct {
 	// skipped. A nil IsEnabled means the route is always active.
 	IsEnabled func() bool
 	// ShouldSkip is an optional per-route filter applied after the common
-	// namespace filter. Return true to drop the event for this route.
+	// drop filter. Return true to drop the event for this route.
 	ShouldSkip func(Event) bool
 }
 
@@ -218,22 +218,6 @@ func (p *Proxy) shouldDrop(event Event) bool {
 		if repo, ok := v.(string); ok && slices.Contains(p.ignoredImageRepositories, repo) {
 			return true
 		}
-	}
-
-	nsI, ok := event.OutputFields["k8s.ns.name"]
-	if !ok {
-		return false
-	}
-	ns, ok := nsI.(string)
-	if !ok {
-		return false
-	}
-	if slices.Contains(p.GetExcludedNamespaces(), ns) {
-		return true
-	}
-	includedNamespaces := p.GetIncludedNamespaces()
-	if len(includedNamespaces) > 0 && !slices.Contains(includedNamespaces, ns) {
-		return true
 	}
 	return false
 }
